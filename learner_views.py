@@ -1,0 +1,254 @@
+from __future__ import annotations
+
+from typing import Dict, List
+
+import altair as alt
+import pandas as pd
+import streamlit as st
+
+from db import fetch_all, fetch_one, insert_attempt, log_actions
+from evaluation import evaluate_submission
+from utils import metric_row, parse_json_list, to_df
+
+
+def _learner_stats(user_id: int) -> Dict:
+    attempts = fetch_all(
+        """
+        SELECT a.*, m.title FROM attempts a
+        JOIN modules m ON a.module_id = m.module_id
+        WHERE a.user_id = ?
+        ORDER BY a.created_at DESC
+        """,
+        (user_id,),
+    )
+    completed_module_ids = {a["module_id"] for a in attempts}
+    avg_score = round(sum(a["total_score"] for a in attempts) / len(attempts), 1) if attempts else 0
+    return {
+        "attempts": attempts,
+        "completed_count": len(completed_module_ids),
+        "avg_score": avg_score,
+    }
+
+
+def render_learner_home(user: Dict) -> None:
+    st.subheader("Welcome back")
+    st.caption("Complete realistic troubleshooting scenarios, then review AI coaching feedback to improve your process.")
+
+    modules = fetch_all("SELECT * FROM modules ORDER BY module_id")
+    stats = _learner_stats(user["user_id"])
+    recent_feedback = stats["attempts"][0]["ai_feedback"] if stats["attempts"] else "No feedback yet. Complete your first module to begin."
+
+    metric_row(
+        {
+            "Available modules": len(modules),
+            "Completed": stats["completed_count"],
+            "Average score": f"{stats['avg_score']}%",
+        }
+    )
+
+    completion_ratio = (stats["completed_count"] / len(modules)) if modules else 0
+    st.progress(completion_ratio, text=f"Progress: {int(completion_ratio * 100)}%")
+
+    with st.container(border=True):
+        st.markdown("#### Recent feedback")
+        st.write(recent_feedback)
+
+
+def render_module_library() -> None:
+    st.subheader("Module Library")
+    modules = fetch_all("SELECT * FROM modules ORDER BY module_id")
+
+    for i in range(0, len(modules), 2):
+        cols = st.columns(2)
+        for col, module in zip(cols, modules[i : i + 2]):
+            with col:
+                with st.container(border=True):
+                    st.markdown(f"### {module['title']}")
+                    st.caption(f"{module['category']} • {module['difficulty']} • {module['estimated_time']}")
+                    st.write(module["description"])
+                    if st.button("Start module", key=f"start_{module['module_id']}", type="primary"):
+                        st.session_state.active_module_id = module["module_id"]
+                        st.session_state.page = "Scenario"
+                        st.rerun()
+
+
+def render_scenario_page(user: Dict) -> None:
+    module_id = st.session_state.get("active_module_id")
+    if not module_id:
+        st.info("Select a module from Module Library to begin.")
+        return
+
+    module = fetch_one("SELECT * FROM modules WHERE module_id = ?", (module_id,))
+    actions = fetch_all("SELECT * FROM investigation_actions WHERE module_id = ?", (module_id,))
+
+    st.subheader(module["title"])
+    st.caption(f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
+
+    with st.container(border=True):
+        st.markdown("**Ticket / Issue Description**")
+        st.write(module["scenario_ticket"])
+        st.markdown("**Context Notes**")
+        st.write(module["scenario_context"])
+
+    st.markdown("### Investigation Panel")
+    used_actions_key = f"used_actions_{module_id}"
+    revealed_key = f"revealed_{module_id}"
+    st.session_state.setdefault(used_actions_key, [])
+    st.session_state.setdefault(revealed_key, {})
+
+    cols = st.columns(3)
+    for idx, action in enumerate(actions):
+        with cols[idx % 3]:
+            if st.button(action["action_name"], key=f"action_{module_id}_{action['action_id']}"):
+                if action["action_name"] not in st.session_state[used_actions_key]:
+                    st.session_state[used_actions_key].append(action["action_name"])
+                st.session_state[revealed_key][action["action_name"]] = action["revealed_information"]
+
+    if st.session_state[revealed_key]:
+        for name, details in st.session_state[revealed_key].items():
+            with st.expander(name, expanded=True):
+                st.write(details)
+
+    notes = st.text_area("Personal notes", key=f"notes_{module_id}", height=100)
+    diagnosis = st.text_area("Diagnosis", key=f"diagnosis_{module_id}", height=100)
+    next_steps = st.text_area("Next steps", key=f"next_steps_{module_id}", height=120)
+    customer_response = st.text_area("Customer response", key=f"customer_{module_id}", height=120)
+    escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"]) 
+
+    if st.button("Submit module", type="primary"):
+        answers = {
+            "diagnosis_answer": diagnosis,
+            "next_steps_answer": next_steps,
+            "customer_response": customer_response,
+            "escalation_choice": escalation_choice,
+            "notes": notes,
+        }
+        evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
+        payload = {**answers, **evaluation}
+        attempt_id = insert_attempt(user["user_id"], module_id, payload)
+        log_actions(attempt_id, st.session_state[used_actions_key])
+
+        st.session_state.latest_attempt_id = attempt_id
+        st.session_state.page = "Results"
+        st.toast("Submission scored successfully.")
+        st.rerun()
+
+
+def render_results_page() -> None:
+    attempt_id = st.session_state.get("latest_attempt_id")
+    if not attempt_id:
+        st.info("Submit a scenario to view results.")
+        return
+
+    attempt = fetch_one(
+        """
+        SELECT a.*, m.title, m.lesson_takeaway, m.expected_customer_response
+        FROM attempts a
+        JOIN modules m ON a.module_id = m.module_id
+        WHERE attempt_id = ?
+        """,
+        (attempt_id,),
+    )
+    if not attempt:
+        st.warning("Result not found.")
+        return
+
+    st.subheader(f"Results • {attempt['title']}")
+    metric_row(
+        {
+            "Total score": f"{attempt['total_score']}%",
+            "Understanding": f"{attempt['understanding_score']}%",
+            "Investigation": f"{attempt['investigation_score']}%",
+            "Solution quality": f"{attempt['solution_score']}%",
+            "Communication": f"{attempt['communication_score']}%",
+        }
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        with st.container(border=True):
+            st.markdown("#### What you did well")
+            for item in parse_json_list(attempt["strengths"]):
+                st.write(f"- {item}")
+    with col2:
+        with st.container(border=True):
+            st.markdown("#### What you missed")
+            for item in parse_json_list(attempt["missed_points"]):
+                st.write(f"- {item}")
+
+    with st.container(border=True):
+        st.markdown("#### Best-practice reasoning")
+        st.write(attempt["best_practice_reasoning"])
+        st.markdown("#### Recommended response")
+        st.write(attempt["recommended_response"])
+        st.markdown("#### Lesson takeaway")
+        st.write(attempt["takeaway_summary"] or attempt["lesson_takeaway"])
+
+    c1, c2 = st.columns(2)
+    if c1.button("Retry module"):
+        st.session_state.page = "Scenario"
+        st.rerun()
+    if c2.button("Next module"):
+        st.session_state.page = "Module Library"
+        st.rerun()
+
+
+def render_progress_page(user: Dict) -> None:
+    attempts = fetch_all(
+        """
+        SELECT a.*, m.title FROM attempts a
+        JOIN modules m ON a.module_id = m.module_id
+        WHERE a.user_id = ?
+        ORDER BY a.created_at
+        """,
+        (user["user_id"],),
+    )
+
+    st.subheader("My Progress")
+    if not attempts:
+        st.info("No attempts yet. Start a module to begin tracking progress.")
+        return
+
+    df = to_df(attempts)
+    metric_row(
+        {
+            "Modules completed": df["module_id"].nunique(),
+            "Average score": f"{round(df['total_score'].mean(), 1)}%",
+            "Recent score": f"{df['total_score'].iloc[-1]}%",
+        }
+    )
+
+    trend = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(x="created_at:T", y="total_score:Q", tooltip=["title", "total_score"])
+        .properties(height=260)
+    )
+    st.altair_chart(trend, use_container_width=True)
+
+    strengths = []
+    misses = []
+    for _, row in df.tail(5).iterrows():
+        strengths.extend(parse_json_list(row["strengths"]))
+        misses.extend(parse_json_list(row["missed_points"]))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        with st.container(border=True):
+            st.markdown("#### Emerging strengths")
+            for item in list(dict.fromkeys(strengths))[:5]:
+                st.write(f"- {item}")
+    with col2:
+        with st.container(border=True):
+            st.markdown("#### Weakest areas")
+            for item in list(dict.fromkeys(misses))[:5]:
+                st.write(f"- {item}")
+
+    st.markdown("#### Recent attempts")
+    st.dataframe(
+        df[["created_at", "title", "total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]]
+        .sort_values("created_at", ascending=False)
+        .head(10),
+        use_container_width=True,
+        hide_index=True,
+    )
