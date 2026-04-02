@@ -175,11 +175,12 @@ def render_assignment_management(current_user: dict) -> None:
 
         selected_module = st.selectbox("Module", list(module_map.keys()))
         selected_learners = st.multiselect("Learners", list(learner_map.keys()))
-        due_date = st.date_input("Due date", value=None)
+        enable_due_date = st.checkbox("Set due date", value=False)
+        due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
 
         if st.button("Assign training", type="primary"):
             module_id = module_map[selected_module]
-            due_date_value = due_date.isoformat() if due_date else None
+            due_date_value = due_date.isoformat() if enable_due_date else None
             for learner_label in selected_learners:
                 learner_id = learner_map[learner_label]
                 execute(
