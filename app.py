@@ -10,7 +10,7 @@ from admin_views import (
     render_progress_tracking,
 )
 from data_seed import seed_all
-from db import fetch_all, init_db
+from db import execute, fetch_all, init_db
 from learner_views import (
     render_learner_home,
     render_module_library,
@@ -30,12 +30,70 @@ st.title("🛠️ Troubleshooting Trainer")
 st.caption("AI-powered simulation practice for issue investigation, diagnosis, and communication.")
 
 users = fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name")
-user_names = [u["name"] for u in users]
+
+
+def _google_identity() -> tuple[str | None, str | None, str | None]:
+    user_obj = getattr(st, "user", None)
+    if not user_obj:
+        return None, None, None
+
+    is_logged_in = getattr(user_obj, "is_logged_in", False)
+    if not is_logged_in:
+        return None, None, None
+
+    email = user_obj.get("email")
+    full_name = user_obj.get("name")
+    subject = user_obj.get("sub")
+    return email.lower() if email else None, full_name, subject
+
+
+def _render_google_login() -> bool:
+    login_fn = getattr(st, "login", None)
+    if not callable(login_fn):
+        return False
+
+    st.markdown("### Authentication")
+    st.caption("Use your Google Workspace account to sign in.")
+    if st.button("Sign in with Google", use_container_width=True):
+        login_fn("google")
+    return True
+
+
+user_by_name = {u["name"]: u for u in users}
+user_by_email = {u["email"].lower(): u for u in users if u["email"]}
+google_email, google_name, google_subject = _google_identity()
 
 with st.sidebar:
     st.markdown("### Workspace")
-    selected_name = st.selectbox("Signed in as", user_names)
-    current_user = next(u for u in users if u["name"] == selected_name)
+    current_user = user_by_email.get(google_email) if google_email else None
+
+    if current_user:
+        st.success(f"Signed in as {current_user['name']}")
+        st.caption(current_user["email"] or "")
+
+        if google_subject and google_subject != current_user["google_subject"]:
+            execute("UPDATE users SET google_subject = ? WHERE user_id = ?", (google_subject, current_user["user_id"]))
+
+        logout_fn = getattr(st, "logout", None)
+        if callable(logout_fn):
+            if st.button("Sign out", use_container_width=True):
+                logout_fn()
+                st.rerun()
+    else:
+        google_login_available = _render_google_login()
+        if google_email and not current_user:
+            st.warning(
+                f"{google_email} is authenticated with Google, but no active user is mapped in this workspace."
+            )
+            if google_name:
+                st.caption(f"Google account: {google_name}")
+
+        st.markdown("---")
+        user_names = list(user_by_name.keys())
+        selected_name = st.selectbox("Continue in local mode as", user_names)
+        current_user = user_by_name[selected_name]
+        if google_login_available:
+            st.caption("Tip: add matching user emails in the admin DB to enable automatic Google sign-in mapping.")
 
     if current_user["role"] == "admin":
         pages = ["Dashboard", "Learner Management", "Assignment Management", "Progress Tracking", "Module Builder"]

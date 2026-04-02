@@ -15,13 +15,16 @@ def seed_users() -> None:
         return
     org_id = _ensure_org()
     users = [
-        ("Ava Patel", "learner", "Operations", org_id, 1),
-        ("Jordan Lee", "learner", "Revenue Cycle", org_id, 1),
-        ("Sam Rivera", "learner", "Platform Support", org_id, 1),
-        ("Mia Chen", "learner", "Clinical Ops", org_id, 1),
-        ("Admin User", "admin", "Training", org_id, 1),
+        ("Ava Patel", "ava.patel@acmehealth.example", "learner", "Operations", org_id, 1),
+        ("Jordan Lee", "jordan.lee@acmehealth.example", "learner", "Revenue Cycle", org_id, 1),
+        ("Sam Rivera", "sam.rivera@acmehealth.example", "learner", "Platform Support", org_id, 1),
+        ("Mia Chen", "mia.chen@acmehealth.example", "learner", "Clinical Ops", org_id, 1),
+        ("Admin User", "admin@acmehealth.example", "admin", "Training", org_id, 1),
     ]
-    executemany("INSERT INTO users (name, role, team, organization_id, is_active) VALUES (?, ?, ?, ?, ?)", users)
+    executemany(
+        "INSERT INTO users (name, email, role, team, organization_id, is_active) VALUES (?, ?, ?, ?, ?, ?)",
+        users,
+    )
 
 
 def seed_modules() -> None:
@@ -152,6 +155,7 @@ def backfill_existing_data() -> None:
     org_id = _ensure_org()
     execute("UPDATE users SET organization_id = COALESCE(organization_id, ?)", (org_id,))
     execute("UPDATE users SET is_active = COALESCE(is_active, 1)")
+    execute("UPDATE users SET email = LOWER(REPLACE(name, ' ', '.')) || '@acmehealth.example' WHERE email IS NULL")
     execute("UPDATE modules SET organization_id = COALESCE(organization_id, ?)", (org_id,))
     execute("UPDATE modules SET status = COALESCE(status, 'published')")
     execute("UPDATE attempts SET organization_id = COALESCE(organization_id, ?)", (org_id,))
