@@ -1,22 +1,34 @@
 from db import execute, executemany, fetch_one
 
+DEFAULT_ORG = "Acme Health"
+
+
+def _ensure_org() -> int:
+    org = fetch_one("SELECT organization_id FROM organizations WHERE name = ?", (DEFAULT_ORG,))
+    if org:
+        return org["organization_id"]
+    return execute("INSERT INTO organizations (name) VALUES (?)", (DEFAULT_ORG,))
+
 
 def seed_users() -> None:
     if fetch_one("SELECT user_id FROM users LIMIT 1"):
         return
+    org_id = _ensure_org()
     users = [
-        ("Ava Patel", "learner", "Operations"),
-        ("Jordan Lee", "learner", "Revenue Cycle"),
-        ("Sam Rivera", "learner", "Platform Support"),
-        ("Mia Chen", "learner", "Clinical Ops"),
-        ("Admin User", "admin", "Training"),
+        ("Ava Patel", "learner", "Operations", org_id, 1),
+        ("Jordan Lee", "learner", "Revenue Cycle", org_id, 1),
+        ("Sam Rivera", "learner", "Platform Support", org_id, 1),
+        ("Mia Chen", "learner", "Clinical Ops", org_id, 1),
+        ("Admin User", "admin", "Training", org_id, 1),
     ]
-    executemany("INSERT INTO users (name, role, team) VALUES (?, ?, ?)", users)
+    executemany("INSERT INTO users (name, role, team, organization_id, is_active) VALUES (?, ?, ?, ?, ?)", users)
 
 
 def seed_modules() -> None:
     if fetch_one("SELECT module_id FROM modules LIMIT 1"):
         return
+
+    org_id = _ensure_org()
 
     modules = [
         (
@@ -33,6 +45,12 @@ def seed_modules() -> None:
             "Rollback or hotfix mapping, requeue affected submissions, add pre-deploy mapping validation checks.",
             "Acknowledge impact, confirm identified config mismatch, provide ETA for replay and prevention actions.",
             "Configuration changes in payer integrations need plan-level validation and post-deploy monitoring.",
+            org_id,
+            "published",
+            "Identify relevant logs\nIsolate probable root cause\nCommunicate remediation",
+            "Collect evidence\nValidate hypothesis\nClose the loop",
+            "Submit diagnosis and next steps",
+            0,
         ),
         (
             "Bot Login Failures After Credential Rotation",
@@ -48,6 +66,12 @@ def seed_modules() -> None:
             "Update bot to use dynamic vault alias, trigger rerun, document runbook for rotations.",
             "Explain root cause in plain language, outline immediate fix and long-term reliability step.",
             "Credential automation should be alias-driven and validated with synthetic checks after rotations.",
+            org_id,
+            "published",
+            "Validate authentication path\nIdentify stale credentials",
+            "Check auth logs\nConfirm secret alias\nPropose fix",
+            "Complete scenario submission",
+            0,
         ),
         (
             "Portal Workflow Update Broke Intake Routing",
@@ -63,6 +87,12 @@ def seed_modules() -> None:
             "Patch routing conditions for new field, backfill queue assignments, add schema compatibility tests.",
             "Share impact, reassure no data loss, provide remediation timeline and monitoring commitment.",
             "Workflow releases need schema contract testing and coordinated change review with operations.",
+            org_id,
+            "published",
+            "Analyze workflow rules\nAccount for schema changes\nPlan preventive tests",
+            "Inspect release\nCompare schema\nPatch rule",
+            "Submit root cause + prevention",
+            1,
         ),
     ]
 
@@ -73,8 +103,9 @@ def seed_modules() -> None:
                 title, category, difficulty, description, estimated_time,
                 scenario_ticket, scenario_context, hidden_root_cause,
                 expected_reasoning_path, expected_diagnosis, expected_next_steps,
-                expected_customer_response, lesson_takeaway
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                expected_customer_response, lesson_takeaway, organization_id, status,
+                learning_objectives, content_sections, completion_requirements, quiz_required
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             module,
         )
@@ -117,6 +148,17 @@ def seed_modules() -> None:
         )
 
 
+def backfill_existing_data() -> None:
+    org_id = _ensure_org()
+    execute("UPDATE users SET organization_id = COALESCE(organization_id, ?)", (org_id,))
+    execute("UPDATE users SET is_active = COALESCE(is_active, 1)")
+    execute("UPDATE modules SET organization_id = COALESCE(organization_id, ?)", (org_id,))
+    execute("UPDATE modules SET status = COALESCE(status, 'published')")
+    execute("UPDATE attempts SET organization_id = COALESCE(organization_id, ?)", (org_id,))
+
+
 def seed_all() -> None:
+    _ensure_org()
     seed_users()
     seed_modules()
+    backfill_existing_data()

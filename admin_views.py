@@ -1,243 +1,372 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
-from db import fetch_all
-from utils import metric_row, parse_json_list, to_df
+from db import execute, fetch_all, fetch_one
+from utils import metric_row, to_df
 
 
-def _attempts_df() -> pd.DataFrame:
+def _assignments_with_status(org_id: int) -> pd.DataFrame:
     rows = fetch_all(
         """
-        SELECT a.*, u.name AS learner_name, u.team, m.title AS module_title, m.difficulty
-        FROM attempts a
-        JOIN users u ON a.user_id = u.user_id
-        JOIN modules m ON a.module_id = m.module_id
-        ORDER BY a.created_at DESC
-        """
+        SELECT
+            a.assignment_id,
+            a.module_id,
+            a.learner_id,
+            a.due_date,
+            a.assigned_at,
+            a.is_active,
+            u.name AS learner_name,
+            u.is_active AS learner_active,
+            m.title AS module_title,
+            CASE
+                WHEN x.last_attempt_at IS NOT NULL THEN 'Completed'
+                WHEN a.due_date IS NOT NULL AND DATE(a.due_date) < DATE('now') THEN 'Overdue'
+                WHEN x.attempt_count > 0 THEN 'In Progress'
+                ELSE 'Not Started'
+            END AS status,
+            x.attempt_count,
+            x.last_attempt_at
+        FROM assignments a
+        JOIN users u ON u.user_id = a.learner_id
+        JOIN modules m ON m.module_id = a.module_id
+        LEFT JOIN (
+            SELECT user_id, module_id, COUNT(*) AS attempt_count, MAX(created_at) AS last_attempt_at
+            FROM attempts
+            WHERE organization_id = ?
+            GROUP BY user_id, module_id
+        ) x ON x.user_id = a.learner_id AND x.module_id = a.module_id
+        WHERE a.organization_id = ? AND a.is_active = 1
+        ORDER BY a.assigned_at DESC
+        """,
+        (org_id, org_id),
     )
     return to_df(rows)
 
 
-def render_admin_overview() -> None:
-    st.subheader("Admin Overview")
-    attempts = _attempts_df()
-    learners = to_df(fetch_all("SELECT * FROM users WHERE role='learner'"))
-    modules = to_df(fetch_all("SELECT * FROM modules"))
+def render_admin_dashboard(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Admin Dashboard")
 
-    if attempts.empty:
-        st.info("No attempts yet.")
-        return
+    learners_df = to_df(fetch_all("SELECT * FROM users WHERE role='learner' AND organization_id = ?", (org_id,)))
+    modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ?", (org_id,)))
+    assignments_df = _assignments_with_status(org_id)
 
-    avg_by_learner = attempts.groupby("learner_name", as_index=False)["total_score"].mean().sort_values("total_score", ascending=False)
-    avg_by_module = attempts.groupby("module_title", as_index=False)["total_score"].mean().sort_values("total_score")
-
-    most_missed = []
-    for raw in attempts["missed_points"].tolist():
-        most_missed.extend(parse_json_list(raw))
-    most_missed_area = pd.Series(most_missed).value_counts().index[0] if most_missed else "N/A"
-
-    completion_rate = round((attempts["module_id"].nunique() / len(modules)) * 100, 1) if len(modules) else 0
+    total_learners = len(learners_df)
+    active_learners = int(learners_df["is_active"].sum()) if not learners_df.empty else 0
+    inactive_learners = total_learners - active_learners
+    modules_created = len(modules_df)
+    modules_assigned = len(assignments_df)
+    completion_rate = round((assignments_df["status"].eq("Completed").mean() * 100), 1) if not assignments_df.empty else 0.0
+    overdue_assignments = int(assignments_df["status"].eq("Overdue").sum()) if not assignments_df.empty else 0
+    in_progress_assignments = int(assignments_df["status"].eq("In Progress").sum()) if not assignments_df.empty else 0
 
     metric_row(
         {
-            "Total learners": len(learners),
-            "Total attempts": len(attempts),
-            "Average score": f"{round(attempts['total_score'].mean(), 1)}%",
+            "Total learners": total_learners,
+            "Active learners": active_learners,
+            "Inactive learners": inactive_learners,
+            "Modules created": modules_created,
+            "Modules assigned": modules_assigned,
             "Completion rate": f"{completion_rate}%",
-            "Top learner": avg_by_learner.iloc[0]["learner_name"],
-            "Most difficult module": avg_by_module.iloc[0]["module_title"],
-            "Most missed skill area": most_missed_area[:35] + ("..." if len(most_missed_area) > 35 else ""),
+            "Overdue assignments": overdue_assignments,
+            "In-progress assignments": in_progress_assignments,
         }
     )
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("#### Score distribution")
-        st.bar_chart(attempts["total_score"], height=250)
+        st.markdown("#### Assignment status")
+        if assignments_df.empty:
+            st.info("No assignments yet.")
+        else:
+            st.bar_chart(assignments_df["status"].value_counts())
     with c2:
-        st.markdown("#### Module completion")
-        st.bar_chart(attempts.groupby("module_title")["attempt_id"].count(), height=250)
+        st.markdown("#### Learner status")
+        if learners_df.empty:
+            st.info("No learners found.")
+        else:
+            st.bar_chart(pd.Series({"Active": active_learners, "Inactive": inactive_learners}))
 
-    st.markdown("#### Common missed issue areas")
-    if most_missed:
-        st.dataframe(pd.Series(most_missed).value_counts().rename_axis("Area").reset_index(name="Count"), hide_index=True, use_container_width=True)
 
+def render_learner_management(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Learner Management")
 
-def render_learner_performance() -> None:
-    st.subheader("Learner Performance")
-    attempts = _attempts_df()
-    if attempts.empty:
-        st.info("No submissions to review.")
+    rows = fetch_all(
+        """
+        SELECT
+            u.user_id,
+            u.name,
+            u.team,
+            u.is_active,
+            COUNT(DISTINCT a.assignment_id) AS assigned_modules,
+            COUNT(DISTINCT CASE WHEN x.last_attempt_at IS NOT NULL THEN a.module_id END) AS completed_modules,
+            MAX(x.last_attempt_at) AS last_activity
+        FROM users u
+        LEFT JOIN assignments a ON a.learner_id = u.user_id AND a.is_active = 1
+        LEFT JOIN (
+            SELECT user_id, module_id, MAX(created_at) AS last_attempt_at
+            FROM attempts
+            WHERE organization_id = ?
+            GROUP BY user_id, module_id
+        ) x ON x.user_id = u.user_id AND x.module_id = a.module_id
+        WHERE u.role = 'learner' AND u.organization_id = ?
+        GROUP BY u.user_id, u.name, u.team, u.is_active
+        ORDER BY u.name
+        """,
+        (org_id, org_id),
+    )
+    df = to_df(rows)
+
+    if df.empty:
+        st.info("No learners in this organization.")
         return
 
-    search = st.text_input("Search learner")
-    if search:
-        attempts = attempts[attempts["learner_name"].str.contains(search, case=False)]
+    q = st.text_input("Search learners")
+    status_filter = st.selectbox("Status", ["All", "Active", "Inactive"])
+    filtered = df.copy()
+    if q:
+        filtered = filtered[filtered["name"].str.contains(q, case=False) | filtered["team"].str.contains(q, case=False)]
+    if status_filter != "All":
+        target = 1 if status_filter == "Active" else 0
+        filtered = filtered[filtered["is_active"] == target]
 
-    grouped = (
-        attempts.groupby("learner_name", as_index=False)
-        .agg(
-            modules_completed=("module_id", "nunique"),
-            average_score=("total_score", "mean"),
-            last_activity=("created_at", "max"),
-            recent_score=("total_score", "last"),
-            first_score=("total_score", "first"),
-        )
-        .sort_values("average_score", ascending=False)
+    filtered["status"] = filtered["is_active"].map({1: "Active", 0: "Inactive"})
+    st.dataframe(
+        filtered[["name", "team", "status", "assigned_modules", "completed_modules", "last_activity"]],
+        hide_index=True,
+        use_container_width=True,
     )
-    grouped["improvement"] = (grouped["recent_score"] - grouped["first_score"]).round(1)
-    grouped["rank"] = grouped["average_score"].rank(ascending=False, method="dense").astype(int)
-    grouped["percentile"] = (100 - grouped["average_score"].rank(pct=True).mul(100)).round(1)
 
-    st.dataframe(grouped, hide_index=True, use_container_width=True)
+    learner_options = {f"{r['name']} ({'Active' if r['is_active'] else 'Inactive'})": int(r["user_id"]) for _, r in df.iterrows()}
+    selected_label = st.selectbox("Select learner", list(learner_options.keys()))
+    learner_id = learner_options[selected_label]
+    learner = fetch_one("SELECT user_id, name, is_active FROM users WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
 
-    learner = st.selectbox("Open learner details", grouped["learner_name"].tolist())
-    subset = attempts[attempts["learner_name"] == learner]
-    st.markdown(f"#### {learner} details")
-    st.dataframe(subset[["created_at", "module_title", "total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]], hide_index=True, use_container_width=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Strongest categories**")
-        cat_means = subset[["understanding_score", "investigation_score", "solution_score", "communication_score"]].mean().sort_values(ascending=False)
-        st.write(cat_means.head(2).to_dict())
-    with col2:
-        st.markdown("**Common weaknesses**")
-        misses = []
-        for raw in subset["missed_points"].tolist():
-            misses.extend(parse_json_list(raw))
-        st.write(pd.Series(misses).value_counts().head(5).to_dict() if misses else {})
-
-    with st.expander("Written answers"):
-        st.dataframe(subset[["module_title", "diagnosis_answer", "next_steps_answer", "customer_response", "ai_feedback"]], hide_index=True, use_container_width=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        if learner["is_active"]:
+            if st.button("Deactivate learner", type="secondary"):
+                execute("UPDATE users SET is_active = 0 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
+                st.success(f"{learner['name']} deactivated.")
+                st.rerun()
+        else:
+            if st.button("Activate learner", type="primary"):
+                execute("UPDATE users SET is_active = 1 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
+                st.success(f"{learner['name']} activated.")
+                st.rerun()
 
 
-def render_submission_review() -> None:
-    st.subheader("Submission Review")
-    attempts = _attempts_df()
-    if attempts.empty:
-        st.info("No attempts found.")
+def render_assignment_management(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Assignment Management")
+
+    learners = fetch_all("SELECT user_id, name, is_active FROM users WHERE role='learner' AND organization_id=? ORDER BY name", (org_id,))
+    modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? ORDER BY title", (org_id,))
+
+    with st.container(border=True):
+        st.markdown("#### Assign module")
+        module_map = {f"{m['title']} ({m['status']})": int(m["module_id"]) for m in modules}
+        learner_map = {f"{l['name']} ({'Active' if l['is_active'] else 'Inactive'})": int(l["user_id"]) for l in learners}
+
+        selected_module = st.selectbox("Module", list(module_map.keys()))
+        selected_learners = st.multiselect("Learners", list(learner_map.keys()))
+        due_date = st.date_input("Due date", value=None)
+
+        if st.button("Assign training", type="primary"):
+            module_id = module_map[selected_module]
+            due_date_value = due_date.isoformat() if due_date else None
+            for learner_label in selected_learners:
+                learner_id = learner_map[learner_label]
+                execute(
+                    """
+                    INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
+                    VALUES (?, ?, ?, ?, ?, 1)
+                    """,
+                    (org_id, module_id, learner_id, current_user["user_id"], due_date_value),
+                )
+            st.success(f"Assigned module to {len(selected_learners)} learner(s).")
+            st.rerun()
+
+    assignments_df = _assignments_with_status(org_id)
+    if assignments_df.empty:
+        st.info("No assignments yet.")
+        return
+
+    st.markdown("#### Current assignments")
+    st.dataframe(
+        assignments_df[["assignment_id", "learner_name", "module_title", "due_date", "status", "last_attempt_at"]],
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    assignment_map = {
+        f"#{r['assignment_id']} • {r['learner_name']} • {r['module_title']} ({r['status']})": int(r["assignment_id"])
+        for _, r in assignments_df.iterrows()
+    }
+    selected_assignment_label = st.selectbox("Select assignment", list(assignment_map.keys()))
+    selected_assignment_id = assignment_map[selected_assignment_label]
+
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Remove assignment"):
+            execute("UPDATE assignments SET is_active = 0 WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
+            st.success("Assignment removed.")
+            st.rerun()
+    with c2:
+        new_due = st.date_input("Reassign due date", key="reassign_due", value=date.today())
+        if st.button("Reassign training"):
+            execute(
+                "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP WHERE assignment_id = ? AND organization_id = ?",
+                (new_due.isoformat(), current_user["user_id"], selected_assignment_id, org_id),
+            )
+            st.success("Assignment updated.")
+            st.rerun()
+
+
+def render_progress_tracking(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Progress Tracking")
+
+    assignments_df = _assignments_with_status(org_id)
+    if assignments_df.empty:
+        st.info("No assignments to track.")
         return
 
     col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        learner_filter = st.selectbox("Learner", ["All"] + sorted(attempts["learner_name"].unique().tolist()))
-    with col2:
-        module_filter = st.selectbox("Module", ["All"] + sorted(attempts["module_title"].unique().tolist()))
-    with col3:
-        diff_filter = st.selectbox("Difficulty", ["All"] + sorted(attempts["difficulty"].unique().tolist()))
-    with col4:
-        score_range = st.slider("Score range", 0, 100, (0, 100))
+    col1.metric("Completed", int(assignments_df["status"].eq("Completed").sum()))
+    col2.metric("In Progress", int(assignments_df["status"].eq("In Progress").sum()))
+    col3.metric("Overdue", int(assignments_df["status"].eq("Overdue").sum()))
+    col4.metric("Not Started", int(assignments_df["status"].eq("Not Started").sum()))
 
-    filtered = attempts.copy()
-    if learner_filter != "All":
-        filtered = filtered[filtered["learner_name"] == learner_filter]
-    if module_filter != "All":
-        filtered = filtered[filtered["module_title"] == module_filter]
-    if diff_filter != "All":
-        filtered = filtered[filtered["difficulty"] == diff_filter]
-    filtered = filtered[(filtered["total_score"] >= score_range[0]) & (filtered["total_score"] <= score_range[1])]
-
+    status_filter = st.multiselect("Filter status", ["Completed", "In Progress", "Overdue", "Not Started"], default=["Completed", "In Progress", "Overdue", "Not Started"])
+    filtered = assignments_df[assignments_df["status"].isin(status_filter)]
     st.dataframe(
-        filtered[
-            [
-                "created_at",
-                "learner_name",
-                "module_title",
-                "diagnosis_answer",
-                "next_steps_answer",
-                "customer_response",
-                "total_score",
-                "understanding_score",
-                "investigation_score",
-                "solution_score",
-                "communication_score",
-                "ai_feedback",
-                "recommended_response",
-            ]
-        ],
-        use_container_width=True,
+        filtered[["learner_name", "module_title", "status", "due_date", "last_attempt_at"]],
         hide_index=True,
-    )
-
-    st.download_button(
-        "Export filtered submissions to CSV",
-        filtered.to_csv(index=False),
-        file_name="submission_review.csv",
-        mime="text/csv",
+        use_container_width=True,
     )
 
 
-def render_rankings() -> None:
-    st.subheader("Rankings")
-    attempts = _attempts_df()
-    if attempts.empty:
-        st.info("No ranking data yet.")
+def _parse_lines(value: str) -> str:
+    return "\n".join([line.strip() for line in value.splitlines() if line.strip()])
+
+
+def render_module_builder(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Module Builder")
+
+    st.markdown("#### Create module")
+    with st.form("create_module"):
+        title = st.text_input("Title")
+        category = st.text_input("Category", value="General")
+        difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"])
+        description = st.text_area("Description")
+        learning_objectives = st.text_area("Learning objectives (one per line)")
+        content_sections = st.text_area("Ordered content sections (one per line)")
+        completion_requirements = st.text_area("Completion requirements")
+        quiz_required = st.checkbox("Quiz required")
+        submit = st.form_submit_button("Create module", type="primary")
+        if submit and title:
+            execute(
+                """
+                INSERT INTO modules (
+                    title, category, difficulty, description, estimated_time,
+                    organization_id, status, learning_objectives, content_sections,
+                    completion_requirements, quiz_required, created_by, updated_at
+                ) VALUES (?, ?, ?, ?, '20 min', ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    title,
+                    category,
+                    difficulty,
+                    description,
+                    org_id,
+                    _parse_lines(learning_objectives),
+                    _parse_lines(content_sections),
+                    completion_requirements,
+                    1 if quiz_required else 0,
+                    current_user["user_id"],
+                ),
+            )
+            st.success("Module created as draft.")
+            st.rerun()
+
+    modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ? ORDER BY updated_at DESC", (org_id,)))
+    if modules_df.empty:
+        st.info("No modules yet.")
         return
 
-    grouped = attempts.groupby("learner_name", as_index=False).agg(
-        avg_score=("total_score", "mean"),
-        highest_recent=("total_score", "max"),
-        best_comm=("communication_score", "mean"),
-        attempts=("attempt_id", "count"),
-    )
-    grouped["most_improved"] = grouped["highest_recent"] - grouped["avg_score"]
-    grouped["fastest_completion"] = (100 / grouped["attempts"]).round(1)
+    st.markdown("#### Manage modules")
+    st.dataframe(modules_df[["module_id", "title", "status", "difficulty", "updated_at"]], hide_index=True, use_container_width=True)
+    module_map = {f"#{int(r['module_id'])} • {r['title']} ({r['status']})": int(r["module_id"]) for _, r in modules_df.iterrows()}
+    selected_label = st.selectbox("Select module", list(module_map.keys()))
+    module_id = module_map[selected_label]
+    module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
 
-    ranking_type = st.radio(
-        "Leaderboard",
-        ["Total average score", "Highest recent score", "Most improved", "Fastest completion", "Best communication score"],
-        horizontal=True,
-    )
+    with st.form("edit_module"):
+        edit_title = st.text_input("Title", value=module["title"])
+        edit_description = st.text_area("Description", value=module["description"] or "")
+        edit_objectives = st.text_area("Learning objectives", value=module["learning_objectives"] or "")
+        edit_sections = st.text_area("Ordered content sections", value=module["content_sections"] or "")
+        edit_requirements = st.text_area("Completion requirements", value=module["completion_requirements"] or "")
+        edit_quiz_required = st.checkbox("Quiz required", value=bool(module["quiz_required"]))
+        save = st.form_submit_button("Save edits")
+        if save:
+            execute(
+                """
+                UPDATE modules
+                SET title = ?, description = ?, learning_objectives = ?, content_sections = ?,
+                    completion_requirements = ?, quiz_required = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE module_id = ? AND organization_id = ?
+                """,
+                (
+                    edit_title,
+                    edit_description,
+                    _parse_lines(edit_objectives),
+                    _parse_lines(edit_sections),
+                    edit_requirements,
+                    1 if edit_quiz_required else 0,
+                    module_id,
+                    org_id,
+                ),
+            )
+            st.success("Module updated.")
+            st.rerun()
 
-    sort_map = {
-        "Total average score": "avg_score",
-        "Highest recent score": "highest_recent",
-        "Most improved": "most_improved",
-        "Fastest completion": "fastest_completion",
-        "Best communication score": "best_comm",
-    }
-
-    ranked = grouped.sort_values(sort_map[ranking_type], ascending=False).reset_index(drop=True)
-    ranked["Badge"] = ranked.index.map(lambda i: "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else "")
-
-    st.dataframe(ranked[["Badge", "learner_name", "avg_score", "highest_recent", "most_improved", "fastest_completion", "best_comm"]], hide_index=True, use_container_width=True)
-
-
-def render_module_analytics() -> None:
-    st.subheader("Module Analytics")
-    attempts = _attempts_df()
-    if attempts.empty:
-        st.info("No module analytics yet.")
-        return
-
-    selected = st.selectbox("Select module", sorted(attempts["module_title"].unique().tolist()))
-    subset = attempts[attempts["module_title"] == selected]
-
-    metric_row(
-        {
-            "Attempts": len(subset),
-            "Average score": f"{round(subset['total_score'].mean(), 1)}%",
-            "Completion proxy": f"{subset['learner_name'].nunique()} learners",
-            "Hardest category": subset[["understanding_score", "investigation_score", "solution_score", "communication_score"]].mean().idxmin().replace("_score", ""),
-        }
-    )
-
-    misses = []
-    wrong_dx = []
-    for _, row in subset.iterrows():
-        misses.extend(parse_json_list(row["missed_points"]))
-        wrong_dx.append(row["diagnosis_answer"])
-
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
-        st.markdown("#### Common missed clues")
-        st.dataframe(pd.Series(misses).value_counts().head(8).rename_axis("Missed clue").reset_index(name="Count"), hide_index=True, use_container_width=True)
+        if st.button("Publish", disabled=module["status"] == "published"):
+            execute("UPDATE modules SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+            st.success("Module published.")
+            st.rerun()
     with c2:
-        st.markdown("#### Common wrong diagnoses")
-        st.dataframe(pd.Series(wrong_dx).value_counts().head(8).rename_axis("Diagnosis").reset_index(name="Count"), hide_index=True, use_container_width=True)
-
-    st.markdown("#### Average score by category")
-    st.bar_chart(subset[["understanding_score", "investigation_score", "solution_score", "communication_score"]].mean())
+        if st.button("Archive", disabled=module["status"] == "archived"):
+            execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+            st.success("Module archived.")
+            st.rerun()
+    with c3:
+        if st.button("Duplicate"):
+            execute(
+                """
+                INSERT INTO modules (
+                    title, category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
+                    hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
+                    expected_customer_response, lesson_takeaway, organization_id, status, learning_objectives,
+                    content_sections, completion_requirements, quiz_required, created_by, updated_at
+                )
+                SELECT title || ' (Copy)', category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
+                       hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
+                       expected_customer_response, lesson_takeaway, organization_id, 'draft', learning_objectives,
+                       content_sections, completion_requirements, quiz_required, ?, CURRENT_TIMESTAMP
+                FROM modules
+                WHERE module_id = ? AND organization_id = ?
+                """,
+                (current_user["user_id"], module_id, org_id),
+            )
+            st.success("Module duplicated as draft.")
+            st.rerun()
