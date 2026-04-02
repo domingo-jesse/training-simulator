@@ -52,6 +52,8 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL,
+                email TEXT,
+                google_subject TEXT,
                 role TEXT NOT NULL,
                 team TEXT,
                 organization_id INTEGER,
@@ -149,6 +151,8 @@ def init_db() -> None:
         )
 
         # Backward-compatible migrations
+        _ensure_column(conn, "users", "email", "TEXT")
+        _ensure_column(conn, "users", "google_subject", "TEXT")
         _ensure_column(conn, "users", "organization_id", "INTEGER")
         _ensure_column(conn, "users", "is_active", "INTEGER DEFAULT 1")
 
