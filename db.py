@@ -25,7 +25,19 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     if column not in _table_columns(conn, table):
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        try:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        except sqlite3.OperationalError as exc:
+            # SQLite cannot add columns with non-constant defaults (e.g. CURRENT_TIMESTAMP)
+            # via ALTER TABLE. Fall back to adding the column without a default, then backfill.
+            if "non-constant default" not in str(exc).lower():
+                raise
+
+            base_definition = definition.split("DEFAULT", 1)[0].strip()
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {base_definition}")
+
+            if "CURRENT_TIMESTAMP" in definition.upper():
+                conn.execute(f"UPDATE {table} SET {column} = CURRENT_TIMESTAMP WHERE {column} IS NULL")
 
 
 def init_db() -> None:
