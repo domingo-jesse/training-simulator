@@ -3,11 +3,11 @@ from __future__ import annotations
 import streamlit as st
 
 from admin_views import (
-    render_admin_overview,
-    render_learner_performance,
-    render_module_analytics,
-    render_rankings,
-    render_submission_review,
+    render_admin_dashboard,
+    render_assignment_management,
+    render_learner_management,
+    render_module_builder,
+    render_progress_tracking,
 )
 from data_seed import seed_all
 from db import fetch_all, init_db
@@ -29,48 +29,43 @@ inject_styles()
 st.title("🛠️ Troubleshooting Trainer")
 st.caption("AI-powered simulation practice for issue investigation, diagnosis, and communication.")
 
-users = fetch_all("SELECT * FROM users ORDER BY role, name")
-learner_users = [u for u in users if u["role"] == "learner"]
-admin_users = [u for u in users if u["role"] == "admin"]
+users = fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name")
+user_names = [u["name"] for u in users]
 
 with st.sidebar:
     st.markdown("### Workspace")
-    mode = st.radio("Role-based experience", ["Learner Mode", "Admin Mode"])
+    selected_name = st.selectbox("Signed in as", user_names)
+    current_user = next(u for u in users if u["name"] == selected_name)
 
-    if mode == "Learner Mode":
-        names = [u["name"] for u in learner_users]
-        selected_name = st.selectbox("Signed in as", names)
-        current_user = next(u for u in learner_users if u["name"] == selected_name)
-
+    if current_user["role"] == "admin":
+        pages = ["Dashboard", "Learner Management", "Assignment Management", "Progress Tracking", "Module Builder"]
+        page = st.radio("Navigate", pages)
+        st.caption("Admin controls are scoped to your organization.")
+    else:
         pages = ["Learner Home", "Module Library", "Scenario", "Results", "My Progress"]
         default_index = pages.index(st.session_state.get("page", "Learner Home")) if st.session_state.get("page", "Learner Home") in pages else 0
         page = st.radio("Navigate", pages, index=default_index)
         st.session_state.page = page
 
+if current_user["role"] == "admin":
+    if page == "Dashboard":
+        render_admin_dashboard(current_user)
+    elif page == "Learner Management":
+        render_learner_management(current_user)
+    elif page == "Assignment Management":
+        render_assignment_management(current_user)
+    elif page == "Progress Tracking":
+        render_progress_tracking(current_user)
     else:
-        admin_name = st.selectbox("Admin user", [u["name"] for u in admin_users])
-        current_user = next(u for u in admin_users if u["name"] == admin_name)
-        page = st.radio("Navigate", ["Admin Overview", "Learner Performance", "Submission Review", "Rankings", "Module Analytics"])
-
-if mode == "Learner Mode":
+        render_module_builder(current_user)
+else:
     if page == "Learner Home":
         render_learner_home(current_user)
     elif page == "Module Library":
-        render_module_library()
+        render_module_library(current_user)
     elif page == "Scenario":
         render_scenario_page(current_user)
     elif page == "Results":
-        render_results_page()
+        render_results_page(current_user)
     else:
         render_progress_page(current_user)
-else:
-    if page == "Admin Overview":
-        render_admin_overview()
-    elif page == "Learner Performance":
-        render_learner_performance()
-    elif page == "Submission Review":
-        render_submission_review()
-    elif page == "Rankings":
-        render_rankings()
-    else:
-        render_module_analytics()

@@ -34,7 +34,10 @@ def render_learner_home(user: Dict) -> None:
     st.subheader("Welcome back")
     st.caption("Complete realistic troubleshooting scenarios, then review AI coaching feedback to improve your process.")
 
-    modules = fetch_all("SELECT * FROM modules ORDER BY module_id")
+    modules = fetch_all(
+        "SELECT * FROM modules WHERE organization_id = ? AND status = 'published' ORDER BY module_id",
+        (user["organization_id"],),
+    )
     stats = _learner_stats(user["user_id"])
     recent_feedback = stats["attempts"][0]["ai_feedback"] if stats["attempts"] else "No feedback yet. Complete your first module to begin."
 
@@ -54,9 +57,12 @@ def render_learner_home(user: Dict) -> None:
         st.write(recent_feedback)
 
 
-def render_module_library() -> None:
+def render_module_library(user: Dict) -> None:
     st.subheader("Module Library")
-    modules = fetch_all("SELECT * FROM modules ORDER BY module_id")
+    modules = fetch_all(
+        "SELECT * FROM modules WHERE organization_id = ? AND status = 'published' ORDER BY module_id",
+        (user["organization_id"],),
+    )
 
     for i in range(0, len(modules), 2):
         cols = st.columns(2)
@@ -78,7 +84,10 @@ def render_scenario_page(user: Dict) -> None:
         st.info("Select a module from Module Library to begin.")
         return
 
-    module = fetch_one("SELECT * FROM modules WHERE module_id = ?", (module_id,))
+    module = fetch_one(
+        "SELECT * FROM modules WHERE module_id = ? AND organization_id = ?",
+        (module_id, user["organization_id"]),
+    )
     actions = fetch_all("SELECT * FROM investigation_actions WHERE module_id = ?", (module_id,))
 
     st.subheader(module["title"])
@@ -125,7 +134,7 @@ def render_scenario_page(user: Dict) -> None:
         }
         evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
         payload = {**answers, **evaluation}
-        attempt_id = insert_attempt(user["user_id"], module_id, payload)
+        attempt_id = insert_attempt(user["user_id"], module_id, payload, user["organization_id"])
         log_actions(attempt_id, st.session_state[used_actions_key])
 
         st.session_state.latest_attempt_id = attempt_id
@@ -134,7 +143,7 @@ def render_scenario_page(user: Dict) -> None:
         st.rerun()
 
 
-def render_results_page() -> None:
+def render_results_page(user: Dict) -> None:
     attempt_id = st.session_state.get("latest_attempt_id")
     if not attempt_id:
         st.info("Submit a scenario to view results.")
@@ -145,9 +154,9 @@ def render_results_page() -> None:
         SELECT a.*, m.title, m.lesson_takeaway, m.expected_customer_response
         FROM attempts a
         JOIN modules m ON a.module_id = m.module_id
-        WHERE attempt_id = ?
+        WHERE attempt_id = ? AND a.organization_id = ?
         """,
-        (attempt_id,),
+        (attempt_id, user["organization_id"]),
     )
     if not attempt:
         st.warning("Result not found.")
