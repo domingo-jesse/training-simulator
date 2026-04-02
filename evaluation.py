@@ -1,0 +1,67 @@
+from __future__ import annotations
+
+from typing import Dict, List
+
+
+def _keyword_score(answer: str, keywords: List[str]) -> int:
+    answer_lower = (answer or "").lower()
+    hits = sum(1 for keyword in keywords if keyword in answer_lower)
+    return min(100, 45 + hits * 14)
+
+
+def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) -> Dict:
+    """
+    Placeholder scoring layer.
+
+    TODO (future): Replace heuristic scoring with an LLM evaluator call that receives
+    module context, learner answers, and action trace, then returns calibrated rubrics.
+    """
+    diagnosis = answers.get("diagnosis_answer", "")
+    next_steps = answers.get("next_steps_answer", "")
+    customer = answers.get("customer_response", "")
+
+    understanding = _keyword_score(diagnosis, ["root", "cause", "config", "credential", "workflow", "mapping"])
+    investigation = min(100, 40 + len(actions_used) * 10)
+    solution_quality = _keyword_score(next_steps, ["validate", "rollback", "fix", "monitor", "requeue", "test"])
+    communication = _keyword_score(customer, ["impact", "eta", "update", "thanks", "prevent", "timeline"])
+
+    total_score = round((understanding + investigation + solution_quality + communication) / 4, 1)
+
+    strengths = []
+    missed = []
+
+    if understanding >= 75:
+        strengths.append("Good identification of the likely root cause and context.")
+    else:
+        missed.append("Diagnosis was not specific enough to the scenario mechanics.")
+
+    if investigation >= 70:
+        strengths.append("Used investigation actions effectively before finalizing a response.")
+    else:
+        missed.append("Could improve evidence gathering by checking more investigation panels.")
+
+    if solution_quality >= 75:
+        strengths.append("Proposed actionable next steps with operational follow-through.")
+    else:
+        missed.append("Next steps should include concrete remediation and validation checks.")
+
+    if communication >= 75:
+        strengths.append("Customer communication is clear and confidence-building.")
+    else:
+        missed.append("Customer response should include impact, timing, and prevention language.")
+
+    return {
+        "total_score": total_score,
+        "category_scores": {
+            "understanding": understanding,
+            "investigation": investigation,
+            "solution_quality": solution_quality,
+            "communication": communication,
+        },
+        "strengths": strengths,
+        "missed_points": missed,
+        "coaching_feedback": "Focus on connecting observed clues to a direct root-cause statement and prevention plan.",
+        "best_practice_reasoning": module.get("expected_reasoning_path", "Follow a hypothesis-driven investigation and validate changes."),
+        "recommended_response": module.get("expected_customer_response", "Acknowledge impact, explain next actions, and commit to follow-up."),
+        "takeaway_summary": module.get("lesson_takeaway", "Use structured troubleshooting and communicate proactively."),
+    }
