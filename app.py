@@ -68,25 +68,30 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
-def find_user_by_email(email: str) -> dict[str, Any] | None:
+def find_user_by_email(email: str, role: str | None = None) -> dict[str, Any] | None:
     email_norm = (email or "").strip().lower()
+    role_norm = (role or "").strip().lower() or None
     return next(
         (
             user
             for user in st.session_state["users_db"]
             if user["email"].strip().lower() == email_norm and user.get("is_active", True)
+            and (role_norm is None or user.get("role") == role_norm)
         ),
         None,
     )
 
 
-def find_user_by_username(username: str) -> dict[str, Any] | None:
+def find_user_by_username(username: str, role: str | None = None) -> dict[str, Any] | None:
     username_norm = (username or "").strip().lower()
+    role_norm = (role or "").strip().lower() or None
     return next(
         (
             user
             for user in st.session_state["users_db"]
-            if (user.get("username") or "").strip().lower() == username_norm and user.get("is_active", True)
+            if (user.get("username") or "").strip().lower() == username_norm
+            and user.get("is_active", True)
+            and (role_norm is None or user.get("role") == role_norm)
         ),
         None,
     )
@@ -136,18 +141,11 @@ def validate_local_login(identifier: str, password: str, expected_role: str) -> 
     if not ident or not password:
         return False, "Please enter both email/username and password.", None
 
-    user = find_user_by_email(ident)
+    user = find_user_by_email(ident, role=expected_role)
     if user is None:
-        user = find_user_by_username(ident)
+        user = find_user_by_username(ident, role=expected_role)
     if user is None:
-        return False, "You do not have an account.", None
-
-    if user["role"] != expected_role:
-        return (
-            False,
-            f"This account is registered as {user['role'].title()}. Please sign in through the {user['role'].title()} area.",
-            None,
-        )
+        return False, f"You do not have a {expected_role.title()} account yet.", None
 
     if user["password_hash"] != hash_password(password):
         return False, "Incorrect email or password.", None
@@ -160,17 +158,9 @@ def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[
     if not email:
         return False, "Google sign-in succeeded but no email was returned.", None, None
 
-    user = find_user_by_email(email)
+    user = find_user_by_email(email, role=expected_role)
     if user is None:
-        return False, "You do not have an account.", None, email
-
-    if user["role"] != expected_role:
-        return (
-            False,
-            f"This Google account is registered as {user['role'].title()}. Please sign in through the {user['role'].title()} area.",
-            None,
-            email,
-        )
+        return False, f"You do not have a {expected_role.title()} account yet.", None, email
 
     return True, None, user, email
 
@@ -209,8 +199,9 @@ def create_account(
         return False, "Please complete all required fields."
     if "@" not in email or "." not in email.split("@")[-1]:
         return False, "Please enter a valid email address."
-    if find_user_by_email(email):
-        return False, "An account with this email already exists."
+    existing_role_user = find_user_by_email(email, role=role)
+    if existing_role_user:
+        return False, f"You already have a {role.title()} account with this email."
     if username and find_user_by_username(username):
         return False, "That username is already in use."
     if password != confirm_password:
@@ -226,7 +217,7 @@ def create_account(
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
-    return True, "Account created successfully. Please sign in."
+    return True, f"{role.title()} account created successfully. Please sign in."
 
 
 def logout_user() -> None:
@@ -413,6 +404,7 @@ def render_login_view() -> None:
 
 def render_create_account_view() -> None:
     st.markdown("### Create your account")
+    st.caption("You can register both Learner and Admin accounts using the same email address.")
     with st.form("create_account_form", clear_on_submit=False):
         role = st.radio(
             "Select role",
