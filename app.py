@@ -156,8 +156,9 @@ def oauth_is_configured() -> bool:
 
 
 def _get_workspace_users() -> list[dict]:
-    """Fetch active workspace users."""
-    return list(fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name"))
+    """Fetch active workspace users as plain dictionaries."""
+    rows = fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name")
+    return [dict(row) for row in rows]
 
 
 def _render_demo_access() -> None:
