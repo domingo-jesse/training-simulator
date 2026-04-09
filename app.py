@@ -47,6 +47,23 @@ def _google_identity() -> tuple[str | None, str | None, str | None]:
     return email.lower() if email else None, full_name, subject
 
 
+def _google_oauth_configured() -> bool:
+    secrets = getattr(st, "secrets", None)
+    if secrets is None:
+        return False
+
+    try:
+        auth_config = secrets.get("auth")
+        google_config = auth_config.get("google") if auth_config else None
+    except Exception:
+        return False
+
+    if not google_config:
+        return False
+
+    return bool(google_config.get("client_id") and google_config.get("client_secret"))
+
+
 def _render_google_login() -> bool:
     login_fn = getattr(st, "login", None)
     if not callable(login_fn):
@@ -54,8 +71,17 @@ def _render_google_login() -> bool:
 
     st.markdown("### Authentication")
     st.caption("Use your Google Workspace account to sign in.")
+
+    if not _google_oauth_configured():
+        st.info("Google sign-in is not configured for this deployment. Using local mode.")
+        return False
+
     if st.button("Sign in with Google", key="google_sign_in_button", use_container_width=True):
-        login_fn("google")
+        try:
+            login_fn("google")
+        except Exception:
+            st.error("Google sign-in is unavailable right now. Continue in local mode.")
+            return False
     return True
 
 
