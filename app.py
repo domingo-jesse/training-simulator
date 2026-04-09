@@ -86,40 +86,79 @@ def _render_google_login() -> bool:
 
 
 user_by_name = {u["name"]: u for u in users}
+user_by_id = {u["user_id"]: u for u in users}
 user_by_email = {u["email"].lower(): u for u in users if u["email"]}
 google_email, google_name, google_subject = _google_identity()
 
-with st.sidebar:
-    st.markdown("### Workspace")
-    current_user = user_by_email.get(google_email) if google_email else None
+if "local_user_id" not in st.session_state:
+    st.session_state.local_user_id = None
 
-    if current_user:
-        st.success(f"Signed in as {current_user['name']}")
-        st.caption(current_user["email"] or "")
 
-        if google_subject and google_subject != current_user["google_subject"]:
-            execute("UPDATE users SET google_subject = ? WHERE user_id = ?", (google_subject, current_user["user_id"]))
+def _reset_local_login() -> None:
+    st.session_state.local_user_id = None
 
-        logout_fn = getattr(st, "logout", None)
-        if callable(logout_fn):
-            if st.button("Sign out", key="google_sign_out_button", use_container_width=True):
-                logout_fn()
-                st.rerun()
-    else:
+
+def _render_login_page() -> dict | None:
+    st.markdown("## Login")
+    st.caption("Choose a sign-in method to access your workspace.")
+
+    if google_email:
+        mapped_user = user_by_email.get(google_email)
+        if mapped_user:
+            if google_subject and google_subject != mapped_user["google_subject"]:
+                execute("UPDATE users SET google_subject = ? WHERE user_id = ?", (google_subject, mapped_user["user_id"]))
+            st.success(f"Signed in with Google as {mapped_user['name']}")
+            return mapped_user
+
+    local_user = user_by_id.get(st.session_state.local_user_id)
+    if local_user:
+        return local_user
+
+    google_tab, local_tab = st.tabs(["Google Sign-In", "Workspace Login"])
+
+    with google_tab:
         google_login_available = _render_google_login()
-        if google_email and not current_user:
+        if google_email and not user_by_email.get(google_email):
             st.warning(
                 f"{google_email} is authenticated with Google, but no active user is mapped in this workspace."
             )
             if google_name:
                 st.caption(f"Google account: {google_name}")
-
-        st.markdown("---")
-        user_names = list(user_by_name.keys())
-        selected_name = st.selectbox("Continue in local mode as", user_names, key="local_mode_user_select")
-        current_user = user_by_name[selected_name]
-        if google_login_available:
+        elif google_login_available:
             st.caption("Tip: add matching user emails in the admin DB to enable automatic Google sign-in mapping.")
+
+    with local_tab:
+        st.markdown("### Local workspace login")
+        user_names = list(user_by_name.keys())
+        selected_name = st.selectbox("Select your workspace profile", user_names, key="local_mode_user_select")
+        if st.button("Continue to workspace", key="local_sign_in_button", use_container_width=True):
+            selected_user = user_by_name[selected_name]
+            st.session_state.local_user_id = selected_user["user_id"]
+            st.rerun()
+
+    return None
+
+
+current_user = _render_login_page()
+if not current_user:
+    st.stop()
+
+with st.sidebar:
+    st.markdown("### Workspace")
+    st.success(f"Signed in as {current_user['name']}")
+    st.caption(current_user["email"] or "")
+
+    logout_fn = getattr(st, "logout", None)
+    is_google_user = bool(google_email and current_user.get("email") and google_email == current_user["email"].lower())
+
+    if is_google_user and callable(logout_fn):
+        if st.button("Sign out of Google", key="google_sign_out_button", use_container_width=True):
+            logout_fn()
+            st.rerun()
+    else:
+        if st.button("Sign out of workspace", key="local_sign_out_button", use_container_width=True):
+            _reset_local_login()
+            st.rerun()
 
     if current_user["role"] == "admin":
         pages = ["Dashboard", "Learner Management", "Assignment Management", "Progress Tracking", "Module Builder"]
