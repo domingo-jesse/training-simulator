@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from admin_views import (
     render_admin_dashboard,
@@ -90,6 +91,32 @@ def _login_panel(role: str) -> None:
         st.session_state["role"] = role
         st.session_state["page"] = "Dashboard"
         st.rerun()
+
+    st.caption("Or")
+    _render_google_sign_in_button(role)
+
+
+def _render_google_sign_in_button(role: str) -> None:
+    """Render a Google Identity Services sign-in button UI for each role panel."""
+    components.html(
+        f"""
+        <div id="g_id_onload_{role}"
+            data-client_id="YOUR_GOOGLE_CLIENT_ID"
+            data-auto_prompt="false">
+        </div>
+        <div class="g_id_signin"
+            data-type="standard"
+            data-shape="rectangular"
+            data-theme="outline"
+            data-text="signin_with"
+            data-size="large"
+            data-logo_alignment="left"
+            data-width="280">
+        </div>
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
+        """,
+        height=82,
+    )
 
 
 def render_login_screen() -> None:
