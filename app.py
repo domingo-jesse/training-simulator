@@ -71,7 +71,6 @@ def _current_user() -> dict | None:
 def _logout() -> None:
     for key in ["user_id", "role", "page", "active_module_id", "latest_attempt_id"]:
         st.session_state.pop(key, None)
-    st.rerun()
 
 
 def _login_panel(role: str) -> None:
@@ -98,9 +97,13 @@ def _login_panel(role: str) -> None:
 
 def _render_google_sign_in_button(role: str) -> None:
     """Render a Google sign-in button directly below each role login form."""
+    st.caption("Continue with Google")
     components.html(
         f"""
         <div id="buttonDiv_{role}"></div>
+        <div id="buttonFallback_{role}" style="font-size: 0.9rem; color: #666; margin-top: 6px;">
+          Google sign-in button could not load. Check OAuth client configuration.
+        </div>
         <script src="https://accounts.google.com/gsi/client" async defer></script>
         <script>
           function handleCredentialResponse(response) {{
@@ -109,7 +112,7 @@ def _render_google_sign_in_button(role: str) -> None:
 
           function renderGoogleButton() {{
             if (!window.google || !google.accounts || !google.accounts.id) {{
-              return;
+              return false;
             }}
 
             google.accounts.id.initialize({{
@@ -121,12 +124,25 @@ def _render_google_sign_in_button(role: str) -> None:
               document.getElementById("buttonDiv_{role}"),
               {{ theme: "outline", size: "large", width: 280 }}
             );
+
+            const fallback = document.getElementById("buttonFallback_{role}");
+            if (fallback) {{
+              fallback.style.display = "none";
+            }}
+            return true;
           }}
 
-          window.onload = renderGoogleButton;
+          let tries = 0;
+          const intervalId = setInterval(() => {{
+            tries += 1;
+            const rendered = renderGoogleButton();
+            if (rendered || tries > 20) {{
+              clearInterval(intervalId);
+            }}
+          }}, 150);
         </script>
         """,
-        height=92,
+        height=124,
     )
 
 
