@@ -310,13 +310,10 @@ def get_identity() -> tuple[bool, str, str, str | None, str]:
 
 
 def attempt_google_login() -> None:
-    if not oauth_ready():
-        st.warning("Google sign-in is not fully configured yet. Check setup diagnostics below.")
-        return
     try:
         st.login("google")
     except Exception as exc:
-        st.error("Google sign-in is not ready yet. Use Demo Login while setup is in progress.")
+        st.error("Google sign-in could not be started. Verify OAuth secrets and that Authlib is installed.")
         st.caption(f"Details: {exc}")
 
 
@@ -348,14 +345,7 @@ def render_login_screen() -> None:
             if st.button(
                 "Continue with Google",
                 use_container_width=True,
-                type="primary" if google_ready else "secondary",
-                disabled=not google_ready,
-                help=(
-                    "Google sign-in is disabled until OAuth setup checks pass. "
-                    "Use Demo Login for local access."
-                    if not google_ready
-                    else None
-                ),
+                type="primary",
             ):
                 attempt_google_login()
         with col_demo:
@@ -367,7 +357,7 @@ def render_login_screen() -> None:
             )
 
         if not google_ready:
-            st.info("Google sign-in is currently disabled until OAuth setup is complete. Use Demo Login to continue.")
+            st.info("Google OAuth setup checks are still failing below. You can still try Google sign-in, or use Demo Login.")
 
         st.markdown(
             '<p class="tiny-note">Demo Login gives you instant local access while Google OIDC configuration is in progress.</p>',
