@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from html import escape
-
 import streamlit as st
-import streamlit.components.v1 as components
 
 from admin_views import (
     render_admin_dashboard,
@@ -100,62 +97,8 @@ def _login_panel(role: str) -> None:
 def _render_google_sign_in_button(role: str) -> None:
     """Render a Google sign-in button directly below each role login form."""
     st.caption("Continue with Google")
-    auth_config = st.secrets.get("auth", {})
-    google_config = auth_config.get("google", {}) if isinstance(auth_config, dict) else {}
-    client_id = google_config.get("client_id", "") if isinstance(google_config, dict) else ""
-    client_id = str(client_id).strip()
-
-    if not client_id or client_id == "YOUR_GOOGLE_CLIENT_ID":
-        st.info("Google sign-in is not configured yet. Add `auth.google.client_id` in `.streamlit/secrets.toml`.")
-        return
-
-    escaped_client_id = escape(client_id, quote=True)
-    components.html(
-        f"""
-        <div id="buttonDiv_{role}"></div>
-        <div id="buttonFallback_{role}" style="font-size: 0.9rem; color: #666; margin-top: 6px;">
-          Google sign-in button could not load. Check OAuth client configuration.
-        </div>
-        <script src="https://accounts.google.com/gsi/client" async defer></script>
-        <script>
-          function handleCredentialResponse(response) {{
-            console.log("Encoded JWT ID token: " + response.credential);
-          }}
-
-          function renderGoogleButton() {{
-            if (!window.google || !google.accounts || !google.accounts.id) {{
-              return false;
-            }}
-
-            google.accounts.id.initialize({{
-              client_id: "{escaped_client_id}",
-              callback: handleCredentialResponse
-            }});
-
-            google.accounts.id.renderButton(
-              document.getElementById("buttonDiv_{role}"),
-              {{ theme: "outline", size: "large", width: 280 }}
-            );
-
-            const fallback = document.getElementById("buttonFallback_{role}");
-            if (fallback) {{
-              fallback.style.display = "none";
-            }}
-            return true;
-          }}
-
-          let tries = 0;
-          const intervalId = setInterval(() => {{
-            tries += 1;
-            const rendered = renderGoogleButton();
-            if (rendered || tries > 20) {{
-              clearInterval(intervalId);
-            }}
-          }}, 150);
-        </script>
-        """,
-        height=124,
-    )
+    if st.button("Continue with Google", key=f"google_login_btn_{role}", use_container_width=True):
+        st.login("google")
 
 
 def render_login_screen() -> None:
