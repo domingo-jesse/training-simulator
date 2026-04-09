@@ -97,25 +97,36 @@ def _login_panel(role: str) -> None:
 
 
 def _render_google_sign_in_button(role: str) -> None:
-    """Render a Google Identity Services sign-in button UI for each role panel."""
+    """Render a Google sign-in button directly below each role login form."""
     components.html(
         f"""
-        <div id="g_id_onload_{role}"
-            data-client_id="YOUR_GOOGLE_CLIENT_ID"
-            data-auto_prompt="false">
-        </div>
-        <div class="g_id_signin"
-            data-type="standard"
-            data-shape="rectangular"
-            data-theme="outline"
-            data-text="signin_with"
-            data-size="large"
-            data-logo_alignment="left"
-            data-width="280">
-        </div>
+        <div id="buttonDiv_{role}"></div>
         <script src="https://accounts.google.com/gsi/client" async defer></script>
+        <script>
+          function handleCredentialResponse(response) {{
+            console.log("Encoded JWT ID token: " + response.credential);
+          }}
+
+          function renderGoogleButton() {{
+            if (!window.google || !google.accounts || !google.accounts.id) {{
+              return;
+            }}
+
+            google.accounts.id.initialize({{
+              client_id: "YOUR_GOOGLE_CLIENT_ID",
+              callback: handleCredentialResponse
+            }});
+
+            google.accounts.id.renderButton(
+              document.getElementById("buttonDiv_{role}"),
+              {{ theme: "outline", size: "large", width: 280 }}
+            );
+          }}
+
+          window.onload = renderGoogleButton;
+        </script>
         """,
-        height=82,
+        height=92,
     )
 
 
