@@ -114,7 +114,7 @@ def render_module_library(user: Dict) -> None:
                     if module["due_date"]:
                         st.caption(f"Due: {module['due_date']}")
                     st.write(module["description"])
-                    if st.button("Start module", key=f"start_{module['module_id']}", type="primary"):
+                    if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
                         st.session_state.active_module_id = module["module_id"]
                         st.session_state.page = "Scenario"
                         st.rerun()
