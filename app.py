@@ -20,6 +20,9 @@ class DashboardCard:
     action_label: str
 
 
+MASTER_OWNER_EMAIL = "domingo.jesse@gmail.com"
+
+
 DASHBOARD_CARDS: tuple[DashboardCard, ...] = (
     DashboardCard(
         title="Start Simulation",
@@ -181,8 +184,8 @@ def _user_attr(field: str) -> str:
 
 
 def get_user_email() -> str:
-    email = _user_attr("email")
-    return email or "Signed-in user"
+    """Return the hard-coded owner email for the admin surface."""
+    return MASTER_OWNER_EMAIL
 
 
 def get_user_display_name() -> str:
@@ -190,8 +193,7 @@ def get_user_display_name() -> str:
     if name:
         return name
 
-    email = _user_attr("email")
-    return email or "Signed-in user"
+    return MASTER_OWNER_EMAIL
 
 
 def get_user_initial() -> str:
