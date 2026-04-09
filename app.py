@@ -105,10 +105,16 @@ def _default_org_id() -> int:
     return int(execute("INSERT INTO organizations (name) VALUES (?)", ("Default Org",)))
 
 
+def _normalize_role(role: str | None) -> str:
+    role_norm = (role or "").strip().lower()
+    return role_norm if role_norm in {"learner", "admin"} else "learner"
+
+
 def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
+    normalized_role = _normalize_role(auth_user.get("role"))
     existing = fetch_one(
         "SELECT * FROM users WHERE LOWER(email) = ? AND role = ? LIMIT 1",
-        (auth_user["email"].strip().lower(), auth_user["role"]),
+        (auth_user["email"].strip().lower(), normalized_role),
     )
     if existing:
         return dict(existing)
@@ -119,7 +125,7 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
         INSERT INTO users (name, email, role, team, organization_id, is_active)
         VALUES (?, ?, ?, ?, ?, 1)
         """,
-        (auth_user["full_name"], auth_user["email"].strip().lower(), auth_user["role"], "General", org_id),
+        (auth_user["full_name"], auth_user["email"].strip().lower(), normalized_role, "General", org_id),
     )
     created = fetch_one("SELECT * FROM users WHERE user_id = ?", (user_id,))
     return dict(created)
@@ -239,6 +245,7 @@ def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[
 
 
 def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
+    normalized_role = _normalize_role(user.get("role"))
     platform_user = _get_or_create_platform_user(user)
     st.session_state["auth_authenticated"] = True
     st.session_state["auth_method"] = auth_method
@@ -246,12 +253,12 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
         "id": user["id"],
         "full_name": user["full_name"],
         "email": user["email"],
-        "role": user["role"],
+        "role": normalized_role,
         "user_id": platform_user["user_id"],
         "name": platform_user["name"],
         "organization_id": platform_user["organization_id"],
     }
-    st.session_state["selected_role"] = user["role"]
+    st.session_state["selected_role"] = normalized_role
     st.session_state["page"] = None
     st.session_state["auth_error"] = None
     st.session_state["auth_info"] = None
