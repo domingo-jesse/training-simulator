@@ -1,9 +1,24 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import streamlit as st
 
+from admin_views import (
+    render_admin_dashboard,
+    render_assignment_management,
+    render_learner_management,
+    render_module_builder,
+    render_progress_tracking,
+)
+from data_seed import seed_all
+from db import fetch_all, fetch_one, init_db
+from learner_views import (
+    render_learner_home,
+    render_module_library,
+    render_progress_page,
+    render_results_page,
+    render_scenario_page,
+)
+from utils import inject_styles
 
 st.set_page_config(
     page_title="Training Simulator",
@@ -13,312 +28,147 @@ st.set_page_config(
 )
 
 
-@dataclass(frozen=True)
-class DashboardCard:
-    title: str
-    description: str
-    action_label: str
+def bootstrap_data() -> None:
+    init_db()
+    seed_all()
 
 
-MASTER_OWNER_EMAIL = "domingo.jesse@gmail.com"
-
-
-DASHBOARD_CARDS: tuple[DashboardCard, ...] = (
-    DashboardCard(
-        title="Start Simulation",
-        description="Launch a new role-play session with scenario goals, challenge level, and guided facilitation.",
-        action_label="Start",
-    ),
-    DashboardCard(
-        title="Review Performance",
-        description="Explore score trends, transcript highlights, and coaching recommendations for each learner.",
-        action_label="Review",
-    ),
-    DashboardCard(
-        title="Admin / Settings",
-        description="Manage workspace policies, evaluation rubrics, team permissions, and platform defaults.",
-        action_label="Open",
-    ),
-)
-
-
-def inject_ui_css() -> None:
-    st.markdown(
+def _active_users_by_role(role: str):
+    return fetch_all(
         """
-        <style>
-            .stApp {
-                background: #f4f6f8;
-                color: #0f172a;
-            }
-
-            .main > div {
-                padding-top: 0.8rem;
-                padding-bottom: 1.5rem;
-            }
-
-            [data-testid="stSidebar"] {
-                background: #ffffff;
-                border-right: 1px solid #e2e8f0;
-            }
-
-            .topbar {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 14px;
-                padding: 0.95rem 1.15rem;
-                margin-bottom: 1rem;
-                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
-            }
-
-            .app-title {
-                margin: 0;
-                font-size: 1.28rem;
-                font-weight: 700;
-                letter-spacing: -0.01em;
-                color: #0f172a;
-            }
-
-            .app-subtitle {
-                margin-top: 0.2rem;
-                font-size: 0.88rem;
-                color: #64748b;
-            }
-
-            .profile-chip {
-                display: inline-flex;
-                align-items: center;
-                gap: 0.5rem;
-                background: #f8fafc;
-                border: 1px solid #e2e8f0;
-                border-radius: 999px;
-                padding: 0.33rem 0.72rem;
-                font-size: 0.84rem;
-                color: #334155;
-            }
-
-            .avatar-circle {
-                width: 26px;
-                height: 26px;
-                border-radius: 999px;
-                background: #cbd5e1;
-                color: #0f172a;
-                display: inline-flex;
-                justify-content: center;
-                align-items: center;
-                font-size: 0.8rem;
-                font-weight: 700;
-            }
-
-            .welcome-card {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 14px;
-                padding: 1.35rem;
-                margin-bottom: 1rem;
-                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
-            }
-
-            .welcome-title {
-                margin: 0 0 0.25rem 0;
-                font-size: 1.3rem;
-                font-weight: 700;
-                color: #0f172a;
-            }
-
-            .muted {
-                color: #475569;
-                margin: 0;
-                line-height: 1.5;
-            }
-
-            .dashboard-card {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 14px;
-                padding: 1rem;
-                min-height: 195px;
-                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
-            }
-
-            .card-title {
-                margin: 0 0 0.4rem 0;
-                font-size: 1.02rem;
-                font-weight: 650;
-                color: #0f172a;
-            }
-
-            .settings-panel {
-                background: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 14px;
-                padding: 1rem 1.1rem;
-                margin-bottom: 1rem;
-                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
-            }
-
-            .section-label {
-                margin-bottom: 0.2rem;
-                font-size: 0.74rem;
-                font-weight: 700;
-                color: #64748b;
-                text-transform: uppercase;
-                letter-spacing: 0.08em;
-            }
-        </style>
+        SELECT user_id, name, email, role, team, organization_id, is_active
+        FROM users
+        WHERE role = ? AND is_active = 1
+        ORDER BY name
         """,
-        unsafe_allow_html=True,
+        (role,),
     )
 
 
-def _user_attr(field: str) -> str:
-    user = getattr(st, "user", None)
-    if user is None:
-        return ""
+def _current_user() -> dict | None:
+    user_id = st.session_state.get("user_id")
+    if not user_id:
+        return None
 
-    try:
-        value = user.get(field, "")
-    except Exception:
-        value = getattr(user, field, "")
+    user = fetch_one(
+        """
+        SELECT user_id, name, email, role, team, organization_id, is_active
+        FROM users
+        WHERE user_id = ?
+        """,
+        (user_id,),
+    )
 
-    return str(value).strip() if value else ""
+    if not user or not user["is_active"]:
+        st.session_state.pop("user_id", None)
+        st.session_state.pop("role", None)
+        return None
 
-
-def get_user_email() -> str:
-    """Return the hard-coded owner email for the admin surface."""
-    return MASTER_OWNER_EMAIL
-
-
-def get_user_display_name() -> str:
-    name = _user_attr("name")
-    if name:
-        return name
-
-    return MASTER_OWNER_EMAIL
+    return dict(user)
 
 
-def get_user_initial() -> str:
-    source = get_user_display_name()
-    return source[0].upper() if source else "U"
+def _logout() -> None:
+    for key in ["user_id", "role", "page", "active_module_id", "latest_attempt_id"]:
+        st.session_state.pop(key, None)
+    st.rerun()
 
 
-def render_user_settings_panel() -> None:
-    if not st.session_state.get("show_user_settings", False):
+def _login_panel(role: str) -> None:
+    role_label = "Admin" if role == "admin" else "Learner"
+    users = _active_users_by_role(role)
+
+    st.markdown(f"### {role_label} Login")
+    if not users:
+        st.warning(f"No active {role_label.lower()} accounts found.")
         return
 
-    st.markdown('<div class="settings-panel">', unsafe_allow_html=True)
-    st.markdown("#### User Settings")
+    user_map = {f"{u['name']} ({u['email']})": int(u["user_id"]) for u in users}
+    selected = st.selectbox(f"Select {role_label.lower()} account", list(user_map.keys()), key=f"login_select_{role}")
 
-    info_col, prefs_col = st.columns(2)
-    with info_col:
-        st.markdown('<p class="section-label">Account</p>', unsafe_allow_html=True)
-        st.write(f"**Name:** {get_user_display_name()}")
-        st.write(f"**Email:** {get_user_email()}")
-        st.write("**Role:** Learner / Admin (placeholder)")
-
-    with prefs_col:
-        st.markdown('<p class="section-label">Preferences</p>', unsafe_allow_html=True)
-        st.write("**Theme:** System default (placeholder)")
-        st.write("**Notifications:** Weekly summary (placeholder)")
-        st.caption("More profile options can be added later.")
-
-    if st.button("Close Settings", key="close_user_settings"):
-        st.session_state["show_user_settings"] = False
+    if st.button(f"Sign in as {role_label}", key=f"login_btn_{role}", type="primary", use_container_width=True):
+        st.session_state["user_id"] = user_map[selected]
+        st.session_state["role"] = role
+        st.session_state["page"] = "Dashboard"
         st.rerun()
 
-    st.markdown("</div>", unsafe_allow_html=True)
+
+def render_login_screen() -> None:
+    st.markdown("## Training Simulator")
+    st.caption("Use separate role-based entry points for learners and admins.")
+
+    learner_col, admin_col = st.columns(2)
+    with learner_col:
+        with st.container(border=True):
+            _login_panel("learner")
+    with admin_col:
+        with st.container(border=True):
+            _login_panel("admin")
 
 
-def render_topbar() -> None:
-    left, right = st.columns([6, 2.6], vertical_alignment="center")
-
-    with left:
-        st.markdown('<div class="topbar">', unsafe_allow_html=True)
-        st.markdown('<h1 class="app-title">Training Simulator</h1>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="app-subtitle">Internal enablement workspace for realistic training, scoring, and coaching.</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-
-    with right:
-        st.markdown(
-            (
-                f'<div class="profile-chip"><span class="avatar-circle">{get_user_initial()}</span>'
-                f'<span>{get_user_display_name()}</span></div>'
-            ),
-            unsafe_allow_html=True,
-        )
-        with st.popover("Profile", use_container_width=True):
-            st.caption(get_user_email())
-            if st.button("User Settings", use_container_width=True, key="menu_user_settings"):
-                st.session_state["show_user_settings"] = True
-                st.rerun()
-            if st.button("Log Out", use_container_width=True, key="menu_logout"):
-                st.logout()
-
-
-def render_sidebar() -> None:
+def render_admin_app(user: dict) -> None:
     with st.sidebar:
-        st.markdown("### Training Simulator")
-        st.markdown('<p class="section-label">App Section</p>', unsafe_allow_html=True)
-        st.radio(
+        st.markdown("### Admin Console")
+        st.caption(f"Signed in as **{user['name']}**")
+        st.caption(user["email"])
+        page = st.radio(
             "Navigation",
-            ["Dashboard", "Simulations", "Performance", "Team Management"],
-            index=0,
-            label_visibility="collapsed",
+            ["Dashboard", "Module Builder", "Assignment Management", "Learner Management", "Progress Tracking"],
+            key="admin_nav",
         )
+        st.button("Log out", on_click=_logout, use_container_width=True)
 
-        st.markdown("---")
-        st.markdown("**Signed in as**")
-        st.caption(get_user_email())
-
-
-def render_welcome_card() -> None:
-    st.markdown(
-        f"""
-        <div class="welcome-card">
-            <h2 class="welcome-title">Welcome back, {get_user_display_name()}.</h2>
-            <p class="muted">
-                Continue building high-quality training experiences with simulation workflows,
-                structured feedback, and measurable outcomes.
-            </p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    if page == "Dashboard":
+        render_admin_dashboard(user)
+    elif page == "Module Builder":
+        render_module_builder(user)
+    elif page == "Assignment Management":
+        render_assignment_management(user)
+    elif page == "Learner Management":
+        render_learner_management(user)
+    else:
+        render_progress_tracking(user)
 
 
-def render_dashboard_cards() -> None:
-    columns = st.columns(3)
-    for column, card in zip(columns, DASHBOARD_CARDS):
-        with column:
-            st.markdown(
-                f"""
-                <div class="dashboard-card">
-                    <h3 class="card-title">{card.title}</h3>
-                    <p class="muted">{card.description}</p>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-            st.button(card.action_label, key=f"cta_{card.title}", use_container_width=True)
+def render_learner_app(user: dict) -> None:
+    with st.sidebar:
+        st.markdown("### Learner Workspace")
+        st.caption(f"Signed in as **{user['name']}**")
+        st.caption(user["email"])
+        page = st.radio(
+            "Navigation",
+            ["Home", "Module Library", "Scenario", "Results", "My Progress"],
+            key="learner_nav",
+        )
+        st.button("Log out", on_click=_logout, use_container_width=True)
+
+    if page == "Home":
+        render_learner_home(user)
+    elif page == "Module Library":
+        render_module_library(user)
+    elif page == "Scenario":
+        render_scenario_page(user)
+    elif page == "Results":
+        render_results_page(user)
+    else:
+        render_progress_page(user)
 
 
 def main() -> None:
-    inject_ui_css()
+    inject_styles()
+    bootstrap_data()
 
-    if not bool(getattr(st.user, "is_logged_in", False)):
-        st.markdown("## Training Simulator")
-        st.info("Please sign in with Google to access your dashboard.")
-        if st.button("Sign in with Google", type="primary"):
-            st.login("google")
+    user = _current_user()
+    if not user:
+        render_login_screen()
         return
 
-    render_sidebar()
-    render_topbar()
-    render_user_settings_panel()
-    render_welcome_card()
-    render_dashboard_cards()
+    if user["role"] == "admin":
+        st.title("Training Simulator • Admin")
+        render_admin_app(user)
+        return
+
+    st.title("Training Simulator • Learner")
+    render_learner_app(user)
 
 
 if __name__ == "__main__":
