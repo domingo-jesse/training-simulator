@@ -167,6 +167,12 @@ def render_assignment_management(current_user: dict) -> None:
 
     learners = fetch_all("SELECT user_id, name, is_active FROM users WHERE role='learner' AND organization_id=? ORDER BY name", (org_id,))
     modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? ORDER BY title", (org_id,))
+    if not learners:
+        st.info("No learners available yet. Add or activate learners first.")
+        return
+    if not modules:
+        st.info("No modules available yet. Create a module first.")
+        return
 
     with st.container(border=True):
         st.markdown("#### Assign module")
@@ -181,6 +187,9 @@ def render_assignment_management(current_user: dict) -> None:
         if st.button("Assign training", type="primary"):
             module_id = module_map[selected_module]
             due_date_value = due_date.isoformat() if enable_due_date else None
+            if not selected_learners:
+                st.warning("Select at least one learner before assigning.")
+                return
             for learner_label in selected_learners:
                 learner_id = learner_map[learner_label]
                 execute(
@@ -227,6 +236,90 @@ def render_assignment_management(current_user: dict) -> None:
             )
             st.success("Assignment updated.")
             st.rerun()
+
+
+def render_grading_center(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Submission Grading")
+    st.caption("Review learner submissions and scoring results for assigned modules.")
+
+    attempts = to_df(
+        fetch_all(
+            """
+            SELECT
+                a.attempt_id,
+                a.created_at,
+                u.name AS learner_name,
+                m.title AS module_title,
+                a.total_score,
+                a.understanding_score,
+                a.investigation_score,
+                a.solution_score,
+                a.communication_score,
+                a.ai_feedback
+            FROM attempts a
+            JOIN users u ON u.user_id = a.user_id
+            JOIN modules m ON m.module_id = a.module_id
+            WHERE a.organization_id = ?
+            ORDER BY a.created_at DESC
+            """,
+            (org_id,),
+        )
+    )
+    if attempts.empty:
+        st.info("No learner submissions yet.")
+        return
+
+    learner_filter = st.multiselect(
+        "Filter learner",
+        options=sorted(attempts["learner_name"].unique().tolist()),
+        default=[],
+    )
+    module_filter = st.multiselect(
+        "Filter module",
+        options=sorted(attempts["module_title"].unique().tolist()),
+        default=[],
+    )
+    filtered = attempts.copy()
+    if learner_filter:
+        filtered = filtered[filtered["learner_name"].isin(learner_filter)]
+    if module_filter:
+        filtered = filtered[filtered["module_title"].isin(module_filter)]
+
+    metric_row(
+        {
+            "Submissions": len(filtered),
+            "Average score": f"{round(filtered['total_score'].mean(), 1)}%" if len(filtered) else "0%",
+            "Top score": f"{round(filtered['total_score'].max(), 1)}%" if len(filtered) else "0%",
+        }
+    )
+
+    st.dataframe(
+        filtered[
+            [
+                "created_at",
+                "learner_name",
+                "module_title",
+                "total_score",
+                "understanding_score",
+                "investigation_score",
+                "solution_score",
+                "communication_score",
+            ]
+        ],
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    selected_attempt = st.selectbox(
+        "Submission feedback",
+        options=filtered["attempt_id"].tolist(),
+        format_func=lambda aid: f"Attempt #{aid}",
+    )
+    feedback_row = filtered[filtered["attempt_id"] == selected_attempt].iloc[0]
+    with st.container(border=True):
+        st.markdown("#### AI feedback")
+        st.write(feedback_row["ai_feedback"] or "No feedback available.")
 
 
 def render_progress_tracking(current_user: dict) -> None:

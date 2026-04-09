@@ -4,12 +4,30 @@ import hashlib
 from typing import Any
 
 import streamlit as st
+from admin_views import (
+    render_admin_dashboard,
+    render_assignment_management,
+    render_grading_center,
+    render_learner_management,
+    render_module_builder,
+    render_progress_tracking,
+)
+from data_seed import seed_all
+from db import execute, fetch_one, init_db
+from learner_views import (
+    render_learner_home,
+    render_module_library,
+    render_progress_page,
+    render_results_page,
+    render_scenario_page,
+)
+from utils import inject_styles
 
 st.set_page_config(
     page_title="Training Simulator",
     page_icon="🎯",
     layout="wide",
-    initial_sidebar_state="collapsed",
+    initial_sidebar_state="expanded",
 )
 
 
@@ -62,10 +80,47 @@ def init_state() -> None:
         "post_create_success": None,
         "pending_google": None,
         "show_password": False,
+        "page": None,
+        "bootstrapped": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _ensure_platform_data() -> None:
+    if st.session_state.get("bootstrapped"):
+        return
+    init_db()
+    seed_all()
+    st.session_state["bootstrapped"] = True
+
+
+def _default_org_id() -> int:
+    org = fetch_one("SELECT organization_id FROM organizations ORDER BY organization_id LIMIT 1")
+    if org:
+        return int(org["organization_id"])
+    return int(execute("INSERT INTO organizations (name) VALUES (?)", ("Default Org",)))
+
+
+def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
+    existing = fetch_one(
+        "SELECT * FROM users WHERE LOWER(email) = ? AND role = ? LIMIT 1",
+        (auth_user["email"].strip().lower(), auth_user["role"]),
+    )
+    if existing:
+        return dict(existing)
+
+    org_id = _default_org_id()
+    user_id = execute(
+        """
+        INSERT INTO users (name, email, role, team, organization_id, is_active)
+        VALUES (?, ?, ?, ?, ?, 1)
+        """,
+        (auth_user["full_name"], auth_user["email"].strip().lower(), auth_user["role"], "General", org_id),
+    )
+    created = fetch_one("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    return dict(created)
 
 
 def find_user_by_email(email: str, role: str | None = None) -> dict[str, Any] | None:
@@ -166,6 +221,7 @@ def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[
 
 
 def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
+    platform_user = _get_or_create_platform_user(user)
     st.session_state["auth_authenticated"] = True
     st.session_state["auth_method"] = auth_method
     st.session_state["current_user"] = {
@@ -173,11 +229,18 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
         "full_name": user["full_name"],
         "email": user["email"],
         "role": user["role"],
+        "user_id": platform_user["user_id"],
+        "name": platform_user["name"],
+        "organization_id": platform_user["organization_id"],
     }
     st.session_state["selected_role"] = user["role"]
+    st.session_state["page"] = None
     st.session_state["auth_error"] = None
     st.session_state["auth_info"] = None
     st.session_state["pending_google"] = None
+    st.session_state["page"] = None
+    st.session_state["active_module_id"] = None
+    st.session_state["latest_attempt_id"] = None
 
 
 def create_account(
@@ -458,27 +521,58 @@ def render_topbar(user: dict[str, Any]) -> None:
 def render_main_app() -> None:
     user = st.session_state["current_user"]
     render_topbar(user)
-
     st.markdown("---")
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        st.markdown("<div class='app-card'><h4>Start Simulation</h4><p>Launch guided scenarios to practice real-world responses.</p></div>", unsafe_allow_html=True)
-    with c2:
-        st.markdown("<div class='app-card'><h4>Review Performance</h4><p>Inspect completion metrics, scoring trends, and feedback.</p></div>", unsafe_allow_html=True)
-    with c3:
-        if user["role"] == "admin":
-            st.markdown("<div class='app-card'><h4>Admin Settings</h4><p>Configure users, permissions, simulation rules, and reporting.</p></div>", unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='app-card'><h4>Learning Path</h4><p>Track assigned modules and upcoming simulation milestones.</p></div>", unsafe_allow_html=True)
-
     if user["role"] == "admin":
-        st.info("Admin view enabled: organization-level controls and reporting are available.")
+        pages = [
+            "Dashboard",
+            "Assignments",
+            "Submission Grading",
+            "Progress Tracking",
+            "Learner Management",
+            "Module Builder",
+        ]
+        default_page = st.session_state.get("page") or "Dashboard"
+        st.session_state["page"] = st.sidebar.radio(
+            "Admin Navigation",
+            options=pages,
+            index=pages.index(default_page) if default_page in pages else 0,
+        )
+        if st.session_state["page"] == "Dashboard":
+            render_admin_dashboard(user)
+        elif st.session_state["page"] == "Assignments":
+            render_assignment_management(user)
+        elif st.session_state["page"] == "Submission Grading":
+            render_grading_center(user)
+        elif st.session_state["page"] == "Progress Tracking":
+            render_progress_tracking(user)
+        elif st.session_state["page"] == "Learner Management":
+            render_learner_management(user)
+        elif st.session_state["page"] == "Module Builder":
+            render_module_builder(user)
     else:
-        st.success("Learner view enabled: continue training and monitor your progress.")
+        pages = ["Home", "Assigned Modules", "Scenario", "Results", "My Progress"]
+        default_page = st.session_state.get("page") or "Home"
+        st.session_state["page"] = st.sidebar.radio(
+            "Learner Navigation",
+            options=pages,
+            index=pages.index(default_page) if default_page in pages else 0,
+        )
+        if st.session_state["page"] == "Home":
+            render_learner_home(user)
+        elif st.session_state["page"] == "Assigned Modules":
+            render_module_library(user)
+        elif st.session_state["page"] == "Scenario":
+            render_scenario_page(user)
+        elif st.session_state["page"] == "Results":
+            render_results_page(user)
+        elif st.session_state["page"] == "My Progress":
+            render_progress_page(user)
 
 
 def main() -> None:
     init_state()
+    _ensure_platform_data()
+    inject_styles()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
         render_main_app()

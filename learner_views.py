@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import Dict
 
 import altair as alt
-import pandas as pd
 import streamlit as st
 
 from db import fetch_all, fetch_one, insert_attempt, log_actions
@@ -11,7 +10,46 @@ from evaluation import evaluate_submission
 from utils import metric_row, parse_json_list, to_df
 
 
-def _learner_stats(user_id: int) -> Dict:
+def _assigned_modules(user: Dict):
+    return fetch_all(
+        """
+        SELECT
+            a.assignment_id,
+            a.module_id,
+            a.due_date,
+            a.assigned_at,
+            m.title,
+            m.category,
+            m.difficulty,
+            m.estimated_time,
+            m.description,
+            CASE
+                WHEN x.last_attempt_at IS NOT NULL THEN 'Completed'
+                WHEN a.due_date IS NOT NULL AND DATE(a.due_date) < DATE('now') THEN 'Overdue'
+                WHEN x.attempt_count > 0 THEN 'In Progress'
+                ELSE 'Not Started'
+            END AS status,
+            x.attempt_count,
+            x.last_attempt_at
+        FROM assignments a
+        JOIN modules m ON m.module_id = a.module_id
+        LEFT JOIN (
+            SELECT user_id, module_id, COUNT(*) AS attempt_count, MAX(created_at) AS last_attempt_at
+            FROM attempts
+            WHERE user_id = ? AND organization_id = ?
+            GROUP BY user_id, module_id
+        ) x ON x.module_id = a.module_id
+        WHERE a.learner_id = ?
+          AND a.organization_id = ?
+          AND a.is_active = 1
+          AND m.status = 'published'
+        ORDER BY a.assigned_at DESC
+        """,
+        (user["user_id"], user["organization_id"], user["user_id"], user["organization_id"]),
+    )
+
+
+def _learner_stats(user: Dict) -> Dict:
     attempts = fetch_all(
         """
         SELECT a.*, m.title FROM attempts a
@@ -19,38 +57,37 @@ def _learner_stats(user_id: int) -> Dict:
         WHERE a.user_id = ?
         ORDER BY a.created_at DESC
         """,
-        (user_id,),
+        (user["user_id"],),
     )
+    assigned_modules = _assigned_modules(user)
     completed_module_ids = {a["module_id"] for a in attempts}
     avg_score = round(sum(a["total_score"] for a in attempts) / len(attempts), 1) if attempts else 0
     return {
         "attempts": attempts,
+        "assigned_count": len(assigned_modules),
         "completed_count": len(completed_module_ids),
         "avg_score": avg_score,
+        "assigned_modules": assigned_modules,
     }
 
 
 def render_learner_home(user: Dict) -> None:
     st.subheader("Welcome back")
-    st.caption("Complete realistic troubleshooting scenarios, then review AI coaching feedback to improve your process.")
+    st.caption("Complete assigned troubleshooting scenarios, submit your work, and review your coaching feedback.")
 
-    modules = fetch_all(
-        "SELECT * FROM modules WHERE organization_id = ? AND status = 'published' ORDER BY module_id",
-        (user["organization_id"],),
-    )
-    stats = _learner_stats(user["user_id"])
+    stats = _learner_stats(user)
     recent_feedback = stats["attempts"][0]["ai_feedback"] if stats["attempts"] else "No feedback yet. Complete your first module to begin."
 
     metric_row(
         {
-            "Available modules": len(modules),
+            "Assigned modules": stats["assigned_count"],
             "Completed": stats["completed_count"],
             "Average score": f"{stats['avg_score']}%",
         }
     )
 
-    completion_ratio = (stats["completed_count"] / len(modules)) if modules else 0
-    st.progress(completion_ratio, text=f"Progress: {int(completion_ratio * 100)}%")
+    completion_ratio = (stats["completed_count"] / stats["assigned_count"]) if stats["assigned_count"] else 0
+    st.progress(completion_ratio, text=f"Assigned progress: {int(completion_ratio * 100)}%")
 
     with st.container(border=True):
         st.markdown("#### Recent feedback")
@@ -58,19 +95,24 @@ def render_learner_home(user: Dict) -> None:
 
 
 def render_module_library(user: Dict) -> None:
-    st.subheader("Module Library")
-    modules = fetch_all(
-        "SELECT * FROM modules WHERE organization_id = ? AND status = 'published' ORDER BY module_id",
-        (user["organization_id"],),
-    )
+    st.subheader("Assigned Modules")
+    assignments = _assigned_modules(user)
 
-    for i in range(0, len(modules), 2):
+    if not assignments:
+        st.info("No modules are assigned yet. Your admin can assign training from the admin dashboard.")
+        return
+
+    for i in range(0, len(assignments), 2):
         cols = st.columns(2)
-        for col, module in zip(cols, modules[i : i + 2]):
+        for col, module in zip(cols, assignments[i : i + 2]):
             with col:
                 with st.container(border=True):
                     st.markdown(f"### {module['title']}")
-                    st.caption(f"{module['category']} • {module['difficulty']} • {module['estimated_time']}")
+                    st.caption(
+                        f"{module['category']} • {module['difficulty']} • {module['estimated_time']} • Status: {module['status']}"
+                    )
+                    if module["due_date"]:
+                        st.caption(f"Due: {module['due_date']}")
                     st.write(module["description"])
                     if st.button("Start module", key=f"start_{module['module_id']}", type="primary"):
                         st.session_state.active_module_id = module["module_id"]
@@ -81,7 +123,19 @@ def render_module_library(user: Dict) -> None:
 def render_scenario_page(user: Dict) -> None:
     module_id = st.session_state.get("active_module_id")
     if not module_id:
-        st.info("Select a module from Module Library to begin.")
+        st.info("Select a module from Assigned Modules to begin.")
+        return
+
+    assignment = fetch_one(
+        """
+        SELECT assignment_id
+        FROM assignments
+        WHERE learner_id = ? AND module_id = ? AND organization_id = ? AND is_active = 1
+        """,
+        (user["user_id"], module_id, user["organization_id"]),
+    )
+    if not assignment:
+        st.warning("This module is not currently assigned to you.")
         return
 
     module = fetch_one(
@@ -122,7 +176,7 @@ def render_scenario_page(user: Dict) -> None:
     diagnosis = st.text_area("Diagnosis", key=f"diagnosis_{module_id}", height=100)
     next_steps = st.text_area("Next steps", key=f"next_steps_{module_id}", height=120)
     customer_response = st.text_area("Customer response", key=f"customer_{module_id}", height=120)
-    escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"]) 
+    escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"])
 
     if st.button("Submit module", type="primary"):
         answers = {
@@ -197,8 +251,8 @@ def render_results_page(user: Dict) -> None:
     if c1.button("Retry module"):
         st.session_state.page = "Scenario"
         st.rerun()
-    if c2.button("Next module"):
-        st.session_state.page = "Module Library"
+    if c2.button("Back to assignments"):
+        st.session_state.page = "Assigned Modules"
         st.rerun()
 
 
@@ -215,7 +269,7 @@ def render_progress_page(user: Dict) -> None:
 
     st.subheader("My Progress")
     if not attempts:
-        st.info("No attempts yet. Start a module to begin tracking progress.")
+        st.info("No attempts yet. Start an assigned module to begin tracking progress.")
         return
 
     df = to_df(attempts)
