@@ -568,26 +568,17 @@ def render_create_account_view() -> None:
 
 
 def render_topbar(user: dict[str, Any]) -> None:
-    st.markdown(
-        f"""
-        <div class="dashboard-shell">
-          <div class="dashboard-header">
-            <div>
-              <h1 class="dashboard-title">Dashboard</h1>
-              <p class="dashboard-subtitle">Simulation workspace and readiness analytics</p>
-            </div>
-            <div class="profile-chip">{user['full_name']} · {user['role'].title()}</div>
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    action_l, action_m, action_r = st.columns([3.2, 1.2, 1])
-    with action_l:
-        st.text_input("Search", placeholder="Search anything...", label_visibility="collapsed")
-    with action_m:
-        st.button("Create", use_container_width=True, type="primary", disabled=True, help="Visual-only UI element.")
-    with action_r:
+    left, right = st.columns([4, 2])
+    with left:
+        st.title("Training Simulator")
+        st.caption("Simulation workspace and readiness analytics")
+    with right:
+        st.markdown(f"**{user['full_name']}**")
+        st.caption(user["email"])
+        st.markdown(
+            f"<span class='role-badge'>{user['role'].title()}</span>",
+            unsafe_allow_html=True,
+        )
         if st.button("Logout", use_container_width=True):
             logout_user()
             st.rerun()
@@ -608,7 +599,7 @@ def render_main_app() -> None:
         ]
         default_page = st.session_state.get("page") or "Dashboard"
         st.session_state["page"] = st.sidebar.radio(
-            "☰  Admin Navigation",
+            "Admin Navigation",
             options=pages,
             index=pages.index(default_page) if default_page in pages else 0,
         )
@@ -628,7 +619,7 @@ def render_main_app() -> None:
         pages = ["Home", "Assigned Modules", "Scenario", "Results", "My Progress"]
         default_page = st.session_state.get("page") or "Home"
         st.session_state["page"] = st.sidebar.radio(
-            "☰  Learner Navigation",
+            "Learner Navigation",
             options=pages,
             index=pages.index(default_page) if default_page in pages else 0,
         )
