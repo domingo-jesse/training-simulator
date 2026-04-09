@@ -10,6 +10,19 @@ from evaluation import evaluate_submission
 from utils import metric_row, parse_json_list, to_df
 
 
+def _compact_text(value: str) -> str:
+    return " ".join((value or "").split())
+
+
+def _build_scenario_overview(module: Dict) -> str:
+    parts = [
+        _compact_text(module.get("description", "")),
+        _compact_text(module.get("scenario_ticket", "")),
+        _compact_text(module.get("scenario_context", "")),
+    ]
+    return " ".join(part for part in parts if part)
+
+
 def _assigned_modules(user: Dict):
     return fetch_all(
         """
@@ -125,7 +138,7 @@ def render_module_library(user: Dict) -> None:
                     )
                     if module["due_date"]:
                         st.caption(f"Due: {module['due_date']}")
-                    st.write(module["description"])
+                    st.write(_compact_text(module["description"]))
                     if module["status"] == "Completed":
                         st.success(f"Completed • Best score: {module['best_score']}%")
                         if st.button(
@@ -225,10 +238,8 @@ def render_scenario_page(user: Dict) -> None:
     st.caption(f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
     with st.container(border=True):
-        st.markdown("**Ticket / Issue Description**")
-        st.write(module["scenario_ticket"])
-        st.markdown("**Context Notes**")
-        st.write(module["scenario_context"])
+        st.markdown("**Scenario + Module Overview**")
+        st.write(_build_scenario_overview(module))
 
     st.markdown("### Investigation Panel")
     used_actions_key = f"used_actions_{module_id}"
