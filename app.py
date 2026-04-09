@@ -89,6 +89,96 @@ def check_allowed_domain(email: str | None, allowed_domains: list[str]) -> bool:
     return domain in allowed_domains
 
 
+def oauth_preflight_checks() -> tuple[list[str], list[str]]:
+    """Validate OIDC config and return (errors, warnings) for operator troubleshooting."""
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    try:
+        auth_cfg = st.secrets.get("auth", {})
+        google_cfg = auth_cfg.get("google", {})
+    except Exception:
+        return (
+            ["Unable to read `st.secrets`. Confirm `.streamlit/secrets.toml` exists and is valid TOML."],
+            [],
+        )
+
+    redirect_uri = str(auth_cfg.get("redirect_uri", "")).strip()
+    cookie_secret = str(auth_cfg.get("cookie_secret", "")).strip()
+    client_id = str(google_cfg.get("client_id", "")).strip()
+    client_secret = str(google_cfg.get("client_secret", "")).strip()
+    metadata_url = str(google_cfg.get("server_metadata_url", "")).strip()
+
+    if not redirect_uri:
+        errors.append("Missing `auth.redirect_uri`.")
+    elif not redirect_uri.endswith("/oauth2callback"):
+        warnings.append(
+            "`auth.redirect_uri` should usually end with `/oauth2callback` for Streamlit OIDC."
+        )
+
+    if not cookie_secret:
+        errors.append("Missing `auth.cookie_secret`.")
+    elif len(cookie_secret) < 24:
+        warnings.append("`auth.cookie_secret` is short. Use a long random value (at least 24+ chars).")
+
+    if not client_id:
+        errors.append("Missing `auth.google.client_id`.")
+    elif ".apps.googleusercontent.com" not in client_id:
+        warnings.append("`auth.google.client_id` does not look like a Google OAuth client ID.")
+
+    if not client_secret:
+        errors.append("Missing `auth.google.client_secret`.")
+
+    if not metadata_url:
+        errors.append("Missing `auth.google.server_metadata_url`.")
+    elif "accounts.google.com" not in metadata_url:
+        warnings.append("`auth.google.server_metadata_url` is non-standard for Google.")
+
+    return errors, warnings
+
+
+def render_auth_troubleshooting() -> None:
+    """Render a compact troubleshooting panel for common Google OAuth issues."""
+    errors, warnings = oauth_preflight_checks()
+
+    with st.expander("OAuth setup & troubleshooting", expanded=False):
+        st.markdown("#### Quick setup checklist")
+        st.markdown(
+            """
+1. In Google Cloud Console, create an OAuth Client ID (Web application).
+2. Add this exact redirect URI in Google Cloud:
+   - `http://localhost:8501/oauth2callback` (local), or
+   - `https://<your-app>.streamlit.app/oauth2callback` (deployed)
+3. Copy `client_id` and `client_secret` into `.streamlit/secrets.toml`.
+4. Keep `server_metadata_url` set to:
+   `https://accounts.google.com/.well-known/openid-configuration`
+5. Restart Streamlit after editing secrets.
+            """
+        )
+
+        if errors:
+            st.error("Configuration errors found:")
+            for item in errors:
+                st.write(f"- {item}")
+        else:
+            st.success("No blocking configuration errors detected.")
+
+        if warnings:
+            st.warning("Potential issues:")
+            for item in warnings:
+                st.write(f"- {item}")
+
+        st.markdown("#### Common auth errors")
+        st.markdown(
+            """
+- **`redirect_uri_mismatch`**: the URI in Google Cloud does not exactly match `auth.redirect_uri`.
+- **`invalid_client`**: wrong client ID/secret or wrong OAuth app.
+- **Blank/looping login**: stale cookies; sign out and clear browser cookies for the app domain.
+- **Access denied after login**: your email domain is blocked by `auth.allowed_domains`.
+            """
+        )
+
+
 def render_login() -> None:
     """Render unauthenticated landing/login UI."""
     _, center, _ = st.columns([1.2, 1.8, 1.2])
@@ -126,6 +216,7 @@ def render_login() -> None:
                     )
 
         st.caption("Need help? Ask your admin to confirm Google OAuth redirect URI and client credentials.")
+        render_auth_troubleshooting()
         st.markdown("</div>", unsafe_allow_html=True)
 
 
