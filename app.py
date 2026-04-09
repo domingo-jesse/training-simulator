@@ -224,7 +224,9 @@ def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[
 
     user = find_user_by_email(email, role=expected_role)
     if user is None:
-        return False, f"No {expected_role.title()} account exists yet. Create one instantly with Google.", None, email
+        user = find_user_by_email(email, role=None)
+        if user is None:
+            return False, f"No {expected_role.title()} account exists yet. Create one instantly with Google.", None, email
 
     return True, None, user, email
 
