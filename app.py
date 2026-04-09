@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from html import escape
+
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -98,6 +100,16 @@ def _login_panel(role: str) -> None:
 def _render_google_sign_in_button(role: str) -> None:
     """Render a Google sign-in button directly below each role login form."""
     st.caption("Continue with Google")
+    auth_config = st.secrets.get("auth", {})
+    google_config = auth_config.get("google", {}) if isinstance(auth_config, dict) else {}
+    client_id = google_config.get("client_id", "") if isinstance(google_config, dict) else ""
+    client_id = str(client_id).strip()
+
+    if not client_id or client_id == "YOUR_GOOGLE_CLIENT_ID":
+        st.info("Google sign-in is not configured yet. Add `auth.google.client_id` in `.streamlit/secrets.toml`.")
+        return
+
+    escaped_client_id = escape(client_id, quote=True)
     components.html(
         f"""
         <div id="buttonDiv_{role}"></div>
@@ -116,7 +128,7 @@ def _render_google_sign_in_button(role: str) -> None:
             }}
 
             google.accounts.id.initialize({{
-              client_id: "YOUR_GOOGLE_CLIENT_ID",
+              client_id: "{escaped_client_id}",
               callback: handleCredentialResponse
             }});
 
