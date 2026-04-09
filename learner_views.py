@@ -23,6 +23,7 @@ def _assigned_modules(user: Dict):
             m.difficulty,
             m.estimated_time,
             m.description,
+            COALESCE(x.best_score, 0) AS best_score,
             CASE
                 WHEN x.last_attempt_at IS NOT NULL THEN 'Completed'
                 WHEN a.due_date IS NOT NULL AND DATE(a.due_date) < DATE('now') THEN 'Overdue'
@@ -34,11 +35,22 @@ def _assigned_modules(user: Dict):
         FROM assignments a
         JOIN modules m ON m.module_id = a.module_id
         LEFT JOIN (
-            SELECT user_id, module_id, COUNT(*) AS attempt_count, MAX(created_at) AS last_attempt_at
-            FROM attempts
-            WHERE user_id = ? AND organization_id = ?
-            GROUP BY user_id, module_id
-        ) x ON x.module_id = a.module_id
+            SELECT
+                a2.assignment_id,
+                COUNT(t.attempt_id) AS attempt_count,
+                MAX(t.created_at) AS last_attempt_at,
+                MAX(t.total_score) AS best_score
+            FROM assignments a2
+            LEFT JOIN attempts t
+                ON t.user_id = a2.learner_id
+               AND t.module_id = a2.module_id
+               AND t.organization_id = a2.organization_id
+               AND DATETIME(t.created_at) >= DATETIME(a2.assigned_at)
+            WHERE a2.learner_id = ?
+              AND a2.organization_id = ?
+              AND a2.is_active = 1
+            GROUP BY a2.assignment_id
+        ) x ON x.assignment_id = a.assignment_id
         WHERE a.learner_id = ?
           AND a.organization_id = ?
           AND a.is_active = 1
@@ -114,10 +126,53 @@ def render_module_library(user: Dict) -> None:
                     if module["due_date"]:
                         st.caption(f"Due: {module['due_date']}")
                     st.write(module["description"])
-                    if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
-                        st.session_state.active_module_id = module["module_id"]
-                        st.session_state.page = "Scenario"
-                        st.rerun()
+                    if module["status"] == "Completed":
+                        st.success(f"Completed • Best score: {module['best_score']}%")
+                        if st.button(
+                            "View score",
+                            key=f"view_{module['assignment_id']}_{module['module_id']}",
+                            type="secondary",
+                        ):
+                            attempt = fetch_one(
+                                """
+                                SELECT attempt_id
+                                FROM attempts
+                                WHERE user_id = ?
+                                  AND module_id = ?
+                                  AND organization_id = ?
+                                  AND DATETIME(created_at) >= DATETIME(?)
+                                ORDER BY created_at DESC
+                                LIMIT 1
+                                """,
+                                (user["user_id"], module["module_id"], user["organization_id"], module["assigned_at"]),
+                            )
+                            if attempt:
+                                st.session_state.latest_attempt_id = int(attempt["attempt_id"])
+                                st.session_state.page = "Results"
+                                st.rerun()
+                    else:
+                        if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
+                            st.session_state.active_module_id = module["module_id"]
+                            st.session_state.page = "Scenario"
+                            st.rerun()
+
+    completed_modules = [module for module in assignments if module["status"] == "Completed"]
+    st.markdown("### Completed modules")
+    if not completed_modules:
+        st.caption("No completed modules yet.")
+    else:
+        st.dataframe(
+            [
+                {
+                    "Module": module["title"],
+                    "Completed at": module["last_attempt_at"],
+                    "Score": f"{module['best_score']}%",
+                }
+                for module in completed_modules
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
 
 
 def render_scenario_page(user: Dict) -> None:
@@ -128,7 +183,7 @@ def render_scenario_page(user: Dict) -> None:
 
     assignment = fetch_one(
         """
-        SELECT assignment_id
+        SELECT assignment_id, assigned_at
         FROM assignments
         WHERE learner_id = ? AND module_id = ? AND organization_id = ? AND is_active = 1
         """,
@@ -136,6 +191,28 @@ def render_scenario_page(user: Dict) -> None:
     )
     if not assignment:
         st.warning("This module is not currently assigned to you.")
+        return
+
+    existing_attempt = fetch_one(
+        """
+        SELECT attempt_id, total_score
+        FROM attempts
+        WHERE user_id = ?
+          AND module_id = ?
+          AND organization_id = ?
+          AND DATETIME(created_at) >= DATETIME(?)
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (user["user_id"], module_id, user["organization_id"], assignment["assigned_at"]),
+    )
+    if existing_attempt:
+        st.success(f"You've already completed this module. Score: {existing_attempt['total_score']}%")
+        st.info("This assignment allows one graded submission. If reassigned by your admin, you can attempt it again.")
+        if st.button("View completed results", type="secondary"):
+            st.session_state.latest_attempt_id = int(existing_attempt["attempt_id"])
+            st.session_state.page = "Results"
+            st.rerun()
         return
 
     module = fetch_one(
@@ -193,7 +270,7 @@ def render_scenario_page(user: Dict) -> None:
 
         st.session_state.latest_attempt_id = attempt_id
         st.session_state.page = "Results"
-        st.toast("Submission scored successfully.")
+        st.toast("🎉 Thank you — you've completed this module!")
         st.rerun()
 
 
@@ -248,9 +325,8 @@ def render_results_page(user: Dict) -> None:
         st.write(attempt["takeaway_summary"] or attempt["lesson_takeaway"])
 
     c1, c2 = st.columns(2)
-    if c1.button("Retry module"):
-        st.session_state.page = "Scenario"
-        st.rerun()
+    with c1:
+        st.success("✅ Thank you! You've completed this module.")
     if c2.button("Back to assignments"):
         st.session_state.page = "Assigned Modules"
         st.rerun()

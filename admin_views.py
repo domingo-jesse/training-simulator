@@ -34,11 +34,20 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
         JOIN users u ON u.user_id = a.learner_id
         JOIN modules m ON m.module_id = a.module_id
         LEFT JOIN (
-            SELECT user_id, module_id, COUNT(*) AS attempt_count, MAX(created_at) AS last_attempt_at
-            FROM attempts
-            WHERE organization_id = ?
-            GROUP BY user_id, module_id
-        ) x ON x.user_id = a.learner_id AND x.module_id = a.module_id
+            SELECT
+                a2.assignment_id,
+                COUNT(t.attempt_id) AS attempt_count,
+                MAX(t.created_at) AS last_attempt_at
+            FROM assignments a2
+            LEFT JOIN attempts t
+                ON t.user_id = a2.learner_id
+               AND t.module_id = a2.module_id
+               AND t.organization_id = a2.organization_id
+               AND DATETIME(t.created_at) >= DATETIME(a2.assigned_at)
+            WHERE a2.organization_id = ?
+              AND a2.is_active = 1
+            GROUP BY a2.assignment_id
+        ) x ON x.assignment_id = a.assignment_id
         WHERE a.organization_id = ? AND a.is_active = 1
         ORDER BY a.assigned_at DESC
         """,
