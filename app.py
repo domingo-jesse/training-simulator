@@ -137,6 +137,48 @@ def oauth_preflight_checks() -> tuple[list[str], list[str]]:
     return errors, warnings
 
 
+def oauth_is_configured() -> bool:
+    """Return True when the minimum Google OAuth secrets are present."""
+    try:
+        auth_cfg = st.secrets.get("auth", {})
+        google_cfg = auth_cfg.get("google", {})
+    except Exception:
+        return False
+
+    required_values = [
+        str(auth_cfg.get("redirect_uri", "")).strip(),
+        str(auth_cfg.get("cookie_secret", "")).strip(),
+        str(google_cfg.get("client_id", "")).strip(),
+        str(google_cfg.get("client_secret", "")).strip(),
+        str(google_cfg.get("server_metadata_url", "")).strip(),
+    ]
+    return all(required_values)
+
+
+def _get_workspace_users() -> list[dict]:
+    """Fetch active workspace users."""
+    return list(fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name"))
+
+
+def _render_demo_access() -> None:
+    """Allow local/demo access when OAuth is not configured."""
+    users = _get_workspace_users()
+    if not users:
+        st.warning("No active users are available for demo access. Seed or create users first.")
+        return
+
+    options = {
+        f"{user['name']} ({user['role']}) · {user['email']}": dict(user)
+        for user in users
+        if user.get("email")
+    }
+    selected = st.selectbox("Choose a demo account", list(options.keys()))
+    if st.button("Continue in demo mode", use_container_width=True):
+        st.session_state.demo_user = options[selected]
+        st.session_state.demo_mode = True
+        st.rerun()
+
+
 def render_auth_troubleshooting() -> None:
     """Render a compact troubleshooting panel for common Google OAuth issues."""
     errors, warnings = oauth_preflight_checks()
@@ -189,7 +231,14 @@ def render_login() -> None:
         st.caption("Practice diagnosis, communication, and incident response with AI-powered simulations.")
         st.write("")
 
-        if st.button("Continue with Google", use_container_width=True, type="primary"):
+        oauth_ready = oauth_is_configured()
+        if st.button(
+            "Continue with Google",
+            use_container_width=True,
+            type="primary",
+            disabled=not oauth_ready,
+            help="Add Google OAuth secrets to enable sign in." if not oauth_ready else None,
+        ):
             missing_fields: list[str] = []
             try:
                 google_cfg = st.secrets.get("auth", {}).get("google", {})
@@ -215,30 +264,43 @@ def render_login() -> None:
                         "Google login could not be started. Check your Streamlit OIDC secrets and redirect URI configuration."
                     )
 
+        if not oauth_ready:
+            st.info(
+                "Google OAuth is not configured yet. You can still use local demo mode while finishing setup."
+            )
+            _render_demo_access()
+
         st.caption("Need help? Ask your admin to confirm Google OAuth redirect URI and client credentials.")
         render_auth_troubleshooting()
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_authenticated_app() -> None:
+def render_authenticated_app(workspace_user: dict | None = None) -> None:
     """Render post-login state and route users into the training app."""
-    name = _safe_user_value("name", "User")
-    email = _safe_user_value("email", "")
-    photo = _safe_user_value("picture", "")
+    is_demo_mode = bool(st.session_state.get("demo_mode", False))
 
-    allowed_domains = get_allowed_domains()
-    if not check_allowed_domain(email, allowed_domains):
-        st.error("Access denied: your email domain is not authorized for this workspace.")
-        st.caption(f"Allowed domains: {', '.join(allowed_domains) if allowed_domains else 'All domains'}")
-        try:
-            st.logout()
-        except Exception:
-            st.info("Please sign out and contact your administrator.")
-        st.stop()
+    if workspace_user:
+        name = str(workspace_user.get("name", "User"))
+        email = str(workspace_user.get("email", ""))
+        photo = ""
+    else:
+        name = _safe_user_value("name", "User")
+        email = _safe_user_value("email", "")
+        photo = _safe_user_value("picture", "")
 
-    users = fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name")
-    user_by_email = {u["email"].lower(): u for u in users if u["email"]}
-    workspace_user = user_by_email.get(email.lower()) if email else None
+        allowed_domains = get_allowed_domains()
+        if not check_allowed_domain(email, allowed_domains):
+            st.error("Access denied: your email domain is not authorized for this workspace.")
+            st.caption(f"Allowed domains: {', '.join(allowed_domains) if allowed_domains else 'All domains'}")
+            try:
+                st.logout()
+            except Exception:
+                st.info("Please sign out and contact your administrator.")
+            st.stop()
+
+        users = _get_workspace_users()
+        user_by_email = {u["email"].lower(): u for u in users if u["email"]}
+        workspace_user = user_by_email.get(email.lower()) if email else None
 
     with st.sidebar:
         st.markdown("### Account")
@@ -246,12 +308,18 @@ def render_authenticated_app() -> None:
             st.image(photo, width=72)
         st.write(name)
         st.caption(email or "Email unavailable from identity provider")
+        if is_demo_mode:
+            st.info("Demo mode")
 
         if st.button("Sign out", use_container_width=True):
-            try:
-                st.logout()
-            except Exception:
-                st.warning("Sign out encountered an issue. Refresh and try again.")
+            if is_demo_mode:
+                st.session_state.pop("demo_user", None)
+                st.session_state.pop("demo_mode", None)
+            else:
+                try:
+                    st.logout()
+                except Exception:
+                    st.warning("Sign out encountered an issue. Refresh and try again.")
             st.stop()
 
     if not workspace_user:
@@ -301,6 +369,11 @@ def main() -> None:
     init_db()
     seed_all()
     inject_styles()
+
+    demo_user = st.session_state.get("demo_user")
+    if demo_user:
+        render_authenticated_app(workspace_user=demo_user)
+        return
 
     user_obj = getattr(st, "user", None)
     is_logged_in = bool(getattr(user_obj, "is_logged_in", False)) if user_obj else False
