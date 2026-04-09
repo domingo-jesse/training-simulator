@@ -26,9 +26,6 @@ init_db()
 seed_all()
 inject_styles()
 
-st.title("🛠️ Troubleshooting Trainer")
-st.caption("AI-powered simulation practice for issue investigation, diagnosis, and communication.")
-
 users = fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name")
 
 
@@ -99,9 +96,6 @@ def _reset_local_login() -> None:
 
 
 def _render_login_page() -> dict | None:
-    st.markdown("## Login")
-    st.caption("Choose a sign-in method to access your workspace.")
-
     if google_email:
         mapped_user = user_by_email.get(google_email)
         if mapped_user:
@@ -114,27 +108,67 @@ def _render_login_page() -> dict | None:
     if local_user:
         return local_user
 
-    google_tab, local_tab = st.tabs(["Google Sign-In", "Workspace Login"])
+    _, center, _ = st.columns([1.1, 1.7, 1.1])
+    with center:
+        st.markdown('<div class="login-card"><div class="login-shell">', unsafe_allow_html=True)
+        st.markdown(
+            """
+            <div class="login-logo"><span class="logo-badge">◧</span><span>Logto</span></div>
+            <div class="login-subtitle">Sign in to your account</div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    with google_tab:
-        google_login_available = _render_google_login()
-        if google_email and not user_by_email.get(google_email):
-            st.warning(
-                f"{google_email} is authenticated with Google, but no active user is mapped in this workspace."
-            )
-            if google_name:
-                st.caption(f"Google account: {google_name}")
-        elif google_login_available:
-            st.caption("Tip: add matching user emails in the admin DB to enable automatic Google sign-in mapping.")
+        email = st.text_input("Email", placeholder="Email", label_visibility="collapsed", key="login_email")
+        st.text_input(
+            "Password",
+            placeholder="Password",
+            type="password",
+            label_visibility="collapsed",
+            key="login_password",
+        )
+        st.markdown('<div class="login-link">Forgot password?</div>', unsafe_allow_html=True)
 
-    with local_tab:
-        st.markdown("### Local workspace login")
-        user_names = list(user_by_name.keys())
-        selected_name = st.selectbox("Select your workspace profile", user_names, key="local_mode_user_select")
-        if st.button("Continue to workspace", key="local_sign_in_button", use_container_width=True):
-            selected_user = user_by_name[selected_name]
-            st.session_state.local_user_id = selected_user["user_id"]
-            st.rerun()
+        if st.button("Sign in", key="local_sign_in_button", use_container_width=True, type="primary"):
+            selected_user = user_by_email.get(email.strip().lower()) if email else None
+            if selected_user:
+                st.session_state.local_user_id = selected_user["user_id"]
+                st.rerun()
+            else:
+                st.error("No active workspace user is mapped to that email.")
+
+        st.markdown('<div class="login-link" style="margin-top: 0.55rem;">Single Sign-On</div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-muted">Not account? <strong>Create account</strong></div>', unsafe_allow_html=True)
+        st.markdown('<div class="login-divider">or</div>', unsafe_allow_html=True)
+
+        google_login_available = callable(getattr(st, "login", None)) and _google_oauth_configured()
+        if st.button("Continue with Google", key="google_sign_in_button", use_container_width=True):
+            if google_login_available:
+                try:
+                    st.login("google")
+                except Exception:
+                    st.error("Google sign-in is unavailable right now.")
+            else:
+                st.info("Google sign-in is not configured for this deployment.")
+
+        st.markdown(
+            '<div class="login-legal">By continuing, you agree to the <strong>Terms of Use</strong> and <strong>Privacy Policy</strong>.</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
+        with st.expander("Need demo access? Use a workspace profile"):
+            user_names = list(user_by_name.keys())
+            selected_name = st.selectbox("Select profile", user_names, key="local_mode_user_select")
+            if st.button("Continue as selected profile", key="fallback_local_sign_in_button", use_container_width=True):
+                selected_user = user_by_name[selected_name]
+                st.session_state.local_user_id = selected_user["user_id"]
+                st.rerun()
+
+    if google_email and not user_by_email.get(google_email):
+        st.warning(f"{google_email} is authenticated with Google, but no active user is mapped in this workspace.")
+        if google_name:
+            st.caption(f"Google account: {google_name}")
 
     return None
 
@@ -142,6 +176,9 @@ def _render_login_page() -> dict | None:
 current_user = _render_login_page()
 if not current_user:
     st.stop()
+
+st.title("🛠️ Troubleshooting Trainer")
+st.caption("AI-powered simulation practice for issue investigation, diagnosis, and communication.")
 
 with st.sidebar:
     st.markdown("### Workspace")
