@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from urllib.parse import urlparse
 
 import streamlit as st
 
@@ -18,139 +17,149 @@ st.set_page_config(
 class DashboardCard:
     title: str
     description: str
-
-
-@dataclass(frozen=True)
-class SetupCheck:
-    label: str
-    passed: bool
-    detail: str
+    action_label: str
 
 
 DASHBOARD_CARDS: tuple[DashboardCard, ...] = (
     DashboardCard(
         title="Start Simulation",
-        description="Spin up a fresh scenario with role goals, challenge level, and AI facilitator guidance.",
+        description="Launch a new role-play session with scenario goals, challenge level, and guided facilitation.",
+        action_label="Start",
     ),
     DashboardCard(
         title="Review Performance",
-        description="Inspect score breakdowns, transcript highlights, and targeted coaching recommendations.",
+        description="Explore score trends, transcript highlights, and coaching recommendations for each learner.",
+        action_label="Review",
     ),
     DashboardCard(
         title="Admin / Settings",
-        description="Configure workspace defaults, evaluation rubrics, and team-level access controls.",
+        description="Manage workspace policies, evaluation rubrics, team permissions, and platform defaults.",
+        action_label="Open",
     ),
 )
 
 
 def inject_ui_css() -> None:
-    """Apply refreshed UI styling for auth and dashboard views."""
     st.markdown(
         """
         <style>
-            .main > div {
-                padding-top: 0.8rem;
-            }
-
             .stApp {
-                background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 45%, #f8fafc 100%);
-            }
-
-            .app-shell {
-                max-width: 1150px;
-                margin: 0 auto;
-            }
-
-            .app-header {
-                background: rgba(255, 255, 255, 0.92);
-                border: 1px solid rgba(15, 23, 42, 0.08);
-                border-radius: 16px;
-                padding: 0.9rem 1rem;
-                box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
-                margin-bottom: 1rem;
-            }
-
-            .app-title {
-                font-size: 1.55rem;
-                font-weight: 800;
-                letter-spacing: -0.01em;
-                margin: 0;
+                background: #f4f6f8;
                 color: #0f172a;
             }
 
-            .status-pill {
-                display: inline-block;
-                margin-top: 0.35rem;
-                padding: 0.18rem 0.56rem;
-                border-radius: 999px;
-                font-size: 0.78rem;
-                font-weight: 600;
-                color: #1e3a8a;
-                background: #dbeafe;
-                border: 1px solid #bfdbfe;
+            .main > div {
+                padding-top: 0.8rem;
+                padding-bottom: 1.5rem;
             }
 
-            .profile-shell {
+            [data-testid="stSidebar"] {
                 background: #ffffff;
-                border: 1px solid rgba(15, 23, 42, 0.08);
+                border-right: 1px solid #e2e8f0;
+            }
+
+            .topbar {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
                 border-radius: 14px;
-                padding: 0.7rem 0.9rem;
+                padding: 0.95rem 1.15rem;
+                margin-bottom: 1rem;
+                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
             }
 
-            .hero-card,
-            .dashboard-card,
-            .login-card {
+            .app-title {
+                margin: 0;
+                font-size: 1.28rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+                color: #0f172a;
+            }
+
+            .app-subtitle {
+                margin-top: 0.2rem;
+                font-size: 0.88rem;
+                color: #64748b;
+            }
+
+            .profile-chip {
+                display: inline-flex;
+                align-items: center;
+                gap: 0.5rem;
+                background: #f8fafc;
+                border: 1px solid #e2e8f0;
+                border-radius: 999px;
+                padding: 0.33rem 0.72rem;
+                font-size: 0.84rem;
+                color: #334155;
+            }
+
+            .avatar-circle {
+                width: 26px;
+                height: 26px;
+                border-radius: 999px;
+                background: #cbd5e1;
+                color: #0f172a;
+                display: inline-flex;
+                justify-content: center;
+                align-items: center;
+                font-size: 0.8rem;
+                font-weight: 700;
+            }
+
+            .welcome-card {
                 background: #ffffff;
-                border: 1px solid rgba(15, 23, 42, 0.08);
-                border-radius: 16px;
-                box-shadow: 0 6px 28px rgba(15, 23, 42, 0.07);
+                border: 1px solid #e2e8f0;
+                border-radius: 14px;
+                padding: 1.35rem;
+                margin-bottom: 1rem;
+                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
             }
 
-            .hero-card {
-                padding: 1.25rem;
-                margin: 0.35rem 0 1rem 0;
-                background: linear-gradient(125deg, #ffffff 0%, #f8faff 100%);
-            }
-
-            .dashboard-card {
-                padding: 1rem 1.05rem;
-                min-height: 180px;
-            }
-
-            .login-card {
-                padding: 2.15rem 1.65rem;
-                margin-top: 7vh;
-            }
-
-            .card-title {
-                margin: 0 0 0.35rem 0;
-                font-size: 1.08rem;
-                font-weight: 680;
+            .welcome-title {
+                margin: 0 0 0.25rem 0;
+                font-size: 1.3rem;
+                font-weight: 700;
+                color: #0f172a;
             }
 
             .muted {
                 color: #475569;
-                font-size: 0.94rem;
+                margin: 0;
                 line-height: 1.5;
             }
 
-            .tiny-note {
-                margin-top: 0.45rem;
-                color: #64748b;
-                font-size: 0.8rem;
+            .dashboard-card {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 14px;
+                padding: 1rem;
+                min-height: 195px;
+                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
             }
 
-            .avatar-fallback {
-                width: 46px;
-                height: 46px;
-                border-radius: 999px;
-                background: #e2e8f0;
+            .card-title {
+                margin: 0 0 0.4rem 0;
+                font-size: 1.02rem;
+                font-weight: 650;
                 color: #0f172a;
-                display: flex;
-                align-items: center;
-                justify-content: center;
+            }
+
+            .settings-panel {
+                background: #ffffff;
+                border: 1px solid #e2e8f0;
+                border-radius: 14px;
+                padding: 1rem 1.1rem;
+                margin-bottom: 1rem;
+                box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+            }
+
+            .section-label {
+                margin-bottom: 0.2rem;
+                font-size: 0.74rem;
                 font-weight: 700;
-                font-size: 1rem;
+                color: #64748b;
+                text-transform: uppercase;
+                letter-spacing: 0.08em;
             }
         </style>
         """,
@@ -158,374 +167,156 @@ def inject_ui_css() -> None:
     )
 
 
-def get_user_field(field: str, default: str | None = None) -> str | None:
-    """Safely read fields from st.user without hard failures."""
+def _user_attr(field: str) -> str:
     user = getattr(st, "user", None)
-    if not user:
-        return default
+    if user is None:
+        return ""
 
     try:
-        value = user.get(field)
+        value = user.get(field, "")
     except Exception:
-        value = getattr(user, field, None)
+        value = getattr(user, field, "")
 
-    if value in (None, ""):
-        return default
-
-    return str(value)
+    return str(value).strip() if value else ""
 
 
-def _secret_get(path: tuple[str, ...], default: str | list[str] | None = None):
-    current = st.secrets
-    try:
-        for key in path:
-            current = current[key]
-    except Exception:
-        return default
-    return current
+def get_user_email() -> str:
+    email = _user_attr("email")
+    return email or "Signed-in user"
 
 
-def oauth_config() -> dict[str, str | list[str] | None]:
-    """Read OAuth configuration from Streamlit secrets with safe defaults."""
-    return {
-        "redirect_uri": _secret_get(("auth", "redirect_uri"), ""),
-        "cookie_secret": _secret_get(("auth", "cookie_secret"), ""),
-        "allowed_domains": _secret_get(("auth", "allowed_domains"), []),
-        "client_id": _secret_get(("auth", "google", "client_id"), ""),
-        "client_secret": _secret_get(("auth", "google", "client_secret"), ""),
-        "server_metadata_url": _secret_get(("auth", "google", "server_metadata_url"), ""),
-    }
+def get_user_display_name() -> str:
+    name = _user_attr("name")
+    if name:
+        return name
+
+    email = _user_attr("email")
+    return email or "Signed-in user"
 
 
-def oauth_setup_checks() -> tuple[list[SetupCheck], list[str]]:
-    """Return setup checks and user-facing hints for Google OAuth."""
-    cfg = oauth_config()
-    checks: list[SetupCheck] = []
-    hints: list[str] = []
-
-    redirect_uri = str(cfg["redirect_uri"] or "").strip()
-    cookie_secret = str(cfg["cookie_secret"] or "").strip()
-    client_id = str(cfg["client_id"] or "").strip()
-    client_secret = str(cfg["client_secret"] or "").strip()
-    metadata_url = str(cfg["server_metadata_url"] or "").strip()
-
-    is_valid_redirect = False
-    if redirect_uri:
-        parsed = urlparse(redirect_uri)
-        is_valid_redirect = bool(parsed.scheme in {"http", "https"} and parsed.netloc and parsed.path.endswith("/oauth2callback"))
-
-    checks.append(
-        SetupCheck(
-            label="auth.redirect_uri",
-            passed=is_valid_redirect,
-            detail=redirect_uri or "Missing. Add your app callback URI.",
-        )
-    )
-    checks.append(
-        SetupCheck(
-            label="auth.cookie_secret",
-            passed=len(cookie_secret) >= 24 and "replace" not in cookie_secret.lower(),
-            detail=f"Length: {len(cookie_secret)}",
-        )
-    )
-    checks.append(
-        SetupCheck(
-            label="auth.google.client_id",
-            passed=bool(client_id and ".apps.googleusercontent.com" in client_id and "replace" not in client_id.lower()),
-            detail=client_id or "Missing",
-        )
-    )
-    checks.append(
-        SetupCheck(
-            label="auth.google.client_secret",
-            passed=bool(client_secret and "replace" not in client_secret.lower()),
-            detail="Configured" if client_secret else "Missing",
-        )
-    )
-    checks.append(
-        SetupCheck(
-            label="auth.google.server_metadata_url",
-            passed=metadata_url.startswith("https://"),
-            detail=metadata_url or "Missing",
-        )
-    )
-
-    if redirect_uri and not redirect_uri.endswith("/oauth2callback"):
-        hints.append("Redirect URI should end with `/oauth2callback`.")
-    if redirect_uri.startswith("http://") and "localhost" not in redirect_uri:
-        hints.append("Use HTTPS for non-localhost redirect URIs.")
-    if not cfg["allowed_domains"]:
-        hints.append("`auth.allowed_domains` is empty, so domain allow-listing is not enforced.")
-
-    return checks, hints
+def get_user_initial() -> str:
+    source = get_user_display_name()
+    return source[0].upper() if source else "U"
 
 
-def oauth_ready() -> bool:
-    checks, _ = oauth_setup_checks()
-    return all(check.passed for check in checks)
-
-
-def set_demo_login() -> None:
-    """Store a local demo user profile in session state."""
-    st.session_state["demo_auth"] = {
-        "name": "Demo User",
-        "email": "demo.user@training-simulator.local",
-        "picture": None,
-        "source": "demo",
-    }
-
-
-def clear_demo_login() -> None:
-    """Remove demo auth markers from session state."""
-    st.session_state.pop("demo_auth", None)
-
-
-def is_oidc_logged_in() -> bool:
-    user = getattr(st, "user", None)
-    return bool(getattr(user, "is_logged_in", False)) if user else False
-
-
-def get_identity() -> tuple[bool, str, str, str | None, str]:
-    """Return auth state and user identity details from OIDC or demo mode."""
-    if is_oidc_logged_in():
-        return (
-            True,
-            get_user_field("name", "User") or "User",
-            get_user_field("email", "") or "",
-            get_user_field("picture", None),
-            "google",
-        )
-
-    demo_auth = st.session_state.get("demo_auth")
-    if isinstance(demo_auth, dict):
-        return (
-            True,
-            str(demo_auth.get("name", "Demo User")),
-            str(demo_auth.get("email", "demo.user@training-simulator.local")),
-            demo_auth.get("picture"),
-            str(demo_auth.get("source", "demo")),
-        )
-
-    return False, "", "", None, ""
-
-
-def attempt_google_login() -> None:
-    try:
-        st.login("google")
-    except Exception as exc:
-        st.error("Google sign-in could not be started. Verify OAuth secrets and that Authlib is installed.")
-        st.caption(f"Details: {exc}")
-
-
-def is_domain_allowed(email: str) -> bool:
-    allowed_domains = oauth_config()["allowed_domains"]
-    if not isinstance(allowed_domains, list) or not allowed_domains:
-        return True
-    if "@" not in email:
-        return False
-    domain = email.rsplit("@", 1)[1].lower().strip()
-    return domain in {str(item).lower().strip() for item in allowed_domains}
-
-
-def render_login_screen() -> None:
-    """Render the logged-out view with Google and demo login options."""
-    google_ready = oauth_ready()
-
-    left, center, right = st.columns([1.15, 1.7, 1.15])
-    with center:
-        st.markdown('<div class="login-card">', unsafe_allow_html=True)
-        st.markdown("## Training Simulator")
-        st.markdown(
-            '<p class="muted">A refreshed training workspace for simulations, coaching loops, and progress tracking.</p>',
-            unsafe_allow_html=True,
-        )
-
-        col_google, col_demo = st.columns(2)
-        with col_google:
-            if st.button(
-                "Continue with Google",
-                use_container_width=True,
-                type="primary",
-            ):
-                attempt_google_login()
-        with col_demo:
-            st.button(
-                "Use Demo Login",
-                use_container_width=True,
-                type="primary" if not google_ready else "secondary",
-                on_click=set_demo_login,
-            )
-
-        if not google_ready:
-            st.info("Google OAuth setup checks are still failing below. You can still try Google sign-in, or use Demo Login.")
-
-        st.markdown(
-            '<p class="tiny-note">Demo Login gives you instant local access while Google OIDC configuration is in progress.</p>',
-            unsafe_allow_html=True,
-        )
-        render_oauth_setup_panel()
-        st.markdown("</div>", unsafe_allow_html=True)
-
-
-def render_oauth_setup_panel() -> None:
-    checks, hints = oauth_setup_checks()
-    with st.expander("OAuth setup & troubleshooting", expanded=not oauth_ready()):
-        for check in checks:
-            icon = "✅" if check.passed else "❌"
-            st.write(f"{icon} `{check.label}` — {check.detail}")
-        if hints:
-            st.markdown("**Recommended fixes**")
-            for hint in hints:
-                st.write(f"- {hint}")
-        st.caption("After changes to `.streamlit/secrets.toml`, restart Streamlit.")
-
-
-def handle_logout(auth_source: str) -> None:
-    """Logout behavior depends on active auth provider."""
-    if auth_source == "google":
-        clear_demo_login()
-        st.logout()
+def render_user_settings_panel() -> None:
+    if not st.session_state.get("show_user_settings", False):
         return
 
-    clear_demo_login()
-    st.rerun()
+    st.markdown('<div class="settings-panel">', unsafe_allow_html=True)
+    st.markdown("#### User Settings")
+
+    info_col, prefs_col = st.columns(2)
+    with info_col:
+        st.markdown('<p class="section-label">Account</p>', unsafe_allow_html=True)
+        st.write(f"**Name:** {get_user_display_name()}")
+        st.write(f"**Email:** {get_user_email()}")
+        st.write("**Role:** Learner / Admin (placeholder)")
+
+    with prefs_col:
+        st.markdown('<p class="section-label">Preferences</p>', unsafe_allow_html=True)
+        st.write("**Theme:** System default (placeholder)")
+        st.write("**Notifications:** Weekly summary (placeholder)")
+        st.caption("More profile options can be added later.")
+
+    if st.button("Close Settings", key="close_user_settings"):
+        st.session_state["show_user_settings"] = False
+        st.rerun()
+
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_header(name: str, email: str, avatar_url: str | None, auth_source: str) -> None:
-    """Render top header with title and profile summary."""
-    title_col, profile_col = st.columns([3.4, 1.7])
+def render_topbar() -> None:
+    left, right = st.columns([6, 2.6], vertical_alignment="center")
 
-    with title_col:
-        st.markdown('<div class="app-header">', unsafe_allow_html=True)
-        st.markdown('<div class="app-title">Training Simulator</div>', unsafe_allow_html=True)
-        badge_text = "Google Auth" if auth_source == "google" else "Demo Auth"
-        st.markdown(f'<div class="status-pill">{badge_text}</div>', unsafe_allow_html=True)
+    with left:
+        st.markdown('<div class="topbar">', unsafe_allow_html=True)
+        st.markdown('<h1 class="app-title">Training Simulator</h1>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="app-subtitle">Internal enablement workspace for realistic training, scoring, and coaching.</div>',
+            unsafe_allow_html=True,
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
-    with profile_col:
-        st.markdown('<div class="profile-shell">', unsafe_allow_html=True)
-        meta_col, action_col = st.columns([3, 1.1])
-        with meta_col:
-            if avatar_url:
-                st.image(avatar_url, width=46)
-            else:
-                initial = (name[:1] if name else "U").upper()
-                st.markdown(
-                    f'<div class="avatar-fallback">{initial}</div>',
-                    unsafe_allow_html=True,
-                )
-            st.markdown(f"**{name}**")
-            st.caption(email or "Email unavailable")
-        with action_col:
-            st.write("")
-            st.write("")
-            st.button(
-                "Log out",
-                key="header_logout",
-                on_click=handle_logout,
-                kwargs={"auth_source": auth_source},
-                use_container_width=True,
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
+    with right:
+        st.markdown(
+            (
+                f'<div class="profile-chip"><span class="avatar-circle">{get_user_initial()}</span>'
+                f'<span>{get_user_display_name()}</span></div>'
+            ),
+            unsafe_allow_html=True,
+        )
+        with st.popover("Profile", use_container_width=True):
+            st.caption(get_user_email())
+            if st.button("User Settings", use_container_width=True, key="menu_user_settings"):
+                st.session_state["show_user_settings"] = True
+                st.rerun()
+            if st.button("Log Out", use_container_width=True, key="menu_logout"):
+                st.logout()
 
 
-def render_dashboard() -> None:
-    """Render signed-in hero and dashboard placeholders."""
+def render_sidebar() -> None:
+    with st.sidebar:
+        st.markdown("### Training Simulator")
+        st.markdown('<p class="section-label">App Section</p>', unsafe_allow_html=True)
+        st.radio(
+            "Navigation",
+            ["Dashboard", "Simulations", "Performance", "Team Management"],
+            index=0,
+            label_visibility="collapsed",
+        )
+
+        st.markdown("---")
+        st.markdown("**Signed in as**")
+        st.caption(get_user_email())
+
+
+def render_welcome_card() -> None:
     st.markdown(
-        """
-        <div class="hero-card">
-            <h3 style="margin: 0 0 0.45rem 0;">Welcome back 👋</h3>
-            <p class="muted" style="margin: 0;">
-                Build role-play scenarios, run sessions, and quickly close the coaching feedback loop.
+        f"""
+        <div class="welcome-card">
+            <h2 class="welcome-title">Welcome back, {get_user_display_name()}.</h2>
+            <p class="muted">
+                Continue building high-quality training experiences with simulation workflows,
+                structured feedback, and measurable outcomes.
             </p>
         </div>
         """,
         unsafe_allow_html=True,
     )
 
-    cols = st.columns(3)
-    for col, card in zip(cols, DASHBOARD_CARDS):
-        with col:
+
+def render_dashboard_cards() -> None:
+    columns = st.columns(3)
+    for column, card in zip(columns, DASHBOARD_CARDS):
+        with column:
             st.markdown(
                 f"""
                 <div class="dashboard-card">
-                    <p class="card-title">{card.title}</p>
+                    <h3 class="card-title">{card.title}</h3>
                     <p class="muted">{card.description}</p>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-
-
-def render_sidebar(email: str, auth_source: str) -> None:
-    """Render sidebar placeholders and account controls."""
-    with st.sidebar:
-        st.markdown("### Navigation")
-        st.radio(
-            "Sections",
-            ["Dashboard", "Scenarios", "Reports", "Coaching"],
-            index=0,
-            label_visibility="collapsed",
-        )
-
-        st.markdown("---")
-        st.markdown("### Account")
-        st.caption(email or "Email unavailable")
-        st.caption(f"Session: {'Google' if auth_source == 'google' else 'Demo'}")
-        st.button(
-            "Log out",
-            key="sidebar_logout",
-            on_click=handle_logout,
-            kwargs={"auth_source": auth_source},
-            use_container_width=True,
-        )
-
-
-def render_debug_panel(auth_source: str) -> None:
-    """Render safe auth-state debugging info with no secret exposure."""
-    fields = {}
-    for key in ["name", "email", "picture", "sub"]:
-        value = get_user_field(key, None)
-        fields[key] = value if value else "<missing>"
-
-    with st.expander("Debug: Auth state", expanded=False):
-        st.write({"oidc_logged_in": is_oidc_logged_in()})
-        st.write({"active_auth_source": auth_source or "<none>"})
-        st.write({"user_fields": fields})
-        st.write({"demo_auth_present": bool(st.session_state.get("demo_auth"))})
+            st.button(card.action_label, key=f"cta_{card.title}", use_container_width=True)
 
 
 def main() -> None:
     inject_ui_css()
-    st.markdown('<div class="app-shell">', unsafe_allow_html=True)
 
-    is_authenticated, name, email, avatar_url, auth_source = get_identity()
-
-    if not is_authenticated:
-        render_login_screen()
-        render_debug_panel(auth_source="")
-        st.markdown("</div>", unsafe_allow_html=True)
+    if not bool(getattr(st.user, "is_logged_in", False)):
+        st.markdown("## Training Simulator")
+        st.info("Please sign in with Google to access your dashboard.")
+        if st.button("Sign in with Google", type="primary"):
+            st.login("google")
         return
 
-    if auth_source == "google" and not is_domain_allowed(email):
-        st.error("This Google account is outside the allowed email domains for this workspace.")
-        st.info("Sign out and retry with an approved account, or update `auth.allowed_domains`.")
-        st.button(
-            "Log out",
-            key="domain_block_logout",
-            on_click=handle_logout,
-            kwargs={"auth_source": auth_source},
-            use_container_width=False,
-        )
-        render_debug_panel(auth_source=auth_source)
-        st.markdown("</div>", unsafe_allow_html=True)
-        return
-
-    render_sidebar(email=email, auth_source=auth_source)
-    render_header(name=name, email=email, avatar_url=avatar_url, auth_source=auth_source)
-    render_dashboard()
-    render_debug_panel(auth_source=auth_source)
-    st.markdown("</div>", unsafe_allow_html=True)
+    render_sidebar()
+    render_topbar()
+    render_user_settings_panel()
+    render_welcome_card()
+    render_dashboard_cards()
 
 
 if __name__ == "__main__":
