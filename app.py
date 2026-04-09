@@ -2,388 +2,275 @@ from __future__ import annotations
 
 import streamlit as st
 
-from admin_views import (
-    render_admin_dashboard,
-    render_assignment_management,
-    render_learner_management,
-    render_module_builder,
-    render_progress_tracking,
+
+st.set_page_config(
+    page_title="Training Simulator",
+    page_icon="🎯",
+    layout="wide",
+    initial_sidebar_state="expanded",
 )
-from data_seed import seed_all
-from db import fetch_all, init_db
-from learner_views import (
-    render_learner_home,
-    render_module_library,
-    render_progress_page,
-    render_results_page,
-    render_scenario_page,
-)
-from utils import inject_styles
-
-st.set_page_config(page_title="Troubleshooting Trainer", page_icon="🛠️", layout="wide")
-
-# Sample .streamlit/secrets.toml (Google OIDC)
-# -------------------------------------------------------------
-# [auth]
-# redirect_uri = "http://localhost:8501/oauth2callback"
-# cookie_secret = "replace-with-a-long-random-secret"
-# allowed_domains = ["gmail.com", "mycompany.com"]
-#
-# [auth.google]
-# client_id = "YOUR_GOOGLE_OAUTH_CLIENT_ID"
-# client_secret = "YOUR_GOOGLE_OAUTH_CLIENT_SECRET"
-# server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
-# -------------------------------------------------------------
-# Redirect URI notes:
-# 1) The Google Cloud OAuth client Authorized redirect URIs must EXACTLY match Streamlit.
-# 2) Local example:    http://localhost:8501/oauth2callback
-# 3) Deployed example: https://your-app.streamlit.app/oauth2callback
 
 
-def _safe_user_value(key: str, default: str = "") -> str:
-    """Return a user field from st.user safely, without crashing if missing."""
-    user_obj = getattr(st, "user", None)
-    if user_obj is None:
+def inject_ui_css() -> None:
+    """Apply lightweight, professional styling for auth and dashboard shells."""
+    st.markdown(
+        """
+        <style>
+            .main > div {
+                padding-top: 1.25rem;
+            }
+
+            .app-header {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 1rem;
+                margin-bottom: 1rem;
+            }
+
+            .app-title {
+                font-size: 1.6rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+                margin: 0;
+            }
+
+            .profile-shell {
+                background: #ffffff;
+                border: 1px solid rgba(15, 23, 42, 0.08);
+                border-radius: 14px;
+                padding: 0.7rem 0.9rem;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+            }
+
+            .hero-card,
+            .dashboard-card,
+            .login-card {
+                background: #ffffff;
+                border: 1px solid rgba(15, 23, 42, 0.08);
+                border-radius: 16px;
+                box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+            }
+
+            .hero-card {
+                padding: 1.2rem 1.25rem;
+                margin: 0.35rem 0 1rem 0;
+            }
+
+            .dashboard-card {
+                padding: 1rem 1.05rem;
+                min-height: 170px;
+            }
+
+            .login-card {
+                padding: 2.1rem 1.6rem;
+                margin-top: 9vh;
+            }
+
+            .card-title {
+                margin: 0 0 0.35rem 0;
+                font-size: 1.05rem;
+                font-weight: 650;
+            }
+
+            .muted {
+                color: #475569;
+                font-size: 0.94rem;
+                line-height: 1.5;
+            }
+
+            .tiny-note {
+                margin-top: 0.5rem;
+                color: #64748b;
+                font-size: 0.8rem;
+            }
+
+            .avatar-fallback {
+                width: 46px;
+                height: 46px;
+                border-radius: 999px;
+                background: #e2e8f0;
+                color: #0f172a;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 700;
+                font-size: 1rem;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def get_user_field(field: str, default: str | None = None) -> str | None:
+    """Safely read fields from st.user without hard failures."""
+    user = getattr(st, "user", None)
+    if not user:
         return default
 
     try:
-        value = user_obj.get(key)
+        value = user.get(field)
     except Exception:
-        value = getattr(user_obj, key, None)
+        value = getattr(user, field, None)
 
-    if value is None:
+    if value in (None, ""):
         return default
 
     return str(value)
 
 
-def get_allowed_domains() -> list[str]:
-    """Read allowed domains from Streamlit secrets; empty list means allow all domains."""
-    default_domains: list[str] = ["gmail.com"]
-
-    try:
-        auth_cfg = st.secrets.get("auth", {})
-        configured = auth_cfg.get("allowed_domains", default_domains)
-    except Exception:
-        configured = default_domains
-
-    if isinstance(configured, str):
-        domains = [configured]
-    elif isinstance(configured, list):
-        domains = [str(item) for item in configured]
-    else:
-        domains = default_domains
-
-    return [domain.strip().lower() for domain in domains if domain and domain.strip()]
-
-
-def check_allowed_domain(email: str | None, allowed_domains: list[str]) -> bool:
-    """Return True if email is allowed or no restrictions are configured."""
-    if not allowed_domains:
-        return True
-
-    if not email or "@" not in email:
-        return False
-
-    domain = email.rsplit("@", 1)[1].strip().lower()
-    return domain in allowed_domains
-
-
-def oauth_preflight_checks() -> tuple[list[str], list[str]]:
-    """Validate OIDC config and return (errors, warnings) for operator troubleshooting."""
-    errors: list[str] = []
-    warnings: list[str] = []
-
-    try:
-        auth_cfg = st.secrets.get("auth", {})
-        google_cfg = auth_cfg.get("google", {})
-    except Exception:
-        return (
-            ["Unable to read `st.secrets`. Confirm `.streamlit/secrets.toml` exists and is valid TOML."],
-            [],
-        )
-
-    redirect_uri = str(auth_cfg.get("redirect_uri", "")).strip()
-    cookie_secret = str(auth_cfg.get("cookie_secret", "")).strip()
-    client_id = str(google_cfg.get("client_id", "")).strip()
-    client_secret = str(google_cfg.get("client_secret", "")).strip()
-    metadata_url = str(google_cfg.get("server_metadata_url", "")).strip()
-
-    if not redirect_uri:
-        errors.append("Missing `auth.redirect_uri`.")
-    elif not redirect_uri.endswith("/oauth2callback"):
-        warnings.append(
-            "`auth.redirect_uri` should usually end with `/oauth2callback` for Streamlit OIDC."
-        )
-
-    if not cookie_secret:
-        errors.append("Missing `auth.cookie_secret`.")
-    elif len(cookie_secret) < 24:
-        warnings.append("`auth.cookie_secret` is short. Use a long random value (at least 24+ chars).")
-
-    if not client_id:
-        errors.append("Missing `auth.google.client_id`.")
-    elif ".apps.googleusercontent.com" not in client_id:
-        warnings.append("`auth.google.client_id` does not look like a Google OAuth client ID.")
-
-    if not client_secret:
-        errors.append("Missing `auth.google.client_secret`.")
-
-    if not metadata_url:
-        errors.append("Missing `auth.google.server_metadata_url`.")
-    elif "accounts.google.com" not in metadata_url:
-        warnings.append("`auth.google.server_metadata_url` is non-standard for Google.")
-
-    return errors, warnings
-
-
-def oauth_is_configured() -> bool:
-    """Return True when the minimum Google OAuth secrets are present."""
-    try:
-        auth_cfg = st.secrets.get("auth", {})
-        google_cfg = auth_cfg.get("google", {})
-    except Exception:
-        return False
-
-    required_values = [
-        str(auth_cfg.get("redirect_uri", "")).strip(),
-        str(auth_cfg.get("cookie_secret", "")).strip(),
-        str(google_cfg.get("client_id", "")).strip(),
-        str(google_cfg.get("client_secret", "")).strip(),
-        str(google_cfg.get("server_metadata_url", "")).strip(),
-    ]
-    return all(required_values)
-
-
-def _get_workspace_users() -> list[dict]:
-    """Fetch active workspace users as plain dictionaries."""
-    rows = fetch_all("SELECT * FROM users WHERE is_active = 1 ORDER BY role, name")
-    return [dict(row) for row in rows]
-
-
-def _render_demo_access() -> None:
-    """Allow local/demo access when OAuth is not configured."""
-    users = _get_workspace_users()
-    if not users:
-        st.warning("No active users are available for demo access. Seed or create users first.")
-        return
-
-    options = {
-        f"{user['name']} ({user['role']}) · {user['email']}": dict(user)
-        for user in users
-        if user.get("email")
-    }
-    selected = st.selectbox("Choose a demo account", list(options.keys()))
-    if st.button("Continue in demo mode", use_container_width=True):
-        st.session_state.demo_user = options[selected]
-        st.session_state.demo_mode = True
-        st.rerun()
-
-
-def render_auth_troubleshooting() -> None:
-    """Render a compact troubleshooting panel for common Google OAuth issues."""
-    errors, warnings = oauth_preflight_checks()
-
-    with st.expander("OAuth setup & troubleshooting", expanded=False):
-        st.markdown("#### Quick setup checklist")
-        st.markdown(
-            """
-1. In Google Cloud Console, create an OAuth Client ID (Web application).
-2. Add this exact redirect URI in Google Cloud:
-   - `http://localhost:8501/oauth2callback` (local), or
-   - `https://<your-app>.streamlit.app/oauth2callback` (deployed)
-3. Copy `client_id` and `client_secret` into `.streamlit/secrets.toml`.
-4. Keep `server_metadata_url` set to:
-   `https://accounts.google.com/.well-known/openid-configuration`
-5. Restart Streamlit after editing secrets.
-            """
-        )
-
-        if errors:
-            st.error("Configuration errors found:")
-            for item in errors:
-                st.write(f"- {item}")
-        else:
-            st.success("No blocking configuration errors detected.")
-
-        if warnings:
-            st.warning("Potential issues:")
-            for item in warnings:
-                st.write(f"- {item}")
-
-        st.markdown("#### Common auth errors")
-        st.markdown(
-            """
-- **`redirect_uri_mismatch`**: the URI in Google Cloud does not exactly match `auth.redirect_uri`.
-- **`invalid_client`**: wrong client ID/secret or wrong OAuth app.
-- **Blank/looping login**: stale cookies; sign out and clear browser cookies for the app domain.
-- **Access denied after login**: your email domain is blocked by `auth.allowed_domains`.
-            """
-        )
-
-
-def render_login() -> None:
-    """Render unauthenticated landing/login UI."""
-    _, center, _ = st.columns([1.2, 1.8, 1.2])
-
+def render_login_screen() -> None:
+    """Render the logged-out view with a centered sign-in card."""
+    left, center, right = st.columns([1.25, 1.6, 1.25])
     with center:
-        st.markdown('<div class="login-shell">', unsafe_allow_html=True)
-        st.title("🛠️ Troubleshooting Trainer")
-        st.caption("Practice diagnosis, communication, and incident response with AI-powered simulations.")
-        st.write("")
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.markdown("## Training Simulator")
+        st.markdown(
+            '<p class="muted">An AI-powered training and evaluation workspace for teams to run realistic practice sessions, track progress, and improve outcomes.</p>',
+            unsafe_allow_html=True,
+        )
 
-        oauth_ready = oauth_is_configured()
-        if st.button(
-            "Continue with Google",
-            use_container_width=True,
-            type="primary",
-            disabled=not oauth_ready,
-            help="Add Google OAuth secrets to enable sign in." if not oauth_ready else None,
-        ):
-            missing_fields: list[str] = []
+        if st.button("Continue with Google", use_container_width=True, type="primary"):
             try:
-                google_cfg = st.secrets.get("auth", {}).get("google", {})
-                client_id = str(google_cfg.get("client_id", "")).strip()
-                client_secret = str(google_cfg.get("client_secret", "")).strip()
-                if not client_id:
-                    missing_fields.append("auth.google.client_id")
-                if not client_secret:
-                    missing_fields.append("auth.google.client_secret")
-            except Exception:
-                missing_fields = ["auth.google.client_id", "auth.google.client_secret"]
-
-            if missing_fields:
+                st.login("google")
+            except Exception as exc:
                 st.error(
-                    "Google OAuth is not configured. Add values to `.streamlit/secrets.toml` for: "
-                    + ", ".join(missing_fields)
+                    "Could not start Google sign-in. Please verify your Streamlit OIDC secrets and redirect URI configuration."
                 )
-            else:
-                try:
-                    st.login("google")
-                except Exception:
-                    st.error(
-                        "Google login could not be started. Check your Streamlit OIDC secrets and redirect URI configuration."
-                    )
+                st.caption(f"Details: {exc}")
 
-        if not oauth_ready:
-            st.info(
-                "Google OAuth is not configured yet. You can still use local demo mode while finishing setup."
-            )
-            _render_demo_access()
-
-        st.caption("Need help? Ask your admin to confirm Google OAuth redirect URI and client credentials.")
-        render_auth_troubleshooting()
+        st.markdown(
+            '<p class="tiny-note">We use secure Google authentication via Streamlit OIDC. Your credentials are never handled directly by this app.</p>',
+            unsafe_allow_html=True,
+        )
         st.markdown("</div>", unsafe_allow_html=True)
 
 
-def render_authenticated_app(workspace_user: dict | None = None) -> None:
-    """Render post-login state and route users into the training app."""
-    is_demo_mode = bool(st.session_state.get("demo_mode", False))
+def render_header(name: str, email: str, avatar_url: str | None) -> None:
+    """Render top header with title and profile summary."""
+    title_col, profile_col = st.columns([3.4, 1.7])
 
-    if workspace_user:
-        name = str(workspace_user.get("name", "User"))
-        email = str(workspace_user.get("email", ""))
-        photo = ""
-    else:
-        name = _safe_user_value("name", "User")
-        email = _safe_user_value("email", "")
-        photo = _safe_user_value("picture", "")
+    with title_col:
+        st.markdown('<div class="app-title">Training Simulator</div>', unsafe_allow_html=True)
 
-        allowed_domains = get_allowed_domains()
-        if not check_allowed_domain(email, allowed_domains):
-            st.error("Access denied: your email domain is not authorized for this workspace.")
-            st.caption(f"Allowed domains: {', '.join(allowed_domains) if allowed_domains else 'All domains'}")
-            try:
-                st.logout()
-            except Exception:
-                st.info("Please sign out and contact your administrator.")
-            st.stop()
-
-        users = _get_workspace_users()
-        user_by_email = {u["email"].lower(): u for u in users if u["email"]}
-        workspace_user = user_by_email.get(email.lower()) if email else None
-
-    with st.sidebar:
-        st.markdown("### Account")
-        if photo:
-            st.image(photo, width=72)
-        st.write(name)
-        st.caption(email or "Email unavailable from identity provider")
-        if is_demo_mode:
-            st.info("Demo mode")
-
-        if st.button("Sign out", use_container_width=True):
-            if is_demo_mode:
-                st.session_state.pop("demo_user", None)
-                st.session_state.pop("demo_mode", None)
+    with profile_col:
+        st.markdown('<div class="profile-shell">', unsafe_allow_html=True)
+        meta_col, action_col = st.columns([3, 1.1])
+        with meta_col:
+            if avatar_url:
+                st.image(avatar_url, width=46)
             else:
-                try:
-                    st.logout()
-                except Exception:
-                    st.warning("Sign out encountered an issue. Refresh and try again.")
-            st.stop()
+                initial = (name[:1] if name else "U").upper()
+                st.markdown(
+                    f'<div class="avatar-fallback">{initial}</div>',
+                    unsafe_allow_html=True,
+                )
+            st.markdown(f"**{name or 'Signed-in user'}**")
+            st.caption(email or "Email unavailable")
+        with action_col:
+            st.write("")
+            st.write("")
+            st.button("Log out", key="header_logout", on_click=st.logout, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    if not workspace_user:
-        st.title("Signed in successfully")
-        st.warning("Your Google account is authenticated, but no active workspace profile is mapped to this email.")
-        st.write("Please contact an administrator to grant access.")
-        return
 
-    st.title("🛠️ Troubleshooting Trainer")
-    st.caption("AI-powered simulation practice for issue investigation, diagnosis, and communication.")
+def render_dashboard() -> None:
+    """Render signed-in hero and dashboard placeholders."""
+    st.markdown(
+        """
+        <div class="hero-card">
+            <h3 style="margin: 0 0 0.45rem 0;">Welcome back 👋</h3>
+            <p class="muted" style="margin: 0;">
+                Launch role-play simulations, review outcomes, and iterate on coaching plans from one workspace.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if workspace_user["role"] == "admin":
-        pages = ["Dashboard", "Learner Management", "Assignment Management", "Progress Tracking", "Module Builder"]
-        page = st.sidebar.radio("Navigate", pages, key="admin_nav_radio")
+    cards = [
+        (
+            "Start Simulation",
+            "Begin a new scenario session with configurable objectives, difficulty, and AI facilitator settings.",
+        ),
+        (
+            "Review Performance",
+            "Explore transcript highlights, scoring dimensions, and coaching notes from completed runs.",
+        ),
+        (
+            "Admin / Settings",
+            "Manage users, workspace defaults, evaluation rubrics, and system-level configuration options.",
+        ),
+    ]
 
-        if page == "Dashboard":
-            render_admin_dashboard(workspace_user)
-        elif page == "Learner Management":
-            render_learner_management(workspace_user)
-        elif page == "Assignment Management":
-            render_assignment_management(workspace_user)
-        elif page == "Progress Tracking":
-            render_progress_tracking(workspace_user)
-        else:
-            render_module_builder(workspace_user)
-        return
+    cols = st.columns(3)
+    for col, (title, description) in zip(cols, cards):
+        with col:
+            st.markdown(
+                f"""
+                <div class="dashboard-card">
+                    <p class="card-title">{title}</p>
+                    <p class="muted">{description}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-    pages = ["Learner Home", "Module Library", "Scenario", "Results", "My Progress"]
-    default_page = st.session_state.get("page", "Learner Home")
-    default_index = pages.index(default_page) if default_page in pages else 0
-    page = st.sidebar.radio("Navigate", pages, index=default_index, key="learner_nav_radio")
-    st.session_state.page = page
 
-    if page == "Learner Home":
-        render_learner_home(workspace_user)
-    elif page == "Module Library":
-        render_module_library(workspace_user)
-    elif page == "Scenario":
-        render_scenario_page(workspace_user)
-    elif page == "Results":
-        render_results_page(workspace_user)
-    else:
-        render_progress_page(workspace_user)
+def render_sidebar(email: str) -> None:
+    """Render sidebar placeholders and account controls."""
+    with st.sidebar:
+        st.markdown("### Navigation")
+        st.caption("Placeholder menu")
+        st.radio(
+            "Sections",
+            ["Dashboard", "Scenarios", "Reports"],
+            index=0,
+            label_visibility="collapsed",
+        )
+
+        st.markdown("---")
+        st.markdown("### Account")
+        st.caption(email or "Email unavailable")
+        st.button("Log out", key="sidebar_logout", on_click=st.logout, use_container_width=True)
+
+
+def render_debug_panel() -> None:
+    """Render safe auth-state debugging info with no secret exposure."""
+    user = getattr(st, "user", None)
+    is_logged_in = bool(getattr(user, "is_logged_in", False)) if user else False
+
+    fields = {}
+    for key in ["name", "email", "picture", "sub"]:
+        value = get_user_field(key, None)
+        fields[key] = value if value else "<missing>"
+
+    with st.expander("Debug: Auth state", expanded=False):
+        st.write({"st.user.is_logged_in": is_logged_in})
+        st.write({"user_fields": fields})
 
 
 def main() -> None:
-    init_db()
-    seed_all()
-    inject_styles()
+    inject_ui_css()
 
-    demo_user = st.session_state.get("demo_user")
-    if demo_user:
-        render_authenticated_app(workspace_user=demo_user)
-        return
+    user = getattr(st, "user", None)
+    is_logged_in = bool(getattr(user, "is_logged_in", False)) if user else False
 
-    user_obj = getattr(st, "user", None)
-    is_logged_in = bool(getattr(user_obj, "is_logged_in", False)) if user_obj else False
-
+    # Logged-out state: render only login UI.
     if not is_logged_in:
-        render_login()
+        render_login_screen()
+        render_debug_panel()
         return
 
-    render_authenticated_app()
+    name = get_user_field("name", "User") or "User"
+    email = get_user_field("email", "") or ""
+    avatar_url = get_user_field("picture", None)
+
+    render_sidebar(email)
+    render_header(name=name, email=email, avatar_url=avatar_url)
+    render_dashboard()
+    render_debug_panel()
 
 
 if __name__ == "__main__":
