@@ -343,12 +343,12 @@ def render_login_screen() -> None:
 
         col_google, col_demo = st.columns(2)
         with col_google:
-            st.button(
+            if st.button(
                 "Continue with Google",
                 use_container_width=True,
                 type="primary",
-                on_click=attempt_google_login,
-            )
+            ):
+                attempt_google_login()
         with col_demo:
             st.button(
                 "Use Demo Login",
