@@ -100,12 +100,30 @@ def render_login() -> None:
         st.write("")
 
         if st.button("Continue with Google", use_container_width=True, type="primary"):
+            missing_fields: list[str] = []
             try:
-                st.login("google")
+                google_cfg = st.secrets.get("auth", {}).get("google", {})
+                client_id = str(google_cfg.get("client_id", "")).strip()
+                client_secret = str(google_cfg.get("client_secret", "")).strip()
+                if not client_id:
+                    missing_fields.append("auth.google.client_id")
+                if not client_secret:
+                    missing_fields.append("auth.google.client_secret")
             except Exception:
+                missing_fields = ["auth.google.client_id", "auth.google.client_secret"]
+
+            if missing_fields:
                 st.error(
-                    "Google login could not be started. Check your Streamlit OIDC secrets and redirect URI configuration."
+                    "Google OAuth is not configured. Add values to `.streamlit/secrets.toml` for: "
+                    + ", ".join(missing_fields)
                 )
+            else:
+                try:
+                    st.login("google")
+                except Exception:
+                    st.error(
+                        "Google login could not be started. Check your Streamlit OIDC secrets and redirect URI configuration."
+                    )
 
         st.caption("Need help? Ask your admin to confirm Google OAuth redirect URI and client credentials.")
         st.markdown("</div>", unsafe_allow_html=True)
