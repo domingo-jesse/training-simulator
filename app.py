@@ -54,7 +54,7 @@ def _render_google_login() -> bool:
 
     st.markdown("### Authentication")
     st.caption("Use your Google Workspace account to sign in.")
-    if st.button("Sign in with Google", use_container_width=True):
+    if st.button("Sign in with Google", key="google_sign_in_button", use_container_width=True):
         login_fn("google")
     return True
 
@@ -76,7 +76,7 @@ with st.sidebar:
 
         logout_fn = getattr(st, "logout", None)
         if callable(logout_fn):
-            if st.button("Sign out", use_container_width=True):
+            if st.button("Sign out", key="google_sign_out_button", use_container_width=True):
                 logout_fn()
                 st.rerun()
     else:
@@ -90,19 +90,19 @@ with st.sidebar:
 
         st.markdown("---")
         user_names = list(user_by_name.keys())
-        selected_name = st.selectbox("Continue in local mode as", user_names)
+        selected_name = st.selectbox("Continue in local mode as", user_names, key="local_mode_user_select")
         current_user = user_by_name[selected_name]
         if google_login_available:
             st.caption("Tip: add matching user emails in the admin DB to enable automatic Google sign-in mapping.")
 
     if current_user["role"] == "admin":
         pages = ["Dashboard", "Learner Management", "Assignment Management", "Progress Tracking", "Module Builder"]
-        page = st.radio("Navigate", pages)
+        page = st.radio("Navigate", pages, key="admin_nav_radio")
         st.caption("Admin controls are scoped to your organization.")
     else:
         pages = ["Learner Home", "Module Library", "Scenario", "Results", "My Progress"]
         default_index = pages.index(st.session_state.get("page", "Learner Home")) if st.session_state.get("page", "Learner Home") in pages else 0
-        page = st.radio("Navigate", pages, index=default_index)
+        page = st.radio("Navigate", pages, index=default_index, key="learner_nav_radio")
         st.session_state.page = page
 
 if current_user["role"] == "admin":
