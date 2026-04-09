@@ -53,6 +53,7 @@ def load_demo_users() -> list[dict[str, Any]]:
             "email": "learner@trainingsim.demo",
             "username": "avery",
             "password_hash": hash_password("LearnerPass123!"),
+            "auth_provider": "local_password",
             "is_active": True,
         },
         {
@@ -62,6 +63,7 @@ def load_demo_users() -> list[dict[str, Any]]:
             "email": "admin@trainingsim.demo",
             "username": "jadmin",
             "password_hash": hash_password("AdminPass123!"),
+            "auth_provider": "local_password",
             "is_active": True,
         },
     ]
@@ -202,6 +204,13 @@ def validate_local_login(identifier: str, password: str, expected_role: str) -> 
     if user is None:
         return False, f"You do not have a {expected_role.title()} account yet.", None
 
+    if user.get("auth_provider") == "google":
+        return (
+            False,
+            "This email is linked to a Google account. Please use 'Continue with Google' to sign in.",
+            None,
+        )
+
     if user["password_hash"] != hash_password(password):
         return False, "Incorrect email or password.", None
 
@@ -215,7 +224,7 @@ def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[
 
     user = find_user_by_email(email, role=expected_role)
     if user is None:
-        return False, f"You do not have a {expected_role.title()} account yet.", None, email
+        return False, f"No {expected_role.title()} account exists yet. Create one instantly with Google.", None, email
 
     return True, None, user, email
 
@@ -241,6 +250,36 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
     st.session_state["page"] = None
     st.session_state["active_module_id"] = None
     st.session_state["latest_attempt_id"] = None
+
+
+def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, str, dict[str, Any] | None]:
+    role = (role or "").strip().lower()
+    email = (email or "").strip().lower()
+    full_name = (full_name or "").strip() or "Google User"
+
+    if role not in {"learner", "admin"}:
+        return False, "Please select a valid role.", None
+    if not email:
+        return False, "Google sign-in succeeded but no email was returned.", None
+
+    existing = find_user_by_email(email, role=role)
+    if existing:
+        if existing.get("auth_provider") == "google":
+            return True, f"Welcome back, {existing['full_name']}!", existing
+        return False, f"You already have a {role.title()} account with this email. Sign in using your password.", None
+
+    new_user = {
+        "id": f"u_{role}_{len(st.session_state['users_db']) + 1:03d}",
+        "role": role,
+        "full_name": full_name,
+        "email": email,
+        "username": None,
+        "password_hash": None,
+        "auth_provider": "google",
+        "is_active": True,
+    }
+    st.session_state["users_db"].append(new_user)
+    return True, f"{role.title()} account created with Google.", new_user
 
 
 def create_account(
@@ -277,6 +316,7 @@ def create_account(
         "email": email,
         "username": username or None,
         "password_hash": hash_password(password),
+        "auth_provider": "local_password",
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
@@ -392,7 +432,11 @@ def _sync_google_identity_if_present() -> None:
         st.rerun()
 
     st.session_state["auth_error"] = message
-    st.session_state["pending_google"] = {"email": email, "expected_role": expected_role}
+    st.session_state["pending_google"] = {
+        "email": email,
+        "full_name": _google_user_name(),
+        "expected_role": expected_role,
+    }
 
 
 def render_login_view() -> None:
@@ -411,8 +455,16 @@ def render_login_view() -> None:
         action_a, action_b = st.columns(2)
         with action_a:
             if st.button("Create account", use_container_width=True, key="pending_google_create"):
-                st.session_state["auth_view"] = "create_account"
-                st.session_state["auth_error"] = None
+                ok, message, user = create_google_account(
+                    role=pending.get("expected_role", "learner"),
+                    email=pending.get("email", ""),
+                    full_name=pending.get("full_name", "Google User"),
+                )
+                if ok and user:
+                    _sign_in_user(user, "google")
+                    st.session_state["post_create_success"] = message
+                    st.rerun()
+                st.session_state["auth_error"] = message
                 st.rerun()
         with action_b:
             if st.button("Back to sign in", use_container_width=True, key="pending_google_back"):
