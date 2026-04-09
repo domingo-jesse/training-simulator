@@ -223,12 +223,19 @@ def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[
         return False, "Google sign-in succeeded but no email was returned.", None, None
 
     user = find_user_by_email(email, role=expected_role)
-    if user is None:
-        user = find_user_by_email(email, role=None)
-        if user is None:
-            return False, f"No {expected_role.title()} account exists yet. Create one instantly with Google.", None, email
+    if user is not None:
+        return True, None, user, email
 
-    return True, None, user, email
+    existing_other_role = find_user_by_email(email, role=None)
+    if existing_other_role:
+        other_role = existing_other_role.get("role", "another").title()
+        message = (
+            f"This Google email is already linked to a {other_role} account. "
+            f"Create a {expected_role.title()} account with Google or switch to the {other_role} tab."
+        )
+        return False, message, None, email
+
+    return False, f"No {expected_role.title()} account exists yet. Create one instantly with Google.", None, email
 
 
 def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
@@ -477,7 +484,6 @@ def render_login_view() -> None:
     learner_tab, admin_tab = st.tabs(["Learner", "Admin"])
 
     with learner_tab:
-        st.session_state["selected_role"] = "learner"
         with st.form("local_login_learner", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="learner_identifier")
             pwd = st.text_input("Password", type="password", key="learner_pwd")
@@ -498,7 +504,6 @@ def render_login_view() -> None:
             st.rerun()
 
     with admin_tab:
-        st.session_state["selected_role"] = "admin"
         with st.form("local_login_admin", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="admin_identifier")
             pwd = st.text_input("Password", type="password", key="admin_pwd")
