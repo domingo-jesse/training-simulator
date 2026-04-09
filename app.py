@@ -332,6 +332,8 @@ def is_domain_allowed(email: str) -> bool:
 
 def render_login_screen() -> None:
     """Render the logged-out view with Google and demo login options."""
+    google_ready = oauth_ready()
+
     left, center, right = st.columns([1.15, 1.7, 1.15])
     with center:
         st.markdown('<div class="login-card">', unsafe_allow_html=True)
@@ -346,15 +348,26 @@ def render_login_screen() -> None:
             if st.button(
                 "Continue with Google",
                 use_container_width=True,
-                type="primary",
+                type="primary" if google_ready else "secondary",
+                disabled=not google_ready,
+                help=(
+                    "Google sign-in is disabled until OAuth setup checks pass. "
+                    "Use Demo Login for local access."
+                    if not google_ready
+                    else None
+                ),
             ):
                 attempt_google_login()
         with col_demo:
             st.button(
                 "Use Demo Login",
                 use_container_width=True,
+                type="primary" if not google_ready else "secondary",
                 on_click=set_demo_login,
             )
+
+        if not google_ready:
+            st.info("Google sign-in is currently disabled until OAuth setup is complete. Use Demo Login to continue.")
 
         st.markdown(
             '<p class="tiny-note">Demo Login gives you instant local access while Google OIDC configuration is in progress.</p>',
