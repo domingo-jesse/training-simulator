@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import hashlib
-import os
 from typing import Any
-from urllib.parse import urlparse
 
 import streamlit as st
-from supabase import Client, create_client
 from admin_views import (
     render_admin_dashboard,
     render_assignment_management,
@@ -32,122 +29,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-SUPABASE_USERS_TABLE = "app_users"
-_SUPABASE_CLIENT: Client | None = None
-
-
-def _get_secret(name: str) -> str:
-    value = st.secrets.get(name)
-    if value is None:
-        value = os.getenv(name)
-    if value is None:
-        raise RuntimeError(
-            f"Missing required setting: {name}. Add it to .streamlit/secrets.toml "
-            "or export it as an environment variable."
-        )
-    stripped = str(value).strip()
-    if not stripped:
-        raise RuntimeError(f"Missing required setting: {name}.")
-    return stripped
-
-def _validate_supabase_settings(url: str, key: str) -> tuple[str, str]:
-    normalized_url = (url or "").strip().strip("\"'")
-    normalized_key = (key or "").strip().strip("\"'")
-
-    if not normalized_url:
-        raise RuntimeError("SUPABASE_URL is empty. Add your project URL (for example: https://<project-ref>.supabase.co).")
-    if not normalized_key:
-        raise RuntimeError("SUPABASE_KEY is empty. Add your anon/service role key in Streamlit secrets or environment variables.")
-
-    parsed = urlparse(normalized_url)
-    hostname = (parsed.hostname or "").strip().lower()
-    if parsed.scheme not in {"http", "https"} or not hostname:
-        raise RuntimeError(
-            "SUPABASE_URL must be a full URL like https://<project-ref>.supabase.co "
-            f"(received: {normalized_url!r})."
-        )
-    if "your-project" in hostname or "example" in hostname or "supabase.co" not in hostname:
-        raise RuntimeError(
-            "SUPABASE_URL looks like a placeholder or non-Supabase host. "
-            "Replace it with your real project URL from Supabase Settings → API."
-        )
-    return normalized_url, normalized_key
-
-
-def get_supabase() -> Client:
-    global _SUPABASE_CLIENT
-    if _SUPABASE_CLIENT is None:
-        url, key = _validate_supabase_settings(
-            _get_secret("SUPABASE_URL"),
-            _get_secret("SUPABASE_KEY"),
-        )
-        _SUPABASE_CLIENT = create_client(url, key)
-    return _SUPABASE_CLIENT
-
-def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
-    normalized_email = email.strip().lower()
-    normalized_role = _normalize_role(role)
-    payload = {
-        "email": normalized_email,
-        "full_name": full_name.strip(),
-        "role": normalized_role,
-    }
-
-    try:
-        client = get_supabase()
-        created = client.table(SUPABASE_USERS_TABLE).insert(payload).execute()
-        rows = getattr(created, "data", None) or []
-        if rows:
-            return True, None, dict(rows[0])
-
-        existing = (
-            client.table(SUPABASE_USERS_TABLE)
-            .select("*")
-            .eq("email", normalized_email)
-            .eq("role", normalized_role)
-            .limit(1)
-            .execute()
-        )
-        existing_rows = getattr(existing, "data", None) or []
-        if existing_rows:
-            return True, None, dict(existing_rows[0])
-        return False, "Supabase insert returned no rows.", None
-    except Exception as exc:
-        if getattr(exc, "code", None) == "23505":
-            try:
-                existing = (
-                    get_supabase()
-                    .table(SUPABASE_USERS_TABLE)
-                    .select("*")
-                    .eq("email", normalized_email)
-                    .eq("role", normalized_role)
-                    .limit(1)
-                    .execute()
-                )
-                rows = getattr(existing, "data", None) or []
-                if rows:
-                    return True, None, dict(rows[0])
-            except Exception:
-                pass
-        return False, f"Supabase profile creation failed: {exc}", None
-
-def _supabase_profile_exists(email: str, role: str) -> bool:
-    normalized_email = email.strip().lower()
-    normalized_role = _normalize_role(role)
-    try:
-        result = (
-            get_supabase()
-            .table(SUPABASE_USERS_TABLE)
-            .select("id")
-            .eq("email", normalized_email)
-            .eq("role", normalized_role)
-            .limit(1)
-            .execute()
-        )
-        return bool(getattr(result, "data", None) or [])
-    except Exception:
-        return False
 
 def hash_password(password: str) -> str:
     """Demo-only hashing helper.
@@ -401,9 +282,6 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         if existing.get("auth_provider") == "google":
             return True, f"Welcome back, {existing['full_name']}!", existing
         return False, f"You already have a {role.title()} account with this email. Sign in using your password.", None
-    if _supabase_profile_exists(email, role):
-        return False, f"A {role.title()} profile already exists in Supabase for this email.", None
-
     new_user = {
         "id": f"u_{role}_{len(st.session_state['users_db']) + 1:03d}",
         "role": role,
@@ -415,10 +293,6 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
-    ok, error_message, _ = _create_supabase_user_profile(full_name=full_name, email=email, role=role)
-    if not ok:
-        st.session_state["users_db"].pop()
-        return False, error_message or "Supabase profile creation failed.", None
     return True, f"{role.title()} account created with Google.", new_user
 
 
@@ -444,8 +318,6 @@ def create_account(
     existing_role_user = find_user_by_email(email, role=role)
     if existing_role_user:
         return False, f"You already have a {role.title()} account with this email."
-    if _supabase_profile_exists(email, role):
-        return False, f"A {role.title()} profile already exists in Supabase for this email."
     if username and find_user_by_username(username):
         return False, "That username is already in use."
     if password != confirm_password:
@@ -462,10 +334,6 @@ def create_account(
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
-    ok, error_message, _ = _create_supabase_user_profile(full_name=full_name, email=email, role=role)
-    if not ok:
-        st.session_state["users_db"].pop()
-        return False, error_message or "Supabase profile creation failed."
     return True, f"{role.title()} account created successfully. Please sign in."
 
 
