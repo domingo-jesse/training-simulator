@@ -4,6 +4,7 @@ import hashlib
 from typing import Any
 
 import streamlit as st
+from supabase import Client, create_client
 from admin_views import (
     render_admin_dashboard,
     render_assignment_management,
@@ -29,6 +30,27 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+
+@st.cache_resource
+def init_supabase() -> Client:
+    return create_client(
+        st.secrets["SUPABASE_URL"],
+        st.secrets["SUPABASE_KEY"],
+    )
+
+
+def render_supabase_connection_test() -> None:
+    st.markdown("### Supabase Connection Test")
+    if st.button("Test Connection", use_container_width=True):
+        try:
+            supabase = init_supabase()
+            response = supabase.table("training_sessions").select("*").limit(1).execute()
+            st.success("✅ Connected to Supabase!")
+            st.write(response.data)
+        except Exception as exc:
+            st.error("❌ Connection failed")
+            st.write(exc)
 
 
 def hash_password(password: str) -> str:
@@ -529,6 +551,9 @@ def render_login_view() -> None:
             st.session_state["auth_view"] = "create_account"
             st.session_state["selected_role"] = "admin"
             st.rerun()
+
+    st.markdown("---")
+    render_supabase_connection_test()
 
 
 def render_create_account_view() -> None:
