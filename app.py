@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 from typing import Any
+from urllib.parse import urlparse
 
 import streamlit as st
 from supabase import Client, create_client
@@ -46,12 +48,37 @@ def _get_secret(name: str) -> str:
     return str(value)
 
 
+def _validate_supabase_settings(url: str, key: str) -> tuple[str, str]:
+    normalized_url = (url or "").strip().strip("\"'")
+    normalized_key = (key or "").strip().strip("\"'")
+
+    if not normalized_url:
+        raise RuntimeError("SUPABASE_URL is empty. Add your project URL (for example: https://<project-ref>.supabase.co).")
+    if not normalized_key:
+        raise RuntimeError("SUPABASE_KEY is empty. Add your anon/service role key in Streamlit secrets or environment variables.")
+
+    parsed = urlparse(normalized_url)
+    hostname = (parsed.hostname or "").strip().lower()
+    if parsed.scheme not in {"http", "https"} or not hostname:
+        raise RuntimeError(
+            "SUPABASE_URL must be a full URL like https://<project-ref>.supabase.co "
+            f"(received: {normalized_url!r})."
+        )
+    if "your-project" in hostname or "example" in hostname or "supabase.co" not in hostname:
+        raise RuntimeError(
+            "SUPABASE_URL looks like a placeholder or non-Supabase host. "
+            "Replace it with your real project URL from Supabase Settings → API."
+        )
+    return normalized_url, normalized_key
+
+
 @st.cache_resource
 def init_supabase() -> Client:
-    return create_client(
-        _get_secret("SUPABASE_URL").strip(),
-        _get_secret("SUPABASE_KEY").strip(),
+    url, key = _validate_supabase_settings(
+        _get_secret("SUPABASE_URL"),
+        _get_secret("SUPABASE_KEY"),
     )
+    return create_client(url, key)
 
 
 def render_supabase_connection_test() -> None:
@@ -94,6 +121,14 @@ def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tupl
         if not rows:
             return False, "User account was created locally, but Supabase did not return a profile row.", None
         return True, None, dict(rows[0])
+    except socket.gaierror as exc:
+        return (
+            False,
+            "Supabase profile creation failed: DNS lookup failed for SUPABASE_URL. "
+            "Double-check the hostname in SUPABASE_URL (it should end with .supabase.co). "
+            f"Original error: {exc}",
+            None,
+        )
     except Exception as exc:
         return False, f"Supabase profile creation failed: {exc}", None
 
