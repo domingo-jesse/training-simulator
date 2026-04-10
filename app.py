@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from typing import Any
 
 import streamlit as st
@@ -32,11 +33,22 @@ st.set_page_config(
 )
 
 
+def _get_secret(name: str) -> str:
+    # Prefer Streamlit secrets, then allow environment variables for local/dev use.
+    value = st.secrets.get(name) or os.getenv(name)
+    if not value:
+        raise RuntimeError(
+            f"Missing required setting: {name}. Add it to .streamlit/secrets.toml "
+            "or export it as an environment variable."
+        )
+    return str(value)
+
+
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(
-        st.secrets["SUPABASE_URL"],
-        st.secrets["SUPABASE_KEY"],
+        _get_secret("SUPABASE_URL"),
+        _get_secret("SUPABASE_KEY"),
     )
 
 
@@ -50,7 +62,11 @@ def render_supabase_connection_test() -> None:
             st.write(response.data)
         except Exception as exc:
             st.error("❌ Connection failed")
-            st.write(exc)
+            st.code(str(exc))
+            st.info(
+                "Set SUPABASE_URL and SUPABASE_KEY in .streamlit/secrets.toml "
+                "(or as environment variables), then retry."
+            )
 
 
 def hash_password(password: str) -> str:
