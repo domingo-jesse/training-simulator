@@ -32,9 +32,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.write("Loaded secret keys:", list(st.secrets.keys()))
-
-
 def _get_secret(name: str) -> str:
     # Prefer Streamlit secrets, then allow environment variables for local/dev use.
     value = st.secrets.get(name) or os.getenv(name)
@@ -49,26 +46,31 @@ def _get_secret(name: str) -> str:
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(
-        _get_secret("SUPABASE_URL"),
-        _get_secret("SUPABASE_KEY"),
+        _get_secret("SUPABASE_URL").strip(),
+        _get_secret("SUPABASE_KEY").strip(),
     )
 
 
 def render_supabase_connection_test() -> None:
     st.markdown("### Supabase Connection Test")
+    st.write("Loaded secret keys:", list(st.secrets.keys()))
+
+    if "SUPABASE_URL" in st.secrets:
+        st.write("SUPABASE_URL raw:", repr(st.secrets["SUPABASE_URL"]))
+
+    if "SUPABASE_KEY" in st.secrets:
+        key = str(st.secrets["SUPABASE_KEY"])
+        st.write("SUPABASE_KEY starts with:", key[:20])
+
     if st.button("Test Connection", use_container_width=True):
         try:
-            supabase = init_supabase()
-            response = supabase.table("training_sessions").select("*").limit(1).execute()
-            st.success("✅ Connected to Supabase!")
-            st.write(response.data)
+            init_supabase()
+            st.success("Client created successfully")
+            st.write("Using URL:", repr(st.secrets["SUPABASE_URL"]))
         except Exception as exc:
-            st.error("❌ Connection failed")
-            st.code(str(exc))
-            st.info(
-                "Set SUPABASE_URL and SUPABASE_KEY in .streamlit/secrets.toml "
-                "(or as environment variables), then retry."
-            )
+            st.error("Connection failed")
+            st.write(type(exc).__name__)
+            st.write(str(exc))
 
 
 def hash_password(password: str) -> str:
