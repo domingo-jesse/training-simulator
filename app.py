@@ -137,6 +137,10 @@ def render_supabase_connection_test() -> None:
                 except Exception as exc:
                     st.error(f"Supabase profile creation failed: {exc}")
                     st.write("Error type:", type(exc).__name__)
+                    for field in ("code", "message", "details", "hint"):
+                        value = getattr(exc, field, None)
+                        if value:
+                            st.write(f"{field}:", value)
 
     if st.button("Select users test", use_container_width=True):
         try:
@@ -155,11 +159,14 @@ def render_supabase_connection_test() -> None:
 
 def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
     """Create a user profile row in Supabase for newly-created app accounts."""
+    normalized_email = email.strip().lower()
+    normalized_role = _normalize_role(role)
+
     try:
         payload = {
-            "email": email.strip().lower(),
+            "email": normalized_email,
             "full_name": full_name.strip(),
-            "role": _normalize_role(role),
+            "role": normalized_role,
         }
         created = (
             get_supabase()
@@ -169,6 +176,19 @@ def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tupl
         )
         rows = getattr(created, "data", None) or []
         if not rows:
+            # Verify whether row exists even if no payload was returned.
+            existing = (
+                get_supabase()
+                .table(SUPABASE_USERS_TABLE)
+                .select("*")
+                .eq("email", normalized_email)
+                .eq("role", normalized_role)
+                .limit(1)
+                .execute()
+            )
+            existing_rows = getattr(existing, "data", None) or []
+            if existing_rows:
+                return True, None, dict(existing_rows[0])
             return False, "User account was created locally, but Supabase did not return a profile row.", None
         return True, None, dict(rows[0])
     except socket.gaierror as exc:
@@ -180,7 +200,32 @@ def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tupl
             None,
         )
     except Exception as exc:
-        return False, f"Supabase profile creation failed: {exc}", None
+        error_code = getattr(exc, "code", None)
+        if error_code == "23505":
+            # Handle unique-constraint races/idempotency as success by reading existing row.
+            try:
+                existing = (
+                    get_supabase()
+                    .table(SUPABASE_USERS_TABLE)
+                    .select("*")
+                    .eq("email", normalized_email)
+                    .eq("role", normalized_role)
+                    .limit(1)
+                    .execute()
+                )
+                rows = getattr(existing, "data", None) or []
+                if rows:
+                    return True, None, dict(rows[0])
+            except Exception:
+                pass
+
+        details = []
+        for field in ("code", "message", "details", "hint"):
+            value = getattr(exc, field, None)
+            if value:
+                details.append(f"{field}={value}")
+        detail_suffix = f" ({'; '.join(details)})" if details else ""
+        return False, f"Supabase profile creation failed: {exc}{detail_suffix}", None
 
 
 def _supabase_profile_exists(email: str, role: str) -> bool:
