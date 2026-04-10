@@ -6,6 +6,7 @@ import socket
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
 import streamlit as st
 from supabase import Client, create_client
 from admin_views import (
@@ -138,6 +139,41 @@ def render_supabase_connection_test() -> None:
         except Exception as exc:
             st.error("Select failed")
             st.write({"error_type": type(exc).__name__, "error": str(exc), "supabase_url_repr": repr(debug_url)})
+
+def render_supabase_network_debug() -> None:
+    st.markdown("### Supabase Network Debug")
+
+    url = st.secrets["SUPABASE_URL"].strip()
+    key = st.secrets["SUPABASE_KEY"].strip()
+
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+
+    st.write("URL:", url)
+    st.write("repr(URL):", repr(url))
+    st.write("Hostname:", hostname)
+    st.write("repr(Hostname):", repr(hostname))
+    st.write("URL chars:", [ord(c) for c in url])
+
+    if st.button("DNS test"):
+        try:
+            result = socket.getaddrinfo(hostname, 443)
+            st.success("DNS lookup worked")
+            st.write(result[:2])
+        except Exception as e:
+            st.error(f"DNS lookup failed: {type(e).__name__}: {e}")
+
+    if st.button("HTTP test"):
+        try:
+            headers = {
+                "apikey": key,
+                "Authorization": f"Bearer {key}",
+            }
+            r = httpx.get(f"{url}/rest/v1/", headers=headers, timeout=20.0)
+            st.success(f"HTTP worked: {r.status_code}")
+            st.write(r.text[:500])
+        except Exception as e:
+            st.error(f"HTTP failed: {type(e).__name__}: {e}")
 
 def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
     normalized_email = email.strip().lower()
@@ -716,6 +752,7 @@ def render_login_view() -> None:
 
     st.markdown("---")
     render_supabase_connection_test()
+    render_supabase_network_debug()
 
 
 def render_create_account_view() -> None:
