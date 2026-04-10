@@ -32,6 +32,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.write("Loaded secret keys:", list(st.secrets.keys()))
+
 
 def _get_secret(name: str) -> str:
     # Prefer Streamlit secrets, then allow environment variables for local/dev use.
