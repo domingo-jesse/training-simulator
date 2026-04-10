@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 from typing import Any
 
 import streamlit as st
@@ -21,7 +22,22 @@ from learner_views import (
     render_results_page,
     render_scenario_page,
 )
+from logger import get_logger
 from utils import inject_styles
+
+app_logger = get_logger(module="app")
+
+
+def _global_exception_handler(exc_type, exc_value, exc_traceback) -> None:
+    if issubclass(exc_type, KeyboardInterrupt):
+        sys.__excepthook__(exc_type, exc_value, exc_traceback)
+        return
+    app_logger.opt(exception=(exc_type, exc_value, exc_traceback)).error(
+        "Unhandled exception reached global exception hook."
+    )
+
+
+sys.excepthook = _global_exception_handler
 
 st.set_page_config(
     page_title="Training Simulator",
@@ -92,9 +108,11 @@ def init_state() -> None:
 def _ensure_platform_data() -> None:
     if st.session_state.get("bootstrapped"):
         return
+    app_logger.info("Bootstrapping platform data.")
     init_db()
     seed_all()
     st.session_state["bootstrapped"] = True
+    app_logger.info("Platform bootstrap complete.")
 
 
 def _default_org_id() -> int:
@@ -116,6 +134,7 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
         (auth_user["email"].strip().lower(), normalized_role),
     )
     if existing:
+        app_logger.info("Using existing platform user.", user_email=auth_user["email"].strip().lower(), role=normalized_role)
         return dict(existing)
 
     org_id = _default_org_id()
@@ -127,6 +146,7 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
         (auth_user["full_name"], auth_user["email"].strip().lower(), normalized_role, "General", org_id),
     )
     created = fetch_one("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    app_logger.info("Created platform user.", user_email=auth_user["email"].strip().lower(), role=normalized_role, user_id=user_id)
     return dict(created)
 
 
@@ -258,6 +278,9 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
         "organization_id": platform_user["organization_id"],
     }
     st.session_state["selected_role"] = normalized_role
+    app_logger.bind(user_id=user["id"], session_id=st.session_state.get("session_id")).info(
+        "User signed in.", auth_method=auth_method, role=normalized_role
+    )
     st.session_state["page"] = None
     st.session_state["auth_error"] = None
     st.session_state["auth_info"] = None
@@ -293,6 +316,7 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
+    app_logger.info("Created new Google-backed account.", role=role)
     return True, f"{role.title()} account created with Google.", new_user
 
 
@@ -334,6 +358,7 @@ def create_account(
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
+    app_logger.info("Created new local account.", role=role)
     return True, f"{role.title()} account created successfully. Please sign in."
 
 
@@ -347,6 +372,7 @@ def logout_user() -> None:
     st.session_state["auth_error"] = None
     st.session_state["auth_info"] = None
     st.session_state["pending_google"] = None
+    app_logger.info("User logged out.")
 
 
 def render_auth_shell(content_renderer) -> None:
@@ -454,6 +480,7 @@ def _sync_google_identity_if_present() -> None:
 
 
 def render_login_view() -> None:
+    app_logger.info("Rendering login view.", page="login")
     _sync_google_identity_if_present()
 
     if st.session_state.get("post_create_success"):
@@ -494,6 +521,7 @@ def render_login_view() -> None:
             pwd = st.text_input("Password", type="password", key="learner_pwd")
             submitted = st.form_submit_button("Sign in as Learner", use_container_width=True, type="primary")
             if submitted:
+                app_logger.info("Login form submitted.", role="learner")
                 ok, message, user = validate_local_login(identifier, pwd, expected_role="learner")
                 if ok and user:
                     _sign_in_user(user, "local_password")
@@ -514,6 +542,7 @@ def render_login_view() -> None:
             pwd = st.text_input("Password", type="password", key="admin_pwd")
             submitted = st.form_submit_button("Sign in as Admin", use_container_width=True, type="primary")
             if submitted:
+                app_logger.info("Login form submitted.", role="admin")
                 ok, message, user = validate_local_login(identifier, pwd, expected_role="admin")
                 if ok and user:
                     _sign_in_user(user, "local_password")
@@ -531,6 +560,7 @@ def render_login_view() -> None:
 
 
 def render_create_account_view() -> None:
+    app_logger.info("Rendering create-account view.", page="create_account")
     st.markdown("### Create your account")
     st.caption("You can register both Learner and Admin accounts using the same email address.")
     with st.form("create_account_form", clear_on_submit=False):
@@ -550,6 +580,7 @@ def render_create_account_view() -> None:
         create_clicked = st.form_submit_button("Create account", use_container_width=True, type="primary")
 
         if create_clicked:
+            app_logger.info("Create account form submitted.", role=role)
             ok, message = create_account(role, full_name, email, username, password, confirm_password)
             if ok:
                 st.session_state["post_create_success"] = message
@@ -585,6 +616,10 @@ def render_topbar(user: dict[str, Any]) -> None:
 
 def render_main_app() -> None:
     user = st.session_state["current_user"]
+    user_logger = app_logger.bind(
+        user_id=user.get("id"),
+        session_id=st.session_state.get("session_id"),
+    )
     render_topbar(user)
     st.markdown("---")
     if user["role"] == "admin":
@@ -602,6 +637,7 @@ def render_main_app() -> None:
             options=pages,
             index=pages.index(default_page) if default_page in pages else 0,
         )
+        user_logger.info("Admin page load.", page=st.session_state["page"])
         if st.session_state["page"] == "Dashboard":
             render_admin_dashboard(user)
         elif st.session_state["page"] == "Assignments":
@@ -622,6 +658,7 @@ def render_main_app() -> None:
             options=pages,
             index=pages.index(default_page) if default_page in pages else 0,
         )
+        user_logger.info("Learner page load.", page=st.session_state["page"])
         if st.session_state["page"] == "Home":
             render_learner_home(user)
         elif st.session_state["page"] == "Assigned Modules":
@@ -635,6 +672,8 @@ def render_main_app() -> None:
 
 
 def main() -> None:
+    st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
+    app_logger.info("App startup.", session_id=st.session_state["session_id"])
     init_state()
     _ensure_platform_data()
     inject_styles()
@@ -650,4 +689,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        app_logger.exception("Unexpected exception during app execution.")
+        raise

@@ -6,7 +6,10 @@ import pandas as pd
 import streamlit as st
 
 from db import execute, fetch_all, fetch_one
+from logger import get_logger
 from utils import metric_row, to_df
+
+admin_logger = get_logger(module="admin_views")
 
 
 def _assignments_with_status(org_id: int) -> pd.DataFrame:
@@ -58,11 +61,17 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
 
 def render_admin_dashboard(current_user: dict) -> None:
     org_id = current_user["organization_id"]
+    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Admin Dashboard")
 
-    learners_df = to_df(fetch_all("SELECT * FROM users WHERE role='learner' AND organization_id = ?", (org_id,)))
-    modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ?", (org_id,)))
-    assignments_df = _assignments_with_status(org_id)
+    try:
+        learners_df = to_df(fetch_all("SELECT * FROM users WHERE role='learner' AND organization_id = ?", (org_id,)))
+        modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ?", (org_id,)))
+        assignments_df = _assignments_with_status(org_id)
+    except Exception:
+        view_logger.exception("Failed to load admin dashboard.")
+        st.error("Failed to load dashboard data.")
+        return
 
     total_learners = len(learners_df)
     active_learners = int(learners_df["is_active"].sum()) if not learners_df.empty else 0
@@ -103,6 +112,7 @@ def render_admin_dashboard(current_user: dict) -> None:
 
 def render_learner_management(current_user: dict) -> None:
     org_id = current_user["organization_id"]
+    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Learner Management")
 
     rows = fetch_all(
@@ -160,18 +170,29 @@ def render_learner_management(current_user: dict) -> None:
     with c1:
         if learner["is_active"]:
             if st.button("Deactivate learner", type="secondary"):
-                execute("UPDATE users SET is_active = 0 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
-                st.success(f"{learner['name']} deactivated.")
-                st.rerun()
+                try:
+                    execute("UPDATE users SET is_active = 0 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
+                    view_logger.info("Button click.", action="deactivate_learner", learner_id=learner_id)
+                    st.success(f"{learner['name']} deactivated.")
+                    st.rerun()
+                except Exception:
+                    view_logger.exception("Failed deactivating learner.", learner_id=learner_id)
+                    st.error("Could not deactivate learner.")
         else:
             if st.button("Activate learner", type="primary"):
-                execute("UPDATE users SET is_active = 1 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
-                st.success(f"{learner['name']} activated.")
-                st.rerun()
+                try:
+                    execute("UPDATE users SET is_active = 1 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
+                    view_logger.info("Button click.", action="activate_learner", learner_id=learner_id)
+                    st.success(f"{learner['name']} activated.")
+                    st.rerun()
+                except Exception:
+                    view_logger.exception("Failed activating learner.", learner_id=learner_id)
+                    st.error("Could not activate learner.")
 
 
 def render_assignment_management(current_user: dict) -> None:
     org_id = current_user["organization_id"]
+    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Assignment Management")
 
     learners = fetch_all("SELECT user_id, name, is_active FROM users WHERE role='learner' AND organization_id=? ORDER BY name", (org_id,))
@@ -199,17 +220,22 @@ def render_assignment_management(current_user: dict) -> None:
             if not selected_learners:
                 st.warning("Select at least one learner before assigning.")
                 return
-            for learner_label in selected_learners:
-                learner_id = learner_map[learner_label]
-                execute(
-                    """
-                    INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
-                    VALUES (?, ?, ?, ?, ?, 1)
-                    """,
-                    (org_id, module_id, learner_id, current_user["user_id"], due_date_value),
-                )
-            st.success(f"Assigned module to {len(selected_learners)} learner(s).")
-            st.rerun()
+            try:
+                for learner_label in selected_learners:
+                    learner_id = learner_map[learner_label]
+                    execute(
+                        """
+                        INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
+                        VALUES (?, ?, ?, ?, ?, 1)
+                        """,
+                        (org_id, module_id, learner_id, current_user["user_id"], due_date_value),
+                    )
+                view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(selected_learners))
+                st.success(f"Assigned module to {len(selected_learners)} learner(s).")
+                st.rerun()
+            except Exception:
+                view_logger.exception("Failed assigning training.", scenario_id=module_id)
+                st.error("Could not assign training.")
 
     assignments_df = _assignments_with_status(org_id)
     if assignments_df.empty:
@@ -233,18 +259,28 @@ def render_assignment_management(current_user: dict) -> None:
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Remove assignment"):
-            execute("UPDATE assignments SET is_active = 0 WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
-            st.success("Assignment removed.")
-            st.rerun()
+            try:
+                execute("UPDATE assignments SET is_active = 0 WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
+                view_logger.info("Button click.", action="remove_assignment", assignment_id=selected_assignment_id)
+                st.success("Assignment removed.")
+                st.rerun()
+            except Exception:
+                view_logger.exception("Failed removing assignment.", assignment_id=selected_assignment_id)
+                st.error("Could not remove assignment.")
     with c2:
         new_due = st.date_input("Reassign due date", key="reassign_due", value=date.today())
         if st.button("Reassign training"):
-            execute(
-                "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP WHERE assignment_id = ? AND organization_id = ?",
-                (new_due.isoformat(), current_user["user_id"], selected_assignment_id, org_id),
-            )
-            st.success("Assignment updated.")
-            st.rerun()
+            try:
+                execute(
+                    "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP WHERE assignment_id = ? AND organization_id = ?",
+                    (new_due.isoformat(), current_user["user_id"], selected_assignment_id, org_id),
+                )
+                view_logger.info("Button click.", action="reassign_training", assignment_id=selected_assignment_id)
+                st.success("Assignment updated.")
+                st.rerun()
+            except Exception:
+                view_logger.exception("Failed reassigning training.", assignment_id=selected_assignment_id)
+                st.error("Could not update assignment.")
 
 
 def render_grading_center(current_user: dict) -> None:

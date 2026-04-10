@@ -4,18 +4,28 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+from logger import get_logger
+
 DB_PATH = Path(__file__).resolve().parent / "trainer.db"
+db_logger = get_logger(module="db")
 
 
 @contextmanager
 def get_conn():
+    db_logger.debug("Opening database connection.")
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()
+        db_logger.debug("Database transaction committed.")
+    except Exception:
+        db_logger.exception("Database transaction failed and will be rolled back.")
+        conn.rollback()
+        raise
     finally:
         conn.close()
+        db_logger.debug("Database connection closed.")
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
@@ -41,6 +51,7 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
 
 
 def init_db() -> None:
+    db_logger.info("Initializing database schema.", db_path=str(DB_PATH))
     with get_conn() as conn:
         conn.executescript(
             """
@@ -167,29 +178,53 @@ def init_db() -> None:
         _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
+    db_logger.info("Database schema initialization complete.")
 
 
 def fetch_all(query: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
-    with get_conn() as conn:
-        cur = conn.execute(query, params)
-        return cur.fetchall()
+    try:
+        with get_conn() as conn:
+            cur = conn.execute(query, params)
+            rows = cur.fetchall()
+            db_logger.debug("Database read completed.", operation="fetch_all", row_count=len(rows))
+            return rows
+    except Exception:
+        db_logger.exception("Database read failed.", operation="fetch_all")
+        raise
 
 
 def fetch_one(query: str, params: Iterable[Any] = ()) -> Optional[sqlite3.Row]:
-    with get_conn() as conn:
-        cur = conn.execute(query, params)
-        return cur.fetchone()
+    try:
+        with get_conn() as conn:
+            cur = conn.execute(query, params)
+            row = cur.fetchone()
+            db_logger.debug("Database read completed.", operation="fetch_one", found=bool(row))
+            return row
+    except Exception:
+        db_logger.exception("Database read failed.", operation="fetch_one")
+        raise
 
 
 def execute(query: str, params: Iterable[Any] = ()) -> int:
-    with get_conn() as conn:
-        cur = conn.execute(query, params)
-        return cur.lastrowid
+    try:
+        with get_conn() as conn:
+            cur = conn.execute(query, params)
+            db_logger.info("Database write completed.", operation="execute", lastrowid=cur.lastrowid)
+            return cur.lastrowid
+    except Exception:
+        db_logger.exception("Database write failed.", operation="execute")
+        raise
 
 
 def executemany(query: str, rows: Iterable[Iterable[Any]]) -> None:
-    with get_conn() as conn:
-        conn.executemany(query, rows)
+    try:
+        buffered_rows = list(rows)
+        with get_conn() as conn:
+            conn.executemany(query, buffered_rows)
+            db_logger.info("Database bulk write completed.", operation="executemany", row_count=len(buffered_rows))
+    except Exception:
+        db_logger.exception("Database bulk write failed.", operation="executemany")
+        raise
 
 
 def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organization_id: int | None = None) -> int:
