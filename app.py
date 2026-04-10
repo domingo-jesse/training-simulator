@@ -10,6 +10,7 @@ from admin_views import (
     render_assignment_management,
     render_grading_center,
     render_learner_management,
+    render_admin_log_viewer,
     render_module_builder,
     render_progress_tracking,
 )
@@ -630,6 +631,7 @@ def render_main_app() -> None:
             "Progress Tracking",
             "Learner Management",
             "Module Builder",
+            "Debug Logs",
         ]
         default_page = st.session_state.get("page") or "Dashboard"
         st.session_state["page"] = st.sidebar.radio(
@@ -650,6 +652,8 @@ def render_main_app() -> None:
             render_learner_management(user)
         elif st.session_state["page"] == "Module Builder":
             render_module_builder(user)
+        elif st.session_state["page"] == "Debug Logs":
+            render_admin_log_viewer()
     else:
         pages = ["Home", "Assigned Modules", "Scenario", "Results", "My Progress"]
         default_page = st.session_state.get("page") or "Home"

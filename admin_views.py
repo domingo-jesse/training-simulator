@@ -7,6 +7,14 @@ import streamlit as st
 
 from db import execute, fetch_all, fetch_one
 from logger import get_logger
+from log_viewer import (
+    LOG_LEVEL_OPTIONS,
+    filter_log_lines,
+    get_recent_lines,
+    is_admin_session,
+    read_full_file_for_download,
+    read_log_lines,
+)
 from utils import metric_row, to_df
 
 admin_logger = get_logger(module="admin_views")
@@ -509,3 +517,76 @@ def render_module_builder(current_user: dict) -> None:
             )
             st.success("Module duplicated as draft.")
             st.rerun()
+
+
+def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
+    st.markdown(f"#### {tab_name}")
+
+    controls_col_1, controls_col_2 = st.columns([2, 1])
+    with controls_col_1:
+        search_text = st.text_input("Search", key=f"{key_prefix}_search", placeholder="Filter by text...")
+    with controls_col_2:
+        level = st.selectbox("Level", LOG_LEVEL_OPTIONS, key=f"{key_prefix}_level")
+
+    lines_to_show = st.slider(
+        "Recent matching lines",
+        min_value=20,
+        max_value=1000,
+        value=200,
+        step=20,
+        key=f"{key_prefix}_line_limit",
+    )
+
+    action_col_1, action_col_2 = st.columns([1, 1])
+    with action_col_1:
+        if st.button("Refresh", key=f"{key_prefix}_refresh", use_container_width=True):
+            st.rerun()
+    with action_col_2:
+        file_bytes, download_error = read_full_file_for_download(log_path)
+        if file_bytes is not None:
+            st.download_button(
+                "Download full file",
+                data=file_bytes,
+                file_name=log_path.split("/")[-1],
+                mime="text/plain",
+                key=f"{key_prefix}_download",
+                use_container_width=True,
+            )
+        elif download_error:
+            st.caption(download_error)
+
+    lines, error_message = read_log_lines(log_path)
+    if error_message:
+        st.info(error_message)
+        return
+
+    filtered = filter_log_lines(lines, search_text, level)
+    visible_lines = get_recent_lines(filtered, lines_to_show)
+
+    st.caption(f"Showing {len(visible_lines)} of {len(filtered)} matching lines ({len(lines)} total).")
+    if not visible_lines:
+        st.info("No matching log entries found for the current filters.")
+        return
+
+    st.code("\n".join(visible_lines), language="text")
+
+
+def render_admin_log_viewer() -> None:
+    """Admin-only debug panel for inspecting application logs."""
+    if not is_admin_session():
+        st.warning("This debug panel is only available to admin users.")
+        return
+
+    st.subheader("Debug Panel")
+    st.caption("Inspect application logs without leaving the admin workspace.")
+
+    app_tab, error_tab, structured_tab = st.tabs(
+        ["App Logs", "Error Logs", "Structured JSON Logs"]
+    )
+
+    with app_tab:
+        _render_log_tab("App Logs", "logs/app.log", "app_logs")
+    with error_tab:
+        _render_log_tab("Error Logs", "logs/errors.log", "error_logs")
+    with structured_tab:
+        _render_log_tab("Structured JSON Logs", "logs/structured.json", "structured_logs")
