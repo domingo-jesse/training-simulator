@@ -83,6 +83,7 @@ def init_supabase() -> Client:
 
 def render_supabase_connection_test() -> None:
     st.markdown("### Supabase Connection Test")
+    st.caption("Use this panel to verify both connection and write access from the app to Supabase.")
     st.write("Loaded secret keys:", list(st.secrets.keys()))
 
     if "SUPABASE_URL" in st.secrets:
@@ -101,6 +102,28 @@ def render_supabase_connection_test() -> None:
             st.error("Connection failed")
             st.write(type(exc).__name__)
             st.write(str(exc))
+
+    st.markdown("#### Insert test profile row")
+    with st.form("supabase_insert_test_form", clear_on_submit=False):
+        test_full_name = st.text_input("Full name", value="Supabase Test User")
+        test_email = st.text_input("Email", placeholder="you+supabase-test@example.com")
+        test_role = st.selectbox("Role", options=["learner", "admin"])
+        insert_clicked = st.form_submit_button("Insert test row", use_container_width=True, type="primary")
+
+        if insert_clicked:
+            if not test_email.strip():
+                st.error("Please enter an email so we can insert a test row.")
+            else:
+                ok, error_message, created_row = _create_supabase_user_profile(
+                    full_name=test_full_name,
+                    email=test_email,
+                    role=test_role,
+                )
+                if ok and created_row:
+                    st.success("Supabase insert succeeded ✅")
+                    st.json(created_row)
+                else:
+                    st.error(error_message or "Insert failed.")
 
 
 def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
