@@ -7,7 +7,10 @@ import streamlit as st
 
 from db import fetch_all, fetch_one, insert_attempt, log_actions
 from evaluation import evaluate_submission
+from logger import get_logger
 from utils import metric_row, parse_json_list, to_df
+
+learner_logger = get_logger(module="learner_views")
 
 
 def _compact_text(value: str) -> str:
@@ -120,8 +123,14 @@ def render_learner_home(user: Dict) -> None:
 
 
 def render_module_library(user: Dict) -> None:
+    view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Assigned Modules")
-    assignments = _assigned_modules(user)
+    try:
+        assignments = _assigned_modules(user)
+    except Exception:
+        view_logger.exception("Failed loading assigned modules.")
+        st.error("We couldn't load your assignments right now. Please try again.")
+        return
 
     if not assignments:
         st.info("No modules are assigned yet. Your admin can assign training from the admin dashboard.")
@@ -146,6 +155,7 @@ def render_module_library(user: Dict) -> None:
                             key=f"view_{module['assignment_id']}_{module['module_id']}",
                             type="secondary",
                         ):
+                            view_logger.info("Button click.", action="view_score", scenario_id=module["module_id"])
                             attempt = fetch_one(
                                 """
                                 SELECT attempt_id
@@ -165,6 +175,7 @@ def render_module_library(user: Dict) -> None:
                                 st.rerun()
                     else:
                         if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
+                            view_logger.info("Button click.", action="start_module", scenario_id=module["module_id"])
                             st.session_state.active_module_id = module["module_id"]
                             st.session_state.page = "Scenario"
                             st.rerun()
@@ -189,6 +200,7 @@ def render_module_library(user: Dict) -> None:
 
 
 def render_scenario_page(user: Dict) -> None:
+    view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
     module_id = st.session_state.get("active_module_id")
     if not module_id:
         st.info("Select a module from Assigned Modules to begin.")
@@ -267,6 +279,8 @@ def render_scenario_page(user: Dict) -> None:
     escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"])
 
     if st.button("Submit module", type="primary"):
+        scenario_logger = view_logger.bind(scenario_id=module_id)
+        scenario_logger.info("Form submitted.", form="submit_module")
         answers = {
             "diagnosis_answer": diagnosis,
             "next_steps_answer": next_steps,
@@ -274,15 +288,20 @@ def render_scenario_page(user: Dict) -> None:
             "escalation_choice": escalation_choice,
             "notes": notes,
         }
-        evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
-        payload = {**answers, **evaluation}
-        attempt_id = insert_attempt(user["user_id"], module_id, payload, user["organization_id"])
-        log_actions(attempt_id, st.session_state[used_actions_key])
+        try:
+            evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
+            payload = {**answers, **evaluation}
+            attempt_id = insert_attempt(user["user_id"], module_id, payload, user["organization_id"])
+            log_actions(attempt_id, st.session_state[used_actions_key])
+            scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id)
 
-        st.session_state.latest_attempt_id = attempt_id
-        st.session_state.page = "Results"
-        st.toast("🎉 Thank you — you've completed this module!")
-        st.rerun()
+            st.session_state.latest_attempt_id = attempt_id
+            st.session_state.page = "Results"
+            st.toast("🎉 Thank you — you've completed this module!")
+            st.rerun()
+        except Exception:
+            scenario_logger.exception("Failed to submit module.")
+            st.error("We couldn't submit this module. Please try again.")
 
 
 def render_results_page(user: Dict) -> None:

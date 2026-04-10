@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from logger import get_logger
+
+eval_logger = get_logger(module="evaluation")
+
 
 def _keyword_score(answer: str, keywords: List[str]) -> int:
     answer_lower = (answer or "").lower()
@@ -16,14 +20,20 @@ def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) ->
     TODO (future): Replace heuristic scoring with an LLM evaluator call that receives
     module context, learner answers, and action trace, then returns calibrated rubrics.
     """
-    diagnosis = answers.get("diagnosis_answer", "")
-    next_steps = answers.get("next_steps_answer", "")
-    customer = answers.get("customer_response", "")
+    scenario_logger = eval_logger.bind(scenario_id=module.get("module_id") or module.get("title"))
+    scenario_logger.info("OpenAI request start.", request_type="submission_evaluation")
+    try:
+        diagnosis = answers.get("diagnosis_answer", "")
+        next_steps = answers.get("next_steps_answer", "")
+        customer = answers.get("customer_response", "")
 
-    understanding = _keyword_score(diagnosis, ["root", "cause", "config", "credential", "workflow", "mapping"])
-    investigation = min(100, 40 + len(actions_used) * 10)
-    solution_quality = _keyword_score(next_steps, ["validate", "rollback", "fix", "monitor", "requeue", "test"])
-    communication = _keyword_score(customer, ["impact", "eta", "update", "thanks", "prevent", "timeline"])
+        understanding = _keyword_score(diagnosis, ["root", "cause", "config", "credential", "workflow", "mapping"])
+        investigation = min(100, 40 + len(actions_used) * 10)
+        solution_quality = _keyword_score(next_steps, ["validate", "rollback", "fix", "monitor", "requeue", "test"])
+        communication = _keyword_score(customer, ["impact", "eta", "update", "thanks", "prevent", "timeline"])
+    except Exception:
+        scenario_logger.exception("OpenAI error while evaluating submission.")
+        raise
 
     total_score = round((understanding + investigation + solution_quality + communication) / 4, 1)
 
@@ -50,7 +60,7 @@ def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) ->
     else:
         missed.append("Customer response should include impact, timing, and prevention language.")
 
-    return {
+    result = {
         "total_score": total_score,
         "category_scores": {
             "understanding": understanding,
@@ -65,3 +75,5 @@ def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) ->
         "recommended_response": module.get("expected_customer_response", "Acknowledge impact, explain next actions, and commit to follow-up."),
         "takeaway_summary": module.get("lesson_takeaway", "Use structured troubleshooting and communicate proactively."),
     }
+    scenario_logger.info("OpenAI request completed.", request_type="submission_evaluation", total_score=total_score)
+    return result
