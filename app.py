@@ -35,18 +35,22 @@ st.set_page_config(
 )
 
 SUPABASE_USERS_TABLE = "app_users"
+_SUPABASE_CLIENT: Client | None = None
 
 
 def _get_secret(name: str) -> str:
-    # Prefer Streamlit secrets, then allow environment variables for local/dev use.
-    value = st.secrets.get(name) or os.getenv(name)
-    if not value:
+    value = st.secrets.get(name)
+    if value is None:
+        value = os.getenv(name)
+    if value is None:
         raise RuntimeError(
             f"Missing required setting: {name}. Add it to .streamlit/secrets.toml "
             "or export it as an environment variable."
         )
-    return str(value)
-
+    stripped = str(value).strip()
+    if not stripped:
+        raise RuntimeError(f"Missing required setting: {name}.")
+    return stripped
 
 def _validate_supabase_settings(url: str, key: str) -> tuple[str, str]:
     normalized_url = (url or "").strip().strip("\"'")
@@ -72,137 +76,99 @@ def _validate_supabase_settings(url: str, key: str) -> tuple[str, str]:
     return normalized_url, normalized_key
 
 
-@st.cache_resource
 def get_supabase() -> Client:
-    url, key = _validate_supabase_settings(
-        _get_secret("SUPABASE_URL"),
-        _get_secret("SUPABASE_KEY"),
-    )
-    return create_client(url, key)
-
+    global _SUPABASE_CLIENT
+    if _SUPABASE_CLIENT is None:
+        url, key = _validate_supabase_settings(
+            _get_secret("SUPABASE_URL"),
+            _get_secret("SUPABASE_KEY"),
+        )
+        _SUPABASE_CLIENT = create_client(url, key)
+    return _SUPABASE_CLIENT
 
 def render_supabase_connection_test() -> None:
     st.markdown("### Supabase Connection Test")
-    st.caption("Use this panel to verify both connection and write access from the app to Supabase.")
-    st.write("Loaded secret keys:", list(st.secrets.keys()))
-
-    if "SUPABASE_URL" in st.secrets:
-        st.write("SUPABASE_URL raw:", repr(st.secrets["SUPABASE_URL"]))
-
-    if "SUPABASE_KEY" in st.secrets:
-        key = str(st.secrets["SUPABASE_KEY"])
-        st.write("SUPABASE_KEY starts with:", key[:20])
-
-    if st.button("Test Connection", use_container_width=True):
-        try:
-            get_supabase()
-            st.success("Client created successfully")
-            st.write("Using URL:", repr(_get_secret("SUPABASE_URL")))
-        except Exception as exc:
-            st.error("Connection failed")
-            st.write(type(exc).__name__)
-            st.write(str(exc))
-
-    st.markdown("#### Insert test profile row")
-    with st.form("supabase_insert_test_form", clear_on_submit=False):
-        test_full_name = st.text_input("Full name", value="Supabase Test User")
-        test_email = st.text_input("Email", placeholder="you+supabase-test@example.com")
-        test_role = st.selectbox("Role", options=["learner", "admin"])
-        insert_clicked = st.form_submit_button("Insert test row", use_container_width=True, type="primary")
-
-        if insert_clicked:
-            if not test_email.strip():
-                st.error("Please enter an email so we can insert a test row.")
-            else:
-                try:
-                    st.write("Using URL:", repr(_get_secret("SUPABASE_URL")))
-                    created = (
-                        get_supabase()
-                        .table(SUPABASE_USERS_TABLE)
-                        .insert(
-                            {
-                                "full_name": test_full_name.strip(),
-                                "email": test_email.strip().lower(),
-                                "role": _normalize_role(test_role),
-                            }
-                        )
-                        .execute()
-                    )
-                    rows = getattr(created, "data", None) or []
-                    if not rows:
-                        st.error("Insert succeeded but Supabase returned no rows.")
-                    else:
-                        st.success("Supabase insert succeeded ✅")
-                        st.json(rows[0])
-                except Exception as exc:
-                    st.error(f"Supabase profile creation failed: {exc}")
-                    st.write("Error type:", type(exc).__name__)
-                    for field in ("code", "message", "details", "hint"):
-                        value = getattr(exc, field, None)
-                        if value:
-                            st.write(f"{field}:", value)
-
-    if st.button("Select users test", use_container_width=True):
-        try:
-            result = (
-                get_supabase()
-                .table(SUPABASE_USERS_TABLE)
-                .select("*")
-                .limit(5)
-                .execute()
-            )
-            st.success("Select worked ✅")
-            st.write(getattr(result, "data", []) or [])
-        except Exception as exc:
-            st.error(f"Select failed: {exc}")
-
-
-def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
-    """Create a user profile row in Supabase for newly-created app accounts."""
-    normalized_email = email.strip().lower()
-    normalized_role = _normalize_role(role)
 
     try:
-        payload = {
-            "email": normalized_email,
-            "full_name": full_name.strip(),
-            "role": normalized_role,
-        }
-        created = (
-            get_supabase()
-            .table(SUPABASE_USERS_TABLE)
-            .insert(payload)
+        debug_url = _validate_supabase_settings(_get_secret("SUPABASE_URL"), _get_secret("SUPABASE_KEY"))[0]
+    except Exception:
+        debug_url = ""
+    st.caption(f"SUPABASE_URL repr: {repr(debug_url)}")
+
+    if st.button("Test connection (real select)", use_container_width=True):
+        try:
+            result = get_supabase().table(SUPABASE_USERS_TABLE).select("id").limit(1).execute()
+            st.success("Connection query succeeded ✅")
+            st.write(getattr(result, "data", []) or [])
+        except Exception as exc:
+            st.error("Connection query failed")
+            st.write({"error_type": type(exc).__name__, "error": str(exc), "supabase_url_repr": repr(debug_url)})
+
+    with st.form("supabase_insert_test"):
+        full_name = st.text_input("Full name", value="Supabase Test User")
+        email = st.text_input("Email")
+        role = st.selectbox("Role", options=["learner", "admin"])
+        submit = st.form_submit_button("Insert into app_users", use_container_width=True)
+        if submit:
+            try:
+                created = (
+                    get_supabase()
+                    .table(SUPABASE_USERS_TABLE)
+                    .insert(
+                        {
+                            "full_name": full_name.strip(),
+                            "email": email.strip().lower(),
+                            "role": _normalize_role(role),
+                        }
+                    )
+                    .execute()
+                )
+                rows = getattr(created, "data", None) or []
+                st.success("Insert succeeded ✅")
+                st.write(rows)
+            except Exception as exc:
+                st.error("Insert failed")
+                st.write({"error_type": type(exc).__name__, "error": str(exc), "supabase_url_repr": repr(debug_url)})
+
+    if st.button("Select up to 5 rows", use_container_width=True):
+        try:
+            result = get_supabase().table(SUPABASE_USERS_TABLE).select("*").limit(5).execute()
+            st.success("Select succeeded ✅")
+            st.write(getattr(result, "data", []) or [])
+        except Exception as exc:
+            st.error("Select failed")
+            st.write({"error_type": type(exc).__name__, "error": str(exc), "supabase_url_repr": repr(debug_url)})
+
+def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
+    normalized_email = email.strip().lower()
+    normalized_role = _normalize_role(role)
+    payload = {
+        "email": normalized_email,
+        "full_name": full_name.strip(),
+        "role": normalized_role,
+    }
+
+    try:
+        client = get_supabase()
+        created = client.table(SUPABASE_USERS_TABLE).insert(payload).execute()
+        rows = getattr(created, "data", None) or []
+        if rows:
+            return True, None, dict(rows[0])
+
+        existing = (
+            client.table(SUPABASE_USERS_TABLE)
+            .select("*")
+            .eq("email", normalized_email)
+            .eq("role", normalized_role)
+            .limit(1)
             .execute()
         )
-        rows = getattr(created, "data", None) or []
-        if not rows:
-            # Verify whether row exists even if no payload was returned.
-            existing = (
-                get_supabase()
-                .table(SUPABASE_USERS_TABLE)
-                .select("*")
-                .eq("email", normalized_email)
-                .eq("role", normalized_role)
-                .limit(1)
-                .execute()
-            )
-            existing_rows = getattr(existing, "data", None) or []
-            if existing_rows:
-                return True, None, dict(existing_rows[0])
-            return False, "User account was created locally, but Supabase did not return a profile row.", None
-        return True, None, dict(rows[0])
-    except socket.gaierror as exc:
-        return (
-            False,
-            "Supabase profile creation failed: DNS lookup failed for SUPABASE_URL. "
-            "Double-check the hostname in SUPABASE_URL (it should end with .supabase.co). "
-            f"Original error: {exc}",
-            None,
-        )
+        existing_rows = getattr(existing, "data", None) or []
+        if existing_rows:
+            return True, None, dict(existing_rows[0])
+        return False, "Supabase insert returned no rows.", None
     except Exception as exc:
-        error_code = getattr(exc, "code", None)
-        if error_code == "23505":
-            # Handle unique-constraint races/idempotency as success by reading existing row.
+        if getattr(exc, "code", None) == "23505":
             try:
                 existing = (
                     get_supabase()
@@ -218,33 +184,24 @@ def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tupl
                     return True, None, dict(rows[0])
             except Exception:
                 pass
-
-        details = []
-        for field in ("code", "message", "details", "hint"):
-            value = getattr(exc, field, None)
-            if value:
-                details.append(f"{field}={value}")
-        detail_suffix = f" ({'; '.join(details)})" if details else ""
-        return False, f"Supabase profile creation failed: {exc}{detail_suffix}", None
-
+        return False, f"Supabase profile creation failed: {exc}", None
 
 def _supabase_profile_exists(email: str, role: str) -> bool:
-    """Returns True when a Supabase user profile already exists for email+role."""
+    normalized_email = email.strip().lower()
+    normalized_role = _normalize_role(role)
     try:
         result = (
             get_supabase()
             .table(SUPABASE_USERS_TABLE)
-            .select("id", count="exact")
-            .eq("email", email.strip().lower())
-            .eq("role", _normalize_role(role))
+            .select("id")
+            .eq("email", normalized_email)
+            .eq("role", normalized_role)
             .limit(1)
             .execute()
         )
-        return bool(getattr(result, "count", 0))
+        return bool(getattr(result, "data", None) or [])
     except Exception:
-        # If Supabase is unavailable, do not block login checks here.
         return False
-
 
 def hash_password(password: str) -> str:
     """Demo-only hashing helper.
