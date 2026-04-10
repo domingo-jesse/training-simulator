@@ -73,7 +73,7 @@ def _validate_supabase_settings(url: str, key: str) -> tuple[str, str]:
 
 
 @st.cache_resource
-def init_supabase() -> Client:
+def get_supabase() -> Client:
     url, key = _validate_supabase_settings(
         _get_secret("SUPABASE_URL"),
         _get_secret("SUPABASE_KEY"),
@@ -95,9 +95,9 @@ def render_supabase_connection_test() -> None:
 
     if st.button("Test Connection", use_container_width=True):
         try:
-            init_supabase()
+            get_supabase()
             st.success("Client created successfully")
-            st.write("Using URL:", repr(st.secrets["SUPABASE_URL"]))
+            st.write("Using URL:", repr(_get_secret("SUPABASE_URL")))
         except Exception as exc:
             st.error("Connection failed")
             st.write(type(exc).__name__)
@@ -114,16 +114,43 @@ def render_supabase_connection_test() -> None:
             if not test_email.strip():
                 st.error("Please enter an email so we can insert a test row.")
             else:
-                ok, error_message, created_row = _create_supabase_user_profile(
-                    full_name=test_full_name,
-                    email=test_email,
-                    role=test_role,
-                )
-                if ok and created_row:
-                    st.success("Supabase insert succeeded ✅")
-                    st.json(created_row)
-                else:
-                    st.error(error_message or "Insert failed.")
+                try:
+                    st.write("Using URL:", repr(_get_secret("SUPABASE_URL")))
+                    created = (
+                        get_supabase()
+                        .table(SUPABASE_USERS_TABLE)
+                        .insert(
+                            {
+                                "full_name": test_full_name.strip(),
+                                "email": test_email.strip().lower(),
+                                "role": _normalize_role(test_role),
+                            }
+                        )
+                        .execute()
+                    )
+                    rows = getattr(created, "data", None) or []
+                    if not rows:
+                        st.error("Insert succeeded but Supabase returned no rows.")
+                    else:
+                        st.success("Supabase insert succeeded ✅")
+                        st.json(rows[0])
+                except Exception as exc:
+                    st.error(f"Supabase profile creation failed: {exc}")
+                    st.write("Error type:", type(exc).__name__)
+
+    if st.button("Select users test", use_container_width=True):
+        try:
+            result = (
+                get_supabase()
+                .table(SUPABASE_USERS_TABLE)
+                .select("*")
+                .limit(5)
+                .execute()
+            )
+            st.success("Select worked ✅")
+            st.write(getattr(result, "data", []) or [])
+        except Exception as exc:
+            st.error(f"Select failed: {exc}")
 
 
 def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
@@ -135,7 +162,7 @@ def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tupl
             "role": _normalize_role(role),
         }
         created = (
-            init_supabase()
+            get_supabase()
             .table(SUPABASE_USERS_TABLE)
             .insert(payload)
             .execute()
@@ -160,7 +187,7 @@ def _supabase_profile_exists(email: str, role: str) -> bool:
     """Returns True when a Supabase user profile already exists for email+role."""
     try:
         result = (
-            init_supabase()
+            get_supabase()
             .table(SUPABASE_USERS_TABLE)
             .select("id", count="exact")
             .eq("email", email.strip().lower())
