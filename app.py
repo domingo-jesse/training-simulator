@@ -32,6 +32,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+SUPABASE_USERS_TABLE = "app_users"
+
+
 def _get_secret(name: str) -> str:
     # Prefer Streamlit secrets, then allow environment variables for local/dev use.
     value = st.secrets.get(name) or os.getenv(name)
@@ -71,6 +74,46 @@ def render_supabase_connection_test() -> None:
             st.error("Connection failed")
             st.write(type(exc).__name__)
             st.write(str(exc))
+
+
+def _create_supabase_user_profile(full_name: str, email: str, role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Create a user profile row in Supabase for newly-created app accounts."""
+    try:
+        payload = {
+            "email": email.strip().lower(),
+            "full_name": full_name.strip(),
+            "role": _normalize_role(role),
+        }
+        created = (
+            init_supabase()
+            .table(SUPABASE_USERS_TABLE)
+            .insert(payload)
+            .execute()
+        )
+        rows = getattr(created, "data", None) or []
+        if not rows:
+            return False, "User account was created locally, but Supabase did not return a profile row.", None
+        return True, None, dict(rows[0])
+    except Exception as exc:
+        return False, f"Supabase profile creation failed: {exc}", None
+
+
+def _supabase_profile_exists(email: str, role: str) -> bool:
+    """Returns True when a Supabase user profile already exists for email+role."""
+    try:
+        result = (
+            init_supabase()
+            .table(SUPABASE_USERS_TABLE)
+            .select("id", count="exact")
+            .eq("email", email.strip().lower())
+            .eq("role", _normalize_role(role))
+            .limit(1)
+            .execute()
+        )
+        return bool(getattr(result, "count", 0))
+    except Exception:
+        # If Supabase is unavailable, do not block login checks here.
+        return False
 
 
 def hash_password(password: str) -> str:
@@ -325,6 +368,8 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         if existing.get("auth_provider") == "google":
             return True, f"Welcome back, {existing['full_name']}!", existing
         return False, f"You already have a {role.title()} account with this email. Sign in using your password.", None
+    if _supabase_profile_exists(email, role):
+        return False, f"A {role.title()} profile already exists in Supabase for this email.", None
 
     new_user = {
         "id": f"u_{role}_{len(st.session_state['users_db']) + 1:03d}",
@@ -337,6 +382,10 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
+    ok, error_message, _ = _create_supabase_user_profile(full_name=full_name, email=email, role=role)
+    if not ok:
+        st.session_state["users_db"].pop()
+        return False, error_message or "Supabase profile creation failed.", None
     return True, f"{role.title()} account created with Google.", new_user
 
 
@@ -362,6 +411,8 @@ def create_account(
     existing_role_user = find_user_by_email(email, role=role)
     if existing_role_user:
         return False, f"You already have a {role.title()} account with this email."
+    if _supabase_profile_exists(email, role):
+        return False, f"A {role.title()} profile already exists in Supabase for this email."
     if username and find_user_by_username(username):
         return False, "That username is already in use."
     if password != confirm_password:
@@ -378,6 +429,10 @@ def create_account(
         "is_active": True,
     }
     st.session_state["users_db"].append(new_user)
+    ok, error_message, _ = _create_supabase_user_profile(full_name=full_name, email=email, role=role)
+    if not ok:
+        st.session_state["users_db"].pop()
+        return False, error_message or "Supabase profile creation failed."
     return True, f"{role.title()} account created successfully. Please sign in."
 
 
