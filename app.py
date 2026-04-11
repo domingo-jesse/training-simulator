@@ -119,6 +119,8 @@ def init_state() -> None:
         "page": None,
         "bootstrapped": False,
         "bootstrap_error": None,
+        "admin_page": "Dashboard",
+        "learner_page": "Home",
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -850,12 +852,15 @@ def render_main_app() -> None:
             "Database Tables",
             "Debug Logs",
         ]
-        default_page = st.session_state.get("page") or "Dashboard"
-        st.session_state["page"] = st.sidebar.radio(
+        requested_page = st.session_state.get("page")
+        if requested_page in pages and st.session_state.get("admin_page") != requested_page:
+            st.session_state["admin_page"] = requested_page
+        st.sidebar.radio(
             "Admin Navigation",
             options=pages,
-            index=pages.index(default_page) if default_page in pages else 0,
+            key="admin_page",
         )
+        st.session_state["page"] = st.session_state["admin_page"]
         user_logger.info("Admin page load.", page=st.session_state["page"])
         if st.session_state["page"] == "Dashboard":
             render_admin_dashboard(user)
@@ -875,12 +880,15 @@ def render_main_app() -> None:
             render_admin_log_viewer()
     else:
         pages = ["Home", "Assigned Modules", "Scenario", "Results", "My Progress"]
-        default_page = st.session_state.get("page") or "Home"
-        st.session_state["page"] = st.sidebar.radio(
+        requested_page = st.session_state.get("page")
+        if requested_page in pages and st.session_state.get("learner_page") != requested_page:
+            st.session_state["learner_page"] = requested_page
+        st.sidebar.radio(
             "Learner Navigation",
             options=pages,
-            index=pages.index(default_page) if default_page in pages else 0,
+            key="learner_page",
         )
+        st.session_state["page"] = st.session_state["learner_page"]
         user_logger.info("Learner page load.", page=st.session_state["page"])
         if st.session_state["page"] == "Home":
             render_learner_home(user)
