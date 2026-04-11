@@ -174,7 +174,7 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
     user_id = execute(
         """
         INSERT INTO users (name, email, role, team, organization_id, is_active)
-        VALUES (?, ?, ?, ?, ?, 1)
+        VALUES (?, ?, ?, ?, ?, TRUE)
         """,
         (auth_user["full_name"], auth_user["email"].strip().lower(), normalized_role, "General", org_id),
     )
@@ -194,7 +194,7 @@ def find_user_by_email(email: str, role: str | None = None) -> dict[str, Any] | 
             """
             SELECT user_id, id, role, name AS full_name, email, username, password_hash, auth_provider, is_active
             FROM users
-            WHERE LOWER(email) = ? AND role = ? AND is_active = 1
+            WHERE LOWER(email) = ? AND role = ? AND is_active = TRUE
             LIMIT 1
             """,
             (email_norm, role_norm),
@@ -204,7 +204,7 @@ def find_user_by_email(email: str, role: str | None = None) -> dict[str, Any] | 
             """
             SELECT user_id, id, role, name AS full_name, email, username, password_hash, auth_provider, is_active
             FROM users
-            WHERE LOWER(email) = ? AND is_active = 1
+            WHERE LOWER(email) = ? AND is_active = TRUE
             LIMIT 1
             """,
             (email_norm,),
@@ -243,10 +243,10 @@ def find_user_by_username(username: str, role: str | None = None) -> dict[str, A
         return None
     if role_norm:
         return _find_auth_user_by_query(
-            "LOWER(username) = ? AND role = ? AND is_active = 1",
+            "LOWER(username) = ? AND role = ? AND is_active = TRUE",
             (username_norm, role_norm),
         )
-    return _find_auth_user_by_query("LOWER(username) = ? AND is_active = 1", (username_norm,))
+    return _find_auth_user_by_query("LOWER(username) = ? AND is_active = TRUE", (username_norm,))
 
 
 def _google_user_email() -> str | None:
@@ -369,7 +369,7 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
     user_id = execute(
         """
         INSERT INTO users (id, name, email, role, team, organization_id, auth_provider, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
         """,
         (f"u_{role}_{email}", full_name, email, role, "General", org_id, "google"),
     )
@@ -431,7 +431,7 @@ def create_account(
         execute(
             """
             INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', 1)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', TRUE)
             """,
             (
                 external_id,
