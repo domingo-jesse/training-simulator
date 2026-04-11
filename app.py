@@ -644,6 +644,31 @@ def _render_database_connection_tester() -> None:
     else:
         st.code(f"Backend: sqlite\nPath: {db_info.get('db_path')}")
 
+    if st.button("Quick connect check", key="quick_connect_check", use_container_width=True):
+        try:
+            conn = psycopg2.connect(
+                st.secrets["DATABASE_URL"],
+                connect_timeout=10,
+            )
+            cur = conn.cursor()
+            cur.execute("SELECT version();")
+            result = cur.fetchone()
+            st.success("✅ Connected to database!")
+            st.write(result)
+        except Exception as exc:
+            st.error("❌ Connection failed")
+            st.write(type(exc).__name__)
+            st.write(str(exc))
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
+
     if st.button("Run database test", key="run_db_test", use_container_width=True):
         ok, message, missing, extra = _run_database_connection_test()
         if ok:
