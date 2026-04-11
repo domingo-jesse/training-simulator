@@ -36,7 +36,7 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
             m.title AS module_title,
             CASE
                 WHEN x.last_attempt_at IS NOT NULL THEN 'Completed'
-                WHEN a.due_date IS NOT NULL AND DATE(a.due_date) < DATE('now') THEN 'Overdue'
+                WHEN a.due_date IS NOT NULL AND a.due_date::date < CURRENT_DATE THEN 'Overdue'
                 WHEN x.attempt_count > 0 THEN 'In Progress'
                 ELSE 'Not Started'
             END AS status,
@@ -55,7 +55,7 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
                 ON t.user_id = a2.learner_id
                AND t.module_id = a2.module_id
                AND t.organization_id = a2.organization_id
-               AND DATETIME(t.created_at) >= DATETIME(a2.assigned_at)
+               AND t.created_at >= a2.assigned_at
             WHERE a2.organization_id = ?
               AND a2.is_active = 1
             GROUP BY a2.assignment_id
