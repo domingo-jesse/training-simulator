@@ -15,7 +15,7 @@ from admin_views import (
     render_progress_tracking,
 )
 from data_seed import seed_all
-from db import execute, fetch_one, init_db
+from db import execute, fetch_all, fetch_one, init_db
 from learner_views import (
     render_learner_home,
     render_module_library,
@@ -27,6 +27,19 @@ from logger import get_logger
 from utils import inject_styles
 
 app_logger = get_logger(module="app")
+
+EXPECTED_PLATFORM_TABLES = (
+    "organizations",
+    "users",
+    "modules",
+    "investigation_actions",
+    "attempts",
+    "action_logs",
+    "assignments",
+    "learner_profiles",
+    "module_assignments",
+    "module_progress",
+)
 
 
 def _global_exception_handler(exc_type, exc_value, exc_traceback) -> None:
@@ -481,6 +494,49 @@ def _sync_google_identity_if_present() -> None:
     }
 
 
+def _run_database_connection_test() -> tuple[bool, str, list[str], list[str]]:
+    """Checks DB connectivity and presence of expected platform tables."""
+    try:
+        rows = fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
+        discovered_tables = sorted(
+            row["name"]
+            for row in rows
+            if not str(row["name"]).startswith("sqlite_")
+        )
+        expected = set(EXPECTED_PLATFORM_TABLES)
+        discovered = set(discovered_tables)
+        missing = sorted(expected - discovered)
+        extra = sorted(discovered - expected)
+
+        if missing:
+            message = (
+                f"Connected to database, but {len(missing)} expected table(s) are missing."
+            )
+            return False, message, missing, extra
+
+        message = f"Database connection successful. Found all {len(EXPECTED_PLATFORM_TABLES)} expected tables."
+        return True, message, [], extra
+    except Exception as exc:
+        app_logger.exception("Database connection test failed.")
+        return False, f"Database connection test failed: {exc}", list(EXPECTED_PLATFORM_TABLES), []
+
+
+def _render_database_connection_tester() -> None:
+    st.markdown("#### Database Connection Tester")
+    st.caption("Use this to verify the app can connect and detect the expected platform tables.")
+    if st.button("Run database test", key="run_db_test", use_container_width=True):
+        ok, message, missing, extra = _run_database_connection_test()
+        if ok:
+            st.success(message)
+        else:
+            st.error(message)
+
+        if missing:
+            st.warning(f"Missing tables: {', '.join(missing)}")
+        if extra:
+            st.info(f"Additional tables detected: {', '.join(extra)}")
+
+
 def render_login_view() -> None:
     app_logger.info("Rendering login view.", page="login")
     _sync_google_identity_if_present()
@@ -556,6 +612,9 @@ def render_login_view() -> None:
             st.session_state["auth_view"] = "create_account"
             st.session_state["selected_role"] = "admin"
             st.rerun()
+
+    with st.expander("Database tools", expanded=False):
+        _render_database_connection_tester()
 
 
 
