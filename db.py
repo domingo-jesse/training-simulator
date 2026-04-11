@@ -1,7 +1,6 @@
 import json
 import os
 import re
-import sqlite3
 import tomllib
 from contextlib import contextmanager
 from pathlib import Path
@@ -10,8 +9,7 @@ from urllib.parse import urlparse
 
 from logger import get_logger
 
-DB_PATH = Path(__file__).resolve().parent / "trainer.db"
-
+DB_PATH = Path(__file__).resolve().parent / "trainer.db"  # legacy, unused in Supabase mode
 
 def _load_database_url() -> str:
     """Resolve Postgres URL from environment and optional Streamlit secrets."""
@@ -40,9 +38,21 @@ def _load_database_url() -> str:
 
 
 DATABASE_URL = _load_database_url()
-USE_POSTGRES = DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")
-# Runtime backend can fall back to SQLite if Postgres is configured but unavailable.
-RUNTIME_USE_POSTGRES = USE_POSTGRES
+
+
+def _ensure_postgres_database_url(url: str) -> None:
+    if not url:
+        raise RuntimeError(
+            "DATABASE_URL is required. Configure Supabase/Postgres via environment variable "
+            "or .streamlit/secrets.toml."
+        )
+    if not (url.startswith("postgres://") or url.startswith("postgresql://")):
+        raise RuntimeError("DATABASE_URL must use postgres:// or postgresql:// for Supabase.")
+
+
+_ensure_postgres_database_url(DATABASE_URL)
+USE_POSTGRES = True
+RUNTIME_USE_POSTGRES = True
 db_logger = get_logger(module="db")
 
 
@@ -66,61 +76,49 @@ def _is_safe_identifier(value: str) -> bool:
 
 def get_database_debug_info() -> Dict[str, Any]:
     info: Dict[str, Any] = {
-        "backend": "postgres" if RUNTIME_USE_POSTGRES else "sqlite",
-        "postgres_configured": USE_POSTGRES,
+        "backend": "postgres",
+        "postgres_configured": True,
         "database_url_set": bool(DATABASE_URL),
     }
-    if USE_POSTGRES:
-        try:
-            parsed = urlparse(DATABASE_URL)
-            info.update(
-                {
-                    "host": parsed.hostname,
-                    "port": parsed.port,
-                    "database": parsed.path.lstrip("/"),
-                    "username": parsed.username,
-                }
-            )
-        except ValueError as exc:
-            db_logger.warning("Invalid DATABASE_URL format while building debug info.", error=str(exc))
-            info.update(
-                {
-                    "host": None,
-                    "port": None,
-                    "database": None,
-                    "username": None,
-                    "parse_error": str(exc),
-                }
-            )
-    else:
-        info["db_path"] = str(DB_PATH)
+    try:
+        parsed = urlparse(DATABASE_URL)
+        info.update(
+            {
+                "host": parsed.hostname,
+                "port": parsed.port,
+                "database": parsed.path.lstrip("/"),
+                "username": parsed.username,
+            }
+        )
+    except ValueError as exc:
+        db_logger.warning("Invalid DATABASE_URL format while building debug info.", error=str(exc))
+        info.update(
+            {
+                "host": None,
+                "port": None,
+                "database": None,
+                "username": None,
+                "parse_error": str(exc),
+            }
+        )
     return info
 
 
 @contextmanager
 def get_conn():
-    global RUNTIME_USE_POSTGRES
     db_logger.debug("Opening database connection.")
-    if RUNTIME_USE_POSTGRES:
-        try:
-            import psycopg2
-            import psycopg2.extras
-        except ImportError:
-            db_logger.warning("psycopg2 is unavailable; falling back to SQLite backend.")
-            RUNTIME_USE_POSTGRES = False
-        else:
-            try:
-                conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-            except Exception as exc:
-                db_logger.warning(
-                    "Failed to connect to Postgres; falling back to SQLite backend.",
-                    error=str(exc),
-                )
-                RUNTIME_USE_POSTGRES = False
+    try:
+        import psycopg2
+        import psycopg2.extras
+    except ImportError as exc:
+        raise RuntimeError(
+            "psycopg2 is required for Supabase/Postgres connectivity but is not installed."
+        ) from exc
 
-    if not RUNTIME_USE_POSTGRES:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+    try:
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    except Exception as exc:
+        raise ConnectionError("Failed to connect to Supabase/Postgres using DATABASE_URL.") from exc
     try:
         yield conn
         conn.commit()
@@ -134,46 +132,26 @@ def get_conn():
         db_logger.debug("Database connection closed.")
 
 
-def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    if RUNTIME_USE_POSTGRES:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_schema = 'public' AND table_name = %s
-                """,
-                (table,),
-            )
-            return {r["column_name"] for r in cur.fetchall()}
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return {r["name"] for r in rows}
+def _table_columns(conn, table: str) -> set[str]:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s
+            """,
+            (table,),
+        )
+        return {r["column_name"] for r in cur.fetchall()}
 
 
-def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+def _ensure_column(conn, table: str, column: str, definition: str) -> None:
     if column not in _table_columns(conn, table):
-        if RUNTIME_USE_POSTGRES:
-            with conn.cursor() as cur:
-                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
-            return
-        try:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-        except sqlite3.OperationalError as exc:
-            # SQLite cannot add columns with non-constant defaults (e.g. CURRENT_TIMESTAMP)
-            # via ALTER TABLE. Fall back to adding the column without a default, then backfill.
-            if "non-constant default" not in str(exc).lower():
-                raise
-
-            base_definition = definition.split("DEFAULT", 1)[0].strip()
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {base_definition}")
-
-            if "CURRENT_TIMESTAMP" in definition.upper():
-                conn.execute(f"UPDATE {table} SET {column} = CURRENT_TIMESTAMP WHERE {column} IS NULL")
+        with conn.cursor() as cur:
+            cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
 
 
 def _sql(query: str) -> str:
-    if not RUNTIME_USE_POSTGRES:
-        return query
     return query.replace("?", "%s")
 
 
@@ -188,8 +166,7 @@ def _executescript(conn, script: str) -> None:
 def init_db() -> None:
     db_logger.info(
         "Initializing database schema.",
-        db_path=str(DB_PATH),
-        backend="postgres" if RUNTIME_USE_POSTGRES else "sqlite",
+        backend="postgres",
     )
     with get_conn() as conn:
         if RUNTIME_USE_POSTGRES:
@@ -667,7 +644,7 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
         db_logger.info(
             "Database write starting.",
             operation="execute",
-            backend="postgres" if RUNTIME_USE_POSTGRES else "sqlite",
+            backend="postgres",
             target_table=target_table,
             param_count=len(params_tuple),
             query_preview=query_preview,
@@ -688,7 +665,7 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
             db_logger.info(
                 "Database write completed.",
                 operation="execute",
-                backend="postgres" if RUNTIME_USE_POSTGRES else "sqlite",
+                backend="postgres",
                 target_table=target_table,
                 lastrowid=lastrowid,
             )
