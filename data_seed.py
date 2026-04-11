@@ -1,4 +1,4 @@
-from db import execute, executemany, fetch_all, fetch_one
+from db import RUNTIME_USE_POSTGRES, execute, executemany, fetch_all, fetch_one
 
 DEFAULT_ORG = "Acme Health"
 SEED_EMAIL_DOMAIN = "@acmehealth.example"
@@ -373,16 +373,26 @@ def backfill_existing_data() -> None:
 
 
 def sync_uuid_backed_learning_tables() -> None:
-    # Ensure UUID-like IDs exist for legacy integer keyed rows.
-    execute("UPDATE users SET id = LOWER(HEX(RANDOMBLOB(16))) WHERE id IS NULL")
-    execute("UPDATE modules SET id = LOWER(HEX(RANDOMBLOB(16))) WHERE id IS NULL")
+    # Keep user IDs stable and role-aligned so seeded/local accounts match admin UI expectations.
+    # Existing non-empty IDs are preserved.
+    execute(
+        """
+        UPDATE users
+        SET id = 'u_' || COALESCE(role, 'learner') || '_' || CAST(user_id AS TEXT)
+        WHERE id IS NULL OR TRIM(id) = ''
+        """
+    )
+
+    # Ensure module external IDs exist for legacy integer keyed rows.
+    module_id_expr = "LOWER(ENCODE(GEN_RANDOM_BYTES(16), 'hex'))" if RUNTIME_USE_POSTGRES else "LOWER(HEX(RANDOMBLOB(16)))"
+    execute(f"UPDATE modules SET id = {module_id_expr} WHERE id IS NULL OR TRIM(id) = ''")
 
     # learner_profiles: derived from users + latest attempt activity.
     execute(
-        """
+        f"""
         INSERT INTO learner_profiles (id, user_id, full_name, team, status, last_activity, created_at, updated_at)
         SELECT
-            LOWER(HEX(RANDOMBLOB(16))) AS id,
+            {module_id_expr} AS id,
             u.id AS user_id,
             COALESCE(u.name, u.email, 'Learner') AS full_name,
             u.team AS team,
@@ -405,10 +415,10 @@ def sync_uuid_backed_learning_tables() -> None:
 
     # module_assignments: mirror legacy assignments using UUID-like user/module IDs.
     execute(
-        """
+        f"""
         INSERT INTO module_assignments (id, user_id, module_id, assigned_at, assigned_by, created_at)
         SELECT
-            LOWER(HEX(RANDOMBLOB(16))) AS id,
+            {module_id_expr} AS id,
             lu.id AS user_id,
             lm.id AS module_id,
             asg.assigned_at,
@@ -427,12 +437,12 @@ def sync_uuid_backed_learning_tables() -> None:
 
     # module_progress: 100% if completed attempt exists; otherwise 0%.
     execute(
-        """
+        f"""
         INSERT INTO module_progress (
             id, user_id, module_id, progress_percent, started_at, completed_at, last_activity_at, created_at, updated_at
         )
         SELECT
-            LOWER(HEX(RANDOMBLOB(16))) AS id,
+            {module_id_expr} AS id,
             u.id AS user_id,
             m.id AS module_id,
             CASE WHEN MAX(att.created_at) IS NOT NULL THEN 100 ELSE 0 END AS progress_percent,
