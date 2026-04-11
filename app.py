@@ -68,39 +68,8 @@ def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 
-def load_demo_users() -> list[dict[str, Any]]:
-    """Returns starter records for a prototype datastore.
-
-    NOTE: This is intentionally in-memory for demo behavior.
-    Replace this function with a DB read (Postgres/SQLite/Firestore/etc.).
-    """
-    return [
-        {
-            "id": "u_learner_001",
-            "role": "learner",
-            "full_name": "Avery Learner",
-            "email": "learner@trainingsim.demo",
-            "username": "avery",
-            "password_hash": hash_password("LearnerPass123!"),
-            "auth_provider": "local_password",
-            "is_active": True,
-        },
-        {
-            "id": "u_admin_001",
-            "role": "admin",
-            "full_name": "Jordan Admin",
-            "email": "admin@trainingsim.demo",
-            "username": "jadmin",
-            "password_hash": hash_password("AdminPass123!"),
-            "auth_provider": "local_password",
-            "is_active": True,
-        },
-    ]
-
-
 def init_state() -> None:
     defaults = {
-        "users_db": load_demo_users(),
         "auth_authenticated": False,
         "auth_method": None,  # local_password | google
         "selected_role": "learner",
@@ -142,6 +111,12 @@ def _normalize_role(role: str | None) -> str:
 
 
 def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
+    auth_user_id = auth_user.get("user_id")
+    if auth_user_id:
+        existing_by_id = fetch_one("SELECT * FROM users WHERE user_id = ? LIMIT 1", (auth_user_id,))
+        if existing_by_id:
+            return dict(existing_by_id)
+
     normalized_role = _normalize_role(auth_user.get("role"))
     existing = fetch_one(
         "SELECT * FROM users WHERE LOWER(email) = ? AND role = ? LIMIT 1",
@@ -167,30 +142,67 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
 def find_user_by_email(email: str, role: str | None = None) -> dict[str, Any] | None:
     email_norm = (email or "").strip().lower()
     role_norm = (role or "").strip().lower() or None
-    return next(
-        (
-            user
-            for user in st.session_state["users_db"]
-            if user["email"].strip().lower() == email_norm and user.get("is_active", True)
-            and (role_norm is None or user.get("role") == role_norm)
-        ),
-        None,
+    if not email_norm:
+        return None
+
+    if role_norm:
+        row = fetch_one(
+            """
+            SELECT user_id, id, role, name AS full_name, email, username, password_hash, auth_provider, is_active
+            FROM users
+            WHERE LOWER(email) = ? AND role = ? AND is_active = 1
+            LIMIT 1
+            """,
+            (email_norm, role_norm),
+        )
+    else:
+        row = fetch_one(
+            """
+            SELECT user_id, id, role, name AS full_name, email, username, password_hash, auth_provider, is_active
+            FROM users
+            WHERE LOWER(email) = ? AND is_active = 1
+            LIMIT 1
+            """,
+            (email_norm,),
+        )
+    if not row:
+        return None
+    return _auth_user_from_row(dict(row))
+
+
+def _auth_user_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    user = dict(row)
+    if not user.get("id"):
+        user["id"] = f"u_{user.get('role', 'learner')}_{int(user['user_id']):03d}"
+    return user
+
+
+def _find_auth_user_by_query(where_clause: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+    row = fetch_one(
+        f"""
+        SELECT user_id, id, role, name AS full_name, email, username, password_hash, auth_provider, is_active
+        FROM users
+        WHERE {where_clause}
+        LIMIT 1
+        """,
+        params,
     )
+    if not row:
+        return None
+    return _auth_user_from_row(dict(row))
 
 
 def find_user_by_username(username: str, role: str | None = None) -> dict[str, Any] | None:
     username_norm = (username or "").strip().lower()
     role_norm = (role or "").strip().lower() or None
-    return next(
-        (
-            user
-            for user in st.session_state["users_db"]
-            if (user.get("username") or "").strip().lower() == username_norm
-            and user.get("is_active", True)
-            and (role_norm is None or user.get("role") == role_norm)
-        ),
-        None,
-    )
+    if not username_norm:
+        return None
+    if role_norm:
+        return _find_auth_user_by_query(
+            "LOWER(username) = ? AND role = ? AND is_active = 1",
+            (username_norm, role_norm),
+        )
+    return _find_auth_user_by_query("LOWER(username) = ? AND is_active = 1", (username_norm,))
 
 
 def _google_user_email() -> str | None:
@@ -244,13 +256,9 @@ def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str |
             return False, f"You do not have a {expected_role.title()} account yet.", None
         return True, None, user
 
-    fallback_user = next(
-        (
-            user
-            for user in st.session_state["users_db"]
-            if user.get("role") == expected_role and user.get("is_active", True)
-        ),
-        None,
+    fallback_user = _find_auth_user_by_query(
+        "role = ? AND is_active = 1",
+        (expected_role,),
     )
     if fallback_user is None:
         return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
@@ -320,17 +328,25 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         if existing.get("auth_provider") == "google":
             return True, f"Welcome back, {existing['full_name']}!", existing
         return False, f"You already have a {role.title()} account with this email. Sign in using your password.", None
-    new_user = {
-        "id": f"u_{role}_{len(st.session_state['users_db']) + 1:03d}",
-        "role": role,
-        "full_name": full_name,
-        "email": email,
-        "username": None,
-        "password_hash": None,
-        "auth_provider": "google",
-        "is_active": True,
-    }
-    st.session_state["users_db"].append(new_user)
+    org_id = _default_org_id()
+    user_id = execute(
+        """
+        INSERT INTO users (id, name, email, role, team, organization_id, auth_provider, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+        """,
+        (f"u_{role}_{email}", full_name, email, role, "General", org_id, "google"),
+    )
+    new_user = find_user_by_email(email, role=role)
+    if not new_user:
+        created_row = fetch_one(
+            """
+            SELECT user_id, id, role, name AS full_name, email, username, password_hash, auth_provider, is_active
+            FROM users
+            WHERE user_id = ?
+            """,
+            (user_id,),
+        )
+        new_user = _auth_user_from_row(dict(created_row)) if created_row else None
     app_logger.info("Created new Google-backed account.", role=role)
     return True, f"{role.title()} account created with Google.", new_user
 
@@ -362,17 +378,24 @@ def create_account(
     if password != confirm_password:
         return False, "Passwords must match."
 
-    new_user = {
-        "id": f"u_{role}_{len(st.session_state['users_db']) + 1:03d}",
-        "role": role,
-        "full_name": full_name,
-        "email": email,
-        "username": username or None,
-        "password_hash": hash_password(password),
-        "auth_provider": "local_password",
-        "is_active": True,
-    }
-    st.session_state["users_db"].append(new_user)
+    org_id = _default_org_id()
+    external_id = f"u_{role}_{email}"
+    execute(
+        """
+        INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', 1)
+        """,
+        (
+            external_id,
+            full_name,
+            email,
+            role,
+            "General",
+            org_id,
+            (username or None),
+            hash_password(password),
+        ),
+    )
     app_logger.info("Created new local account.", role=role)
     return True, f"{role.title()} account created successfully. Please sign in."
 
