@@ -118,20 +118,28 @@ def init_state() -> None:
         "show_password": False,
         "page": None,
         "bootstrapped": False,
+        "bootstrap_error": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
 
 
-def _ensure_platform_data() -> None:
+def _ensure_platform_data() -> bool:
     if st.session_state.get("bootstrapped"):
-        return
+        return True
     app_logger.info("Bootstrapping platform data.")
-    init_db()
-    clear_seed_data()
-    st.session_state["bootstrapped"] = True
-    app_logger.info("Platform bootstrap complete.")
+    try:
+        init_db()
+        clear_seed_data()
+        st.session_state["bootstrapped"] = True
+        st.session_state["bootstrap_error"] = None
+        app_logger.info("Platform bootstrap complete.")
+        return True
+    except Exception as exc:
+        st.session_state["bootstrap_error"] = str(exc)
+        app_logger.exception("Platform bootstrap failed.")
+        return False
 
 
 def _default_org_id() -> int:
@@ -651,6 +659,19 @@ def _render_database_connection_tester() -> None:
 
 def render_login_view() -> None:
     app_logger.info("Rendering login view.", page="login")
+
+    if st.session_state.get("bootstrap_error"):
+        st.error(
+            "Database bootstrap failed, so sign-in and app pages are unavailable right now. "
+            "Open Database tools below and run the database test for details."
+        )
+        st.caption(f"Bootstrap error: {st.session_state['bootstrap_error']}")
+
+    if st.session_state.get("bootstrap_error"):
+        with st.expander("Database tools", expanded=True):
+            _render_database_connection_tester()
+        return
+
     _sync_google_identity_if_present()
 
     if st.session_state.get("post_create_success"):
