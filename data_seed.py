@@ -1,6 +1,48 @@
 from db import execute, executemany, fetch_all, fetch_one
 
 DEFAULT_ORG = "Acme Health"
+SEED_EMAIL_DOMAIN = "@acmehealth.example"
+SEED_MODULE_TITLES = (
+    "PA Denial Spike in Orthopedics",
+    "Bot Login Failures After Credential Rotation",
+    "Portal Workflow Update Broke Intake Routing",
+)
+
+
+def clear_seed_data() -> None:
+    module_ids = [int(row["module_id"]) for row in fetch_all("SELECT module_id FROM modules WHERE title IN (?, ?, ?)", SEED_MODULE_TITLES)]
+    if module_ids:
+        placeholders = ",".join(["?"] * len(module_ids))
+        execute(f"DELETE FROM action_logs WHERE attempt_id IN (SELECT attempt_id FROM attempts WHERE module_id IN ({placeholders}))", tuple(module_ids))
+        execute(f"DELETE FROM attempts WHERE module_id IN ({placeholders})", tuple(module_ids))
+        execute(f"DELETE FROM assignments WHERE module_id IN ({placeholders})", tuple(module_ids))
+        execute(f"DELETE FROM module_assignments WHERE module_id IN ({placeholders})", tuple(module_ids))
+        execute(f"DELETE FROM learner_progress WHERE module_id IN ({placeholders})", tuple(module_ids))
+        execute(f"DELETE FROM investigation_actions WHERE module_id IN ({placeholders})", tuple(module_ids))
+        execute(f"DELETE FROM modules WHERE module_id IN ({placeholders})", tuple(module_ids))
+
+    seed_users = [int(row["user_id"]) for row in fetch_all("SELECT user_id FROM users WHERE email LIKE ?", (f"%{SEED_EMAIL_DOMAIN}",))]
+    if seed_users:
+        user_placeholders = ",".join(["?"] * len(seed_users))
+        execute(f"DELETE FROM action_logs WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+        execute(f"DELETE FROM attempts WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+        execute(f"DELETE FROM assignments WHERE learner_id IN ({user_placeholders}) OR assigned_by IN ({user_placeholders})", tuple(seed_users + seed_users))
+        execute(f"DELETE FROM module_assignments WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+        execute(f"DELETE FROM learner_profiles WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+        execute(f"DELETE FROM learner_progress WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+        execute(f"DELETE FROM users WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+
+    execute(
+        """
+        DELETE FROM organizations
+        WHERE name = ?
+          AND organization_id NOT IN (SELECT DISTINCT organization_id FROM users WHERE organization_id IS NOT NULL)
+          AND organization_id NOT IN (SELECT DISTINCT organization_id FROM modules WHERE organization_id IS NOT NULL)
+          AND organization_id NOT IN (SELECT DISTINCT organization_id FROM attempts WHERE organization_id IS NOT NULL)
+          AND organization_id NOT IN (SELECT DISTINCT organization_id FROM assignments WHERE organization_id IS NOT NULL)
+        """,
+        (DEFAULT_ORG,),
+    )
 
 
 def _ensure_org() -> int:
