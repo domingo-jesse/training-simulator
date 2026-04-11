@@ -135,7 +135,7 @@ def render_learner_management(current_user: dict) -> None:
             COUNT(DISTINCT CASE WHEN x.last_attempt_at IS NOT NULL THEN a.module_id END) AS completed_modules,
             MAX(x.last_attempt_at) AS last_activity
         FROM users u
-        LEFT JOIN assignments a ON a.learner_id = u.user_id AND a.is_active = 1
+        LEFT JOIN assignments a ON a.learner_id = u.user_id AND a.is_active = TRUE
         LEFT JOIN (
             SELECT user_id, module_id, MAX(created_at) AS last_attempt_at
             FROM attempts
