@@ -14,7 +14,7 @@ from admin_views import (
     render_module_builder,
     render_progress_tracking,
 )
-from data_seed import seed_all
+from data_seed import clear_seed_data
 from db import execute, fetch_all, fetch_one, init_db
 from learner_views import (
     render_learner_home,
@@ -93,7 +93,7 @@ def _ensure_platform_data() -> None:
         return
     app_logger.info("Bootstrapping platform data.")
     init_db()
-    seed_all()
+    clear_seed_data()
     st.session_state["bootstrapped"] = True
     app_logger.info("Platform bootstrap complete.")
 
@@ -576,7 +576,7 @@ def render_login_view() -> None:
         st.info(f"Google account detected: {pending.get('email') or 'Unknown email'}")
         action_a, action_b = st.columns(2)
         with action_a:
-            if st.button("Create account", use_container_width=True, key="pending_google_create"):
+            if st.button("Send to database: Create account", use_container_width=True, key="pending_google_create"):
                 ok, message, user = create_google_account(
                     role=pending.get("expected_role", "learner"),
                     email=pending.get("email", ""),
@@ -659,7 +659,7 @@ def render_create_account_view() -> None:
         password = st.text_input("Password *", type="password")
         confirm_password = st.text_input("Confirm password *", type="password")
 
-        create_clicked = st.form_submit_button("Create account", use_container_width=True, type="primary")
+        create_clicked = st.form_submit_button("Send to database: Create account", use_container_width=True, type="primary")
 
         if create_clicked:
             app_logger.info("Create account form submitted.", role=role)

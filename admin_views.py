@@ -177,7 +177,7 @@ def render_learner_management(current_user: dict) -> None:
     c1, c2 = st.columns(2)
     with c1:
         if learner["is_active"]:
-            if st.button("Deactivate learner", type="secondary"):
+            if st.button("Send to database: Deactivate learner", type="secondary"):
                 try:
                     execute("UPDATE users SET is_active = 0 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
                     view_logger.info("Button click.", action="deactivate_learner", learner_id=learner_id)
@@ -187,7 +187,7 @@ def render_learner_management(current_user: dict) -> None:
                     view_logger.exception("Failed deactivating learner.", learner_id=learner_id)
                     st.error("Could not deactivate learner.")
         else:
-            if st.button("Activate learner", type="primary"):
+            if st.button("Send to database: Activate learner", type="primary"):
                 try:
                     execute("UPDATE users SET is_active = 1 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
                     view_logger.info("Button click.", action="activate_learner", learner_id=learner_id)
@@ -222,7 +222,7 @@ def render_assignment_management(current_user: dict) -> None:
         enable_due_date = st.checkbox("Set due date", value=False)
         due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
 
-        if st.button("Assign training", type="primary"):
+        if st.button("Send to database: Assign training", type="primary"):
             module_id = module_map[selected_module]
             due_date_value = due_date.isoformat() if enable_due_date else None
             if not selected_learners:
@@ -266,7 +266,7 @@ def render_assignment_management(current_user: dict) -> None:
 
     c1, c2 = st.columns(2)
     with c1:
-        if st.button("Remove assignment"):
+        if st.button("Send to database: Remove assignment"):
             try:
                 execute("UPDATE assignments SET is_active = 0 WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
                 view_logger.info("Button click.", action="remove_assignment", assignment_id=selected_assignment_id)
@@ -277,7 +277,7 @@ def render_assignment_management(current_user: dict) -> None:
                 st.error("Could not remove assignment.")
     with c2:
         new_due = st.date_input("Reassign due date", key="reassign_due", value=date.today())
-        if st.button("Reassign training"):
+        if st.button("Send to database: Reassign training"):
             try:
                 execute(
                     "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP WHERE assignment_id = ? AND organization_id = ?",
@@ -417,7 +417,7 @@ def render_module_builder(current_user: dict) -> None:
         content_sections = st.text_area("Ordered content sections (one per line)")
         completion_requirements = st.text_area("Completion requirements")
         quiz_required = st.checkbox("Quiz required")
-        submit = st.form_submit_button("Create module", type="primary")
+        submit = st.form_submit_button("Send to database: Create module", type="primary")
         if submit and title:
             execute(
                 """
@@ -462,7 +462,7 @@ def render_module_builder(current_user: dict) -> None:
         edit_sections = st.text_area("Ordered content sections", value=module["content_sections"] or "")
         edit_requirements = st.text_area("Completion requirements", value=module["completion_requirements"] or "")
         edit_quiz_required = st.checkbox("Quiz required", value=bool(module["quiz_required"]))
-        save = st.form_submit_button("Save edits")
+        save = st.form_submit_button("Send to database: Save edits")
         if save:
             execute(
                 """
@@ -487,17 +487,17 @@ def render_module_builder(current_user: dict) -> None:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("Publish", disabled=module["status"] == "published"):
+        if st.button("Send to database: Publish", disabled=module["status"] == "published"):
             execute("UPDATE modules SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
             st.success("Module published.")
             st.rerun()
     with c2:
-        if st.button("Archive", disabled=module["status"] == "archived"):
+        if st.button("Send to database: Archive", disabled=module["status"] == "archived"):
             execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
             st.success("Module archived.")
             st.rerun()
     with c3:
-        if st.button("Duplicate"):
+        if st.button("Send to database: Duplicate"):
             execute(
                 """
                 INSERT INTO modules (

@@ -278,7 +278,7 @@ def render_scenario_page(user: Dict) -> None:
     customer_response = st.text_area("Customer response", key=f"customer_{module_id}", height=120)
     escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"])
 
-    if st.button("Submit module", type="primary"):
+    if st.button("Send to database: Submit module", type="primary"):
         scenario_logger = view_logger.bind(scenario_id=module_id)
         scenario_logger.info("Form submitted.", form="submit_module")
         answers = {
