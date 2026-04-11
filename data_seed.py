@@ -390,13 +390,14 @@ def sync_uuid_backed_learning_tables() -> None:
     # learner_profiles: derived from users + latest attempt activity.
     execute(
         f"""
-        INSERT INTO learner_profiles (id, user_id, full_name, team, status, last_activity, created_at, updated_at)
+        INSERT INTO learner_profiles (id, user_id, full_name, team, status, organization_id, last_activity, created_at, updated_at)
         SELECT
             {module_id_expr} AS id,
             u.id AS user_id,
             COALESCE(u.name, u.email, 'Learner') AS full_name,
             u.team AS team,
             CASE WHEN COALESCE(u.is_active, 1) = TRUE THEN 'active' ELSE 'inactive' END AS status,
+            u.organization_id AS organization_id,
             MAX(a.created_at) AS last_activity,
             COALESCE(u.created_at, CURRENT_TIMESTAMP) AS created_at,
             CURRENT_TIMESTAMP AS updated_at
@@ -408,6 +409,7 @@ def sync_uuid_backed_learning_tables() -> None:
             full_name = excluded.full_name,
             team = excluded.team,
             status = excluded.status,
+            organization_id = COALESCE(excluded.organization_id, learner_profiles.organization_id),
             last_activity = COALESCE(excluded.last_activity, learner_profiles.last_activity),
             updated_at = CURRENT_TIMESTAMP
         """
@@ -416,11 +418,12 @@ def sync_uuid_backed_learning_tables() -> None:
     # module_assignments: mirror legacy assignments using UUID-like user/module IDs.
     execute(
         f"""
-        INSERT INTO module_assignments (id, user_id, module_id, assigned_at, assigned_by, created_at)
+        INSERT INTO module_assignments (id, user_id, module_id, organization_id, assigned_at, assigned_by, created_at)
         SELECT
             {module_id_expr} AS id,
             lu.id AS user_id,
             lm.id AS module_id,
+            asg.organization_id AS organization_id,
             asg.assigned_at,
             au.id AS assigned_by,
             COALESCE(asg.assigned_at, CURRENT_TIMESTAMP) AS created_at
@@ -430,6 +433,7 @@ def sync_uuid_backed_learning_tables() -> None:
         LEFT JOIN users au ON au.user_id = asg.assigned_by
         WHERE lu.id IS NOT NULL AND lm.id IS NOT NULL
         ON CONFLICT(user_id, module_id) DO UPDATE SET
+            organization_id = COALESCE(excluded.organization_id, module_assignments.organization_id),
             assigned_at = excluded.assigned_at,
             assigned_by = excluded.assigned_by
         """
@@ -439,12 +443,13 @@ def sync_uuid_backed_learning_tables() -> None:
     execute(
         f"""
         INSERT INTO module_progress (
-            id, user_id, module_id, progress_percent, started_at, completed_at, last_activity_at, created_at, updated_at
+            id, user_id, module_id, organization_id, progress_percent, started_at, completed_at, last_activity_at, created_at, updated_at
         )
         SELECT
             {module_id_expr} AS id,
             u.id AS user_id,
             m.id AS module_id,
+            asg.organization_id AS organization_id,
             CASE WHEN MAX(att.created_at) IS NOT NULL THEN 100 ELSE 0 END AS progress_percent,
             MIN(asg.assigned_at) AS started_at,
             MAX(att.created_at) AS completed_at,
@@ -458,6 +463,7 @@ def sync_uuid_backed_learning_tables() -> None:
         WHERE u.id IS NOT NULL AND m.id IS NOT NULL
         GROUP BY u.id, m.id
         ON CONFLICT(user_id, module_id) DO UPDATE SET
+            organization_id = COALESCE(excluded.organization_id, module_progress.organization_id),
             progress_percent = excluded.progress_percent,
             started_at = COALESCE(module_progress.started_at, excluded.started_at),
             completed_at = excluded.completed_at,
