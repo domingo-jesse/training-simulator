@@ -396,7 +396,7 @@ def sync_uuid_backed_learning_tables() -> None:
             u.id AS user_id,
             COALESCE(u.name, u.email, 'Learner') AS full_name,
             u.team AS team,
-            CASE WHEN COALESCE(u.is_active, 1) = 1 THEN 'active' ELSE 'inactive' END AS status,
+            CASE WHEN COALESCE(u.is_active, 1) = TRUE THEN 'active' ELSE 'inactive' END AS status,
             MAX(a.created_at) AS last_activity,
             COALESCE(u.created_at, CURRENT_TIMESTAMP) AS created_at,
             CURRENT_TIMESTAMP AS updated_at
