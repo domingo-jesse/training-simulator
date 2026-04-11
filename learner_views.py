@@ -64,12 +64,12 @@ def _assigned_modules(user: Dict):
                AND t.created_at >= a2.assigned_at
             WHERE a2.learner_id = ?
               AND a2.organization_id = ?
-              AND a2.is_active = 1
+              AND a2.is_active = TRUE
             GROUP BY a2.assignment_id
         ) x ON x.assignment_id = a.assignment_id
         WHERE a.learner_id = ?
           AND a.organization_id = ?
-          AND a.is_active = 1
+          AND a.is_active = TRUE
           AND m.status = 'published'
         ORDER BY a.assigned_at DESC
         """,
@@ -210,7 +210,7 @@ def render_scenario_page(user: Dict) -> None:
         """
         SELECT assignment_id, assigned_at
         FROM assignments
-        WHERE learner_id = ? AND module_id = ? AND organization_id = ? AND is_active = 1
+        WHERE learner_id = ? AND module_id = ? AND organization_id = ? AND is_active = TRUE
         """,
         (user["user_id"], module_id, user["organization_id"]),
     )
