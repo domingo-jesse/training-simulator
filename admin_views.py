@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import pandas as pd
+import psycopg2
 import streamlit as st
 
 from db import execute, fetch_all, fetch_one, fetch_table_rows, list_public_tables
@@ -618,8 +619,8 @@ def render_admin_log_viewer() -> None:
     st.subheader("Debug Panel")
     st.caption("Inspect application logs without leaving the admin workspace.")
 
-    app_tab, error_tab, structured_tab = st.tabs(
-        ["App Logs", "Error Logs", "Structured JSON Logs"]
+    app_tab, error_tab, structured_tab, db_tester_tab = st.tabs(
+        ["App Logs", "Error Logs", "Structured JSON Logs", "DB Tester"]
     )
 
     with app_tab:
@@ -628,3 +629,30 @@ def render_admin_log_viewer() -> None:
         _render_log_tab("Error Logs", "logs/errors.log", "error_logs")
     with structured_tab:
         _render_log_tab("Structured JSON Logs", "logs/structured.json", "structured_logs")
+    with db_tester_tab:
+        st.markdown("#### Database Connection Tester")
+
+        try:
+            conn = psycopg2.connect(
+                st.secrets["DATABASE_URL"],
+                connect_timeout=10,
+            )
+            cur = conn.cursor()
+            cur.execute("SELECT version();")
+            result = cur.fetchone()
+
+            st.success("✅ Connected to database!")
+            st.write(result)
+        except Exception as exc:
+            st.error("❌ Connection failed")
+            st.write(type(exc).__name__)
+            st.write(str(exc))
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+            try:
+                conn.close()
+            except Exception:
+                pass
