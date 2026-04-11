@@ -8,6 +8,7 @@ import streamlit as st
 from admin_views import (
     render_admin_dashboard,
     render_assignment_management,
+    render_database_tables_view,
     render_grading_center,
     render_learner_management,
     render_admin_log_viewer,
@@ -245,24 +246,17 @@ def _google_user_name() -> str:
 
 
 def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
-    """Temporary passwordless login for development builds."""
+    """Passwordless login that only authenticates database users."""
     ident = (identifier or "").strip()
+    if not ident:
+        return False, "Enter your email or username to sign in.", None
 
-    if ident:
-        user = find_user_by_email(ident, role=expected_role)
-        if user is None:
-            user = find_user_by_username(ident, role=expected_role)
-        if user is None:
-            return False, f"You do not have a {expected_role.title()} account yet.", None
-        return True, None, user
-
-    fallback_user = _find_auth_user_by_query(
-        "role = ? AND is_active = 1",
-        (expected_role,),
-    )
-    if fallback_user is None:
+    user = find_user_by_email(ident, role=expected_role)
+    if user is None:
+        user = find_user_by_username(ident, role=expected_role)
+    if user is None:
         return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
-    return True, None, fallback_user
+    return True, None, user
 
 
 def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None, str | None]:
@@ -656,7 +650,7 @@ def render_login_view() -> None:
 
     with learner_tab:
         with st.form("local_login_learner", clear_on_submit=False):
-            identifier = st.text_input("Email or username (optional for dev quick login)", key="learner_identifier")
+            identifier = st.text_input("Email or username", key="learner_identifier")
             submitted = st.form_submit_button("Sign in as Learner", use_container_width=True, type="primary")
             if submitted:
                 app_logger.info("Login form submitted.", role="learner")
@@ -676,7 +670,7 @@ def render_login_view() -> None:
 
     with admin_tab:
         with st.form("local_login_admin", clear_on_submit=False):
-            identifier = st.text_input("Email or username (optional for dev quick login)", key="admin_identifier")
+            identifier = st.text_input("Email or username", key="admin_identifier")
             submitted = st.form_submit_button("Sign in as Admin", use_container_width=True, type="primary")
             if submitted:
                 app_logger.info("Login form submitted.", role="admin")
@@ -770,6 +764,7 @@ def render_main_app() -> None:
             "Progress Tracking",
             "Learner Management",
             "Module Builder",
+            "Database Tables",
             "Debug Logs",
         ]
         default_page = st.session_state.get("page") or "Dashboard"
@@ -791,6 +786,8 @@ def render_main_app() -> None:
             render_learner_management(user)
         elif st.session_state["page"] == "Module Builder":
             render_module_builder(user)
+        elif st.session_state["page"] == "Database Tables":
+            render_database_tables_view()
         elif st.session_state["page"] == "Debug Logs":
             render_admin_log_viewer()
     else:
