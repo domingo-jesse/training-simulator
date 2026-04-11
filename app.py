@@ -855,50 +855,52 @@ def render_main_app() -> None:
         requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("admin_page") != requested_page:
             st.session_state["admin_page"] = requested_page
+        st.session_state["page"] = None
         st.sidebar.radio(
             "Admin Navigation",
             options=pages,
             key="admin_page",
         )
-        st.session_state["page"] = st.session_state["admin_page"]
-        user_logger.info("Admin page load.", page=st.session_state["page"])
-        if st.session_state["page"] == "Dashboard":
+        current_page = st.session_state["admin_page"]
+        user_logger.info("Admin page load.", page=current_page)
+        if current_page == "Dashboard":
             render_admin_dashboard(user)
-        elif st.session_state["page"] == "Assignments":
+        elif current_page == "Assignments":
             render_assignment_management(user)
-        elif st.session_state["page"] == "Submission Grading":
+        elif current_page == "Submission Grading":
             render_grading_center(user)
-        elif st.session_state["page"] == "Progress Tracking":
+        elif current_page == "Progress Tracking":
             render_progress_tracking(user)
-        elif st.session_state["page"] == "Learner Management":
+        elif current_page == "Learner Management":
             render_learner_management(user)
-        elif st.session_state["page"] == "Module Builder":
+        elif current_page == "Module Builder":
             render_module_builder(user)
-        elif st.session_state["page"] == "Database Tables":
+        elif current_page == "Database Tables":
             render_database_tables_view()
-        elif st.session_state["page"] == "Debug Logs":
+        elif current_page == "Debug Logs":
             render_admin_log_viewer()
     else:
         pages = ["Home", "Assigned Modules", "Scenario", "Results", "My Progress"]
         requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
+        st.session_state["page"] = None
         st.sidebar.radio(
             "Learner Navigation",
             options=pages,
             key="learner_page",
         )
-        st.session_state["page"] = st.session_state["learner_page"]
-        user_logger.info("Learner page load.", page=st.session_state["page"])
-        if st.session_state["page"] == "Home":
+        current_page = st.session_state["learner_page"]
+        user_logger.info("Learner page load.", page=current_page)
+        if current_page == "Home":
             render_learner_home(user)
-        elif st.session_state["page"] == "Assigned Modules":
+        elif current_page == "Assigned Modules":
             render_module_library(user)
-        elif st.session_state["page"] == "Scenario":
+        elif current_page == "Scenario":
             render_scenario_page(user)
-        elif st.session_state["page"] == "Results":
+        elif current_page == "Results":
             render_results_page(user)
-        elif st.session_state["page"] == "My Progress":
+        elif current_page == "My Progress":
             render_progress_page(user)
 
 
