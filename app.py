@@ -390,22 +390,41 @@ def create_account(
         db_name=db_info.get("database"),
         db_path=db_info.get("db_path"),
     )
-    execute(
-        """
-        INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', 1)
-        """,
-        (
-            external_id,
-            full_name,
-            email,
-            role,
-            "General",
-            org_id,
-            (username or None),
-            hash_password(password),
-        ),
-    )
+    try:
+        execute(
+            """
+            INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', 1)
+            """,
+            (
+                external_id,
+                full_name,
+                email,
+                role,
+                "General",
+                org_id,
+                (username or None),
+                hash_password(password),
+            ),
+        )
+    except Exception as exc:
+        error_text = str(exc).lower()
+        app_logger.exception(
+            "Local account creation failed.",
+            role=role,
+            email=email,
+            db_backend=db_info.get("backend"),
+            db_host=db_info.get("host"),
+            db_name=db_info.get("database"),
+            db_path=db_info.get("db_path"),
+        )
+        if "username" in error_text:
+            return False, "That username is already in use."
+        if "email" in error_text:
+            return False, f"You already have a {role.title()} account with this email."
+        if "name" in error_text:
+            return False, "An account with that full name already exists. Try a slightly different full name."
+        return False, "We couldn't create your account right now. Please try again."
     app_logger.info(
         "Created new local account.",
         role=role,
