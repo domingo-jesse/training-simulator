@@ -437,7 +437,7 @@ def render_module_builder(current_user: dict) -> None:
                     _parse_lines(learning_objectives),
                     _parse_lines(content_sections),
                     completion_requirements,
-                    1 if quiz_required else 0,
+                    True if quiz_required else False,
                     current_user["user_id"],
                 ),
             )
