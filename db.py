@@ -151,6 +151,25 @@ def _ensure_column(conn, table: str, column: str, definition: str) -> None:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
 
 
+def _postgres_columns_need_text_migration(
+    conn, columns: list[tuple[str, str]]
+) -> bool:
+    with conn.cursor() as cur:
+        for table, column in columns:
+            cur.execute(
+                """
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = %s AND column_name = %s
+                """,
+                (table, column),
+            )
+            row = cur.fetchone()
+            if not row or row["data_type"] != "text":
+                return True
+    return False
+
+
 def _sql(query: str) -> str:
     return query.replace("?", "%s")
 
@@ -482,31 +501,39 @@ def init_db() -> None:
         _ensure_column(conn, "users", "password_hash", "TEXT")
         _ensure_column(conn, "users", "auth_provider", "TEXT DEFAULT 'local_password'")
         if RUNTIME_USE_POSTGRES:
+            text_migration_columns = [
+                ("learner_profiles", "user_id"),
+                ("module_assignments", "user_id"),
+                ("module_progress", "user_id"),
+                ("users", "id"),
+            ]
             with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    ALTER TABLE learner_profiles
-                    ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
-                    """
-                )
-                cur.execute(
-                    """
-                    ALTER TABLE module_assignments
-                    ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
-                    """
-                )
-                cur.execute(
-                    """
-                    ALTER TABLE module_progress
-                    ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
-                    """
-                )
-                cur.execute(
-                    """
-                    ALTER TABLE users
-                    ALTER COLUMN id TYPE TEXT USING id::TEXT
-                    """
-                )
+                if _postgres_columns_need_text_migration(conn, text_migration_columns):
+                    cur.execute("DROP VIEW IF EXISTS learner_dashboard_summary")
+                    cur.execute(
+                        """
+                        ALTER TABLE learner_profiles
+                        ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                        """
+                    )
+                    cur.execute(
+                        """
+                        ALTER TABLE module_assignments
+                        ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                        """
+                    )
+                    cur.execute(
+                        """
+                        ALTER TABLE module_progress
+                        ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                        """
+                    )
+                    cur.execute(
+                        """
+                        ALTER TABLE users
+                        ALTER COLUMN id TYPE TEXT USING id::TEXT
+                        """
+                    )
         if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
