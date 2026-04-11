@@ -1,9 +1,11 @@
 import json
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
+from urllib.parse import urlparse
 
 from logger import get_logger
 
@@ -11,6 +13,40 @@ DB_PATH = Path(__file__).resolve().parent / "trainer.db"
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 USE_POSTGRES = DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")
 db_logger = get_logger(module="db")
+
+
+def _infer_target_table(query: str) -> str | None:
+    compact = " ".join((query or "").split())
+    patterns = (
+        r"^\s*INSERT\s+INTO\s+([a-zA-Z0-9_.\"]+)",
+        r"^\s*UPDATE\s+([a-zA-Z0-9_.\"]+)",
+        r"^\s*DELETE\s+FROM\s+([a-zA-Z0-9_.\"]+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, compact, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip('"')
+    return None
+
+
+def get_database_debug_info() -> Dict[str, Any]:
+    info: Dict[str, Any] = {
+        "backend": "postgres" if USE_POSTGRES else "sqlite",
+        "database_url_set": bool(DATABASE_URL),
+    }
+    if USE_POSTGRES:
+        parsed = urlparse(DATABASE_URL)
+        info.update(
+            {
+                "host": parsed.hostname,
+                "port": parsed.port,
+                "database": parsed.path.lstrip("/"),
+                "username": parsed.username,
+            }
+        )
+    else:
+        info["db_path"] = str(DB_PATH)
+    return info
 
 
 @contextmanager
@@ -563,10 +599,21 @@ def fetch_one(query: str, params: Iterable[Any] = ()) -> Optional[Dict[str, Any]
 
 def execute(query: str, params: Iterable[Any] = ()) -> int:
     try:
+        params_tuple = tuple(params)
+        target_table = _infer_target_table(query)
+        query_preview = " ".join(query.split())[:200]
+        db_logger.info(
+            "Database write starting.",
+            operation="execute",
+            backend="postgres" if USE_POSTGRES else "sqlite",
+            target_table=target_table,
+            param_count=len(params_tuple),
+            query_preview=query_preview,
+        )
         with get_conn() as conn:
             if USE_POSTGRES:
                 with conn.cursor() as cur:
-                    cur.execute(_sql(query), tuple(params))
+                    cur.execute(_sql(query), params_tuple)
                     if query.lstrip().upper().startswith("INSERT"):
                         cur.execute("SELECT LASTVAL() AS id")
                         lastrow = cur.fetchone()
@@ -574,9 +621,15 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
                     else:
                         lastrowid = 0
             else:
-                cur = conn.execute(query, params)
+                cur = conn.execute(query, params_tuple)
                 lastrowid = cur.lastrowid
-            db_logger.info("Database write completed.", operation="execute", lastrowid=lastrowid)
+            db_logger.info(
+                "Database write completed.",
+                operation="execute",
+                backend="postgres" if USE_POSTGRES else "sqlite",
+                target_table=target_table,
+                lastrowid=lastrowid,
+            )
             return lastrowid
     except Exception:
         db_logger.exception("Database write failed.", operation="execute")
