@@ -52,7 +52,7 @@ def _ensure_org() -> int:
     return int(execute("INSERT INTO organizations (name) VALUES (?)", (DEFAULT_ORG,)))
 
 
-def _ensure_user(name: str, email: str, role: str, team: str, org_id: int, is_active: int = 1) -> int:
+def _ensure_user(name: str, email: str, role: str, team: str, org_id: int, is_active: bool = True) -> int:
     existing = fetch_one("SELECT user_id FROM users WHERE LOWER(email) = ?", (email.strip().lower(),))
     if existing:
         execute(
@@ -76,14 +76,14 @@ def _ensure_user(name: str, email: str, role: str, team: str, org_id: int, is_ac
 def seed_users() -> dict[str, int]:
     org_id = _ensure_org()
     user_specs = [
-        ("Ava Patel", "ava.patel@acmehealth.example", "learner", "Operations", 1),
-        ("Jordan Lee", "jordan.lee@acmehealth.example", "learner", "Revenue Cycle", 1),
-        ("Sam Rivera", "sam.rivera@acmehealth.example", "learner", "Platform Support", 1),
-        ("Mia Chen", "mia.chen@acmehealth.example", "learner", "Clinical Ops", 1),
-        ("Noah Brooks", "noah.brooks@acmehealth.example", "learner", "Provider Success", 1),
-        ("Priya Singh", "priya.singh@acmehealth.example", "learner", "Member Support", 1),
-        ("Admin User", "admin@acmehealth.example", "admin", "Training", 1),
-        ("Taylor Admin", "taylor.admin@acmehealth.example", "admin", "Enablement", 1),
+        ("Ava Patel", "ava.patel@acmehealth.example", "learner", "Operations", True),
+        ("Jordan Lee", "jordan.lee@acmehealth.example", "learner", "Revenue Cycle", True),
+        ("Sam Rivera", "sam.rivera@acmehealth.example", "learner", "Platform Support", True),
+        ("Mia Chen", "mia.chen@acmehealth.example", "learner", "Clinical Ops", True),
+        ("Noah Brooks", "noah.brooks@acmehealth.example", "learner", "Provider Success", True),
+        ("Priya Singh", "priya.singh@acmehealth.example", "learner", "Member Support", True),
+        ("Admin User", "admin@acmehealth.example", "admin", "Training", True),
+        ("Taylor Admin", "taylor.admin@acmehealth.example", "admin", "Enablement", True),
     ]
 
     user_ids: dict[str, int] = {}
@@ -239,17 +239,17 @@ def seed_assignments_and_attempts(user_ids: dict[str, int]) -> None:
 
     assignment_rows = [
         # Completed stage
-        (org_id, module_map["PA Denial Spike in Orthopedics"]["module_id"], learners[0], admin_id, "2026-03-20", "2026-03-01 09:00:00", 1),
+        (org_id, module_map["PA Denial Spike in Orthopedics"]["module_id"], learners[0], admin_id, "2026-03-20", "2026-03-01 09:00:00", True),
         # Completed with lower score (represents developing proficiency)
-        (org_id, module_map["Bot Login Failures After Credential Rotation"]["module_id"], learners[1], admin_id, "2026-04-20", "2026-04-01 08:30:00", 1),
+        (org_id, module_map["Bot Login Failures After Credential Rotation"]["module_id"], learners[1], admin_id, "2026-04-20", "2026-04-01 08:30:00", True),
         # Overdue not started
-        (org_id, module_map["Portal Workflow Update Broke Intake Routing"]["module_id"], learners[2], admin_id, "2026-04-01", "2026-03-18 10:00:00", 1),
+        (org_id, module_map["Portal Workflow Update Broke Intake Routing"]["module_id"], learners[2], admin_id, "2026-04-01", "2026-03-18 10:00:00", True),
         # Not started upcoming
-        (org_id, module_map["PA Denial Spike in Orthopedics"]["module_id"], learners[3], admin_id, "2026-04-30", "2026-04-05 13:00:00", 1),
+        (org_id, module_map["PA Denial Spike in Orthopedics"]["module_id"], learners[3], admin_id, "2026-04-30", "2026-04-05 13:00:00", True),
         # Completed with high score
-        (org_id, module_map["Bot Login Failures After Credential Rotation"]["module_id"], learners[4], admin_id, "2026-04-12", "2026-03-28 11:15:00", 1),
+        (org_id, module_map["Bot Login Failures After Credential Rotation"]["module_id"], learners[4], admin_id, "2026-04-12", "2026-03-28 11:15:00", True),
         # Completed and due soon
-        (org_id, module_map["Portal Workflow Update Broke Intake Routing"]["module_id"], learners[5], admin_id, "2026-04-10", "2026-04-02 14:20:00", 1),
+        (org_id, module_map["Portal Workflow Update Broke Intake Routing"]["module_id"], learners[5], admin_id, "2026-04-10", "2026-04-02 14:20:00", True),
     ]
     executemany(
         """

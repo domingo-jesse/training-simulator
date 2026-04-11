@@ -235,9 +235,9 @@ def render_assignment_management(current_user: dict) -> None:
                     execute(
                         """
                         INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
-                        VALUES (?, ?, ?, ?, ?, 1)
+                        VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (org_id, module_id, learner_id, current_user["user_id"], due_date_value),
+                        (org_id, module_id, learner_id, current_user["user_id"], due_date_value, True),
                     )
                 view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(selected_learners))
                 st.success(f"Assigned module to {len(selected_learners)} learner(s).")
