@@ -2,6 +2,7 @@ import json
 import os
 import re
 import sqlite3
+import tomllib
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
@@ -10,7 +11,35 @@ from urllib.parse import urlparse
 from logger import get_logger
 
 DB_PATH = Path(__file__).resolve().parent / "trainer.db"
-DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+
+def _load_database_url() -> str:
+    """Resolve Postgres URL from environment and optional Streamlit secrets."""
+    url_keys = ("DATABASE_URL", "SUPABASE_DB_URL", "SUPABASE_DATABASE_URL", "POSTGRES_URL")
+
+    for key in url_keys:
+        value = os.getenv(key, "").strip()
+        if value:
+            return value
+
+    secrets_path = Path(__file__).resolve().parent / ".streamlit" / "secrets.toml"
+    if not secrets_path.exists():
+        return ""
+
+    try:
+        secrets = tomllib.loads(secrets_path.read_text())
+    except Exception:
+        return ""
+
+    for key in url_keys:
+        value = str(secrets.get(key, "")).strip()
+        if value:
+            return value
+
+    return ""
+
+
+DATABASE_URL = _load_database_url()
 USE_POSTGRES = DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")
 db_logger = get_logger(module="db")
 
