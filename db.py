@@ -68,15 +68,27 @@ def get_database_debug_info() -> Dict[str, Any]:
         "database_url_set": bool(DATABASE_URL),
     }
     if USE_POSTGRES:
-        parsed = urlparse(DATABASE_URL)
-        info.update(
-            {
-                "host": parsed.hostname,
-                "port": parsed.port,
-                "database": parsed.path.lstrip("/"),
-                "username": parsed.username,
-            }
-        )
+        try:
+            parsed = urlparse(DATABASE_URL)
+            info.update(
+                {
+                    "host": parsed.hostname,
+                    "port": parsed.port,
+                    "database": parsed.path.lstrip("/"),
+                    "username": parsed.username,
+                }
+            )
+        except ValueError as exc:
+            db_logger.warning("Invalid DATABASE_URL format while building debug info.", error=str(exc))
+            info.update(
+                {
+                    "host": None,
+                    "port": None,
+                    "database": None,
+                    "username": None,
+                    "parse_error": str(exc),
+                }
+            )
     else:
         info["db_path"] = str(DB_PATH)
     return info
