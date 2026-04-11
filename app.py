@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import sys
+from contextlib import contextmanager
 from typing import Any
+from urllib.parse import urlparse
 
+import psycopg2
 import streamlit as st
 from admin_views import (
     render_admin_dashboard,
@@ -28,6 +31,33 @@ from logger import get_logger
 from utils import inject_styles
 
 app_logger = get_logger(module="app")
+
+
+@contextmanager
+def get_conn():
+    database_url = st.secrets["DATABASE_URL"]
+
+    parsed = urlparse(database_url)
+    safe_user = parsed.username
+    safe_host = parsed.hostname
+    safe_port = parsed.port
+    safe_db = parsed.path.lstrip("/")
+    safe_query = parsed.query
+
+    st.write("DB debug user:", safe_user)
+    st.write("DB debug host:", safe_host)
+    st.write("DB debug port:", safe_port)
+    st.write("DB debug db:", safe_db)
+    st.write("DB debug query:", safe_query)
+
+    try:
+        conn = psycopg2.connect(database_url, connect_timeout=10)
+        yield conn
+        conn.close()
+    except Exception as exc:
+        raise ConnectionError(
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
 
 EXPECTED_PLATFORM_TABLES = (
     "organizations",
