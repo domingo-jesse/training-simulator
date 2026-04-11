@@ -57,10 +57,10 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
                AND t.organization_id = a2.organization_id
                AND t.created_at >= a2.assigned_at
             WHERE a2.organization_id = ?
-              AND a2.is_active = 1
+              AND a2.is_active = TRUE
             GROUP BY a2.assignment_id
         ) x ON x.assignment_id = a.assignment_id
-        WHERE a.organization_id = ? AND a.is_active = 1
+        WHERE a.organization_id = ? AND a.is_active = TRUE
         ORDER BY a.assigned_at DESC
         """,
         (org_id, org_id),
