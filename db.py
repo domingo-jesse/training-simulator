@@ -481,8 +481,13 @@ def init_db() -> None:
         _ensure_column(conn, "users", "username", "TEXT")
         _ensure_column(conn, "users", "password_hash", "TEXT")
         _ensure_column(conn, "users", "auth_provider", "TEXT DEFAULT 'local_password'")
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        if RUNTIME_USE_POSTGRES:
+            with conn.cursor() as cur:
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+        else:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
 
         _ensure_column(conn, "modules", "organization_id", "INTEGER")
         _ensure_column(conn, "modules", "status", "TEXT DEFAULT 'published'")
