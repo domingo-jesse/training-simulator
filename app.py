@@ -15,7 +15,7 @@ from admin_views import (
     render_progress_tracking,
 )
 from data_seed import clear_seed_data
-from db import execute, fetch_all, fetch_one, init_db
+from db import execute, fetch_all, fetch_one, get_database_debug_info, init_db
 from learner_views import (
     render_learner_home,
     render_module_library,
@@ -380,6 +380,16 @@ def create_account(
 
     org_id = _default_org_id()
     external_id = f"u_{role}_{email}"
+    db_info = get_database_debug_info()
+    app_logger.info(
+        "Attempting local account creation.",
+        role=role,
+        email=email,
+        db_backend=db_info.get("backend"),
+        db_host=db_info.get("host"),
+        db_name=db_info.get("database"),
+        db_path=db_info.get("db_path"),
+    )
     execute(
         """
         INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
@@ -396,7 +406,12 @@ def create_account(
             hash_password(password),
         ),
     )
-    app_logger.info("Created new local account.", role=role)
+    app_logger.info(
+        "Created new local account.",
+        role=role,
+        email=email,
+        db_backend=db_info.get("backend"),
+    )
     return True, f"{role.title()} account created successfully. Please sign in."
 
 
@@ -520,7 +535,17 @@ def _sync_google_identity_if_present() -> None:
 def _run_database_connection_test() -> tuple[bool, str, list[str], list[str]]:
     """Checks DB connectivity and presence of expected platform tables."""
     try:
-        rows = fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
+        db_info = get_database_debug_info()
+        if db_info["backend"] == "postgres":
+            rows = fetch_all(
+                """
+                SELECT table_name AS name
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_type='BASE TABLE'
+                """
+            )
+        else:
+            rows = fetch_all("SELECT name FROM sqlite_master WHERE type='table'")
         discovered_tables = sorted(
             row["name"]
             for row in rows
@@ -547,6 +572,20 @@ def _run_database_connection_test() -> tuple[bool, str, list[str], list[str]]:
 def _render_database_connection_tester() -> None:
     st.markdown("#### Database Connection Tester")
     st.caption("Use this to verify the app can connect and detect the expected platform tables.")
+    db_info = get_database_debug_info()
+    if db_info["backend"] == "postgres":
+        st.code(
+            (
+                "Backend: postgres\n"
+                f"Host: {db_info.get('host')}\n"
+                f"Database: {db_info.get('database')}\n"
+                f"Port: {db_info.get('port')}\n"
+                f"Username: {db_info.get('username')}"
+            )
+        )
+    else:
+        st.code(f"Backend: sqlite\nPath: {db_info.get('db_path')}")
+
     if st.button("Run database test", key="run_db_test", use_container_width=True):
         ok, message, missing, extra = _run_database_connection_test()
         if ok:
