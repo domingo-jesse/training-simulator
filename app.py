@@ -219,28 +219,29 @@ def _google_user_name() -> str:
     return "Google User"
 
 
-def validate_local_login(identifier: str, password: str, expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
+def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Temporary passwordless login for development builds."""
     ident = (identifier or "").strip()
-    if not ident or not password:
-        return False, "Please enter both email/username and password.", None
 
-    user = find_user_by_email(ident, role=expected_role)
-    if user is None:
-        user = find_user_by_username(ident, role=expected_role)
-    if user is None:
-        return False, f"You do not have a {expected_role.title()} account yet.", None
+    if ident:
+        user = find_user_by_email(ident, role=expected_role)
+        if user is None:
+            user = find_user_by_username(ident, role=expected_role)
+        if user is None:
+            return False, f"You do not have a {expected_role.title()} account yet.", None
+        return True, None, user
 
-    if user.get("auth_provider") == "google":
-        return (
-            False,
-            "This email is linked to a Google account. Please use 'Continue with Google' to sign in.",
-            None,
-        )
-
-    if user["password_hash"] != hash_password(password):
-        return False, "Incorrect email or password.", None
-
-    return True, None, user
+    fallback_user = next(
+        (
+            user
+            for user in st.session_state["users_db"]
+            if user.get("role") == expected_role and user.get("is_active", True)
+        ),
+        None,
+    )
+    if fallback_user is None:
+        return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
+    return True, None, fallback_user
 
 
 def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None, str | None]:
@@ -518,14 +519,13 @@ def render_login_view() -> None:
 
     with learner_tab:
         with st.form("local_login_learner", clear_on_submit=False):
-            identifier = st.text_input("Email or username", key="learner_identifier")
-            pwd = st.text_input("Password", type="password", key="learner_pwd")
+            identifier = st.text_input("Email or username (optional for dev quick login)", key="learner_identifier")
             submitted = st.form_submit_button("Sign in as Learner", use_container_width=True, type="primary")
             if submitted:
                 app_logger.info("Login form submitted.", role="learner")
-                ok, message, user = validate_local_login(identifier, pwd, expected_role="learner")
+                ok, message, user = validate_dev_login(identifier, expected_role="learner")
                 if ok and user:
-                    _sign_in_user(user, "local_password")
+                    _sign_in_user(user, "dev_quick")
                     st.rerun()
                 st.session_state["auth_error"] = message
                 st.session_state["pending_google"] = None
@@ -539,14 +539,13 @@ def render_login_view() -> None:
 
     with admin_tab:
         with st.form("local_login_admin", clear_on_submit=False):
-            identifier = st.text_input("Email or username", key="admin_identifier")
-            pwd = st.text_input("Password", type="password", key="admin_pwd")
+            identifier = st.text_input("Email or username (optional for dev quick login)", key="admin_identifier")
             submitted = st.form_submit_button("Sign in as Admin", use_container_width=True, type="primary")
             if submitted:
                 app_logger.info("Login form submitted.", role="admin")
-                ok, message, user = validate_local_login(identifier, pwd, expected_role="admin")
+                ok, message, user = validate_dev_login(identifier, expected_role="admin")
                 if ok and user:
-                    _sign_in_user(user, "local_password")
+                    _sign_in_user(user, "dev_quick")
                     st.rerun()
                 st.session_state["auth_error"] = message
                 st.session_state["pending_google"] = None
