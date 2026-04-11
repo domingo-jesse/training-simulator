@@ -41,6 +41,8 @@ def _load_database_url() -> str:
 
 DATABASE_URL = _load_database_url()
 USE_POSTGRES = DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")
+# Runtime backend can fall back to SQLite if Postgres is configured but unavailable.
+RUNTIME_USE_POSTGRES = USE_POSTGRES
 db_logger = get_logger(module="db")
 
 
@@ -64,7 +66,8 @@ def _is_safe_identifier(value: str) -> bool:
 
 def get_database_debug_info() -> Dict[str, Any]:
     info: Dict[str, Any] = {
-        "backend": "postgres" if USE_POSTGRES else "sqlite",
+        "backend": "postgres" if RUNTIME_USE_POSTGRES else "sqlite",
+        "postgres_configured": USE_POSTGRES,
         "database_url_set": bool(DATABASE_URL),
     }
     if USE_POSTGRES:
@@ -96,16 +99,26 @@ def get_database_debug_info() -> Dict[str, Any]:
 
 @contextmanager
 def get_conn():
+    global RUNTIME_USE_POSTGRES
     db_logger.debug("Opening database connection.")
-    if USE_POSTGRES:
+    if RUNTIME_USE_POSTGRES:
         try:
             import psycopg2
             import psycopg2.extras
-        except ImportError as exc:
-            raise RuntimeError("DATABASE_URL is set for Postgres, but psycopg2 is not installed.") from exc
+        except ImportError:
+            db_logger.warning("psycopg2 is unavailable; falling back to SQLite backend.")
+            RUNTIME_USE_POSTGRES = False
+        else:
+            try:
+                conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+            except Exception as exc:
+                db_logger.warning(
+                    "Failed to connect to Postgres; falling back to SQLite backend.",
+                    error=str(exc),
+                )
+                RUNTIME_USE_POSTGRES = False
 
-        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    else:
+    if not RUNTIME_USE_POSTGRES:
         conn = sqlite3.connect(DB_PATH)
         conn.row_factory = sqlite3.Row
     try:
@@ -122,7 +135,7 @@ def get_conn():
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    if USE_POSTGRES:
+    if RUNTIME_USE_POSTGRES:
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -139,7 +152,7 @@ def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     if column not in _table_columns(conn, table):
-        if USE_POSTGRES:
+        if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
             return
@@ -159,13 +172,13 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
 
 
 def _sql(query: str) -> str:
-    if not USE_POSTGRES:
+    if not RUNTIME_USE_POSTGRES:
         return query
     return query.replace("?", "%s")
 
 
 def _executescript(conn, script: str) -> None:
-    if USE_POSTGRES:
+    if RUNTIME_USE_POSTGRES:
         with conn.cursor() as cur:
             cur.execute(script)
         return
@@ -173,9 +186,13 @@ def _executescript(conn, script: str) -> None:
 
 
 def init_db() -> None:
-    db_logger.info("Initializing database schema.", db_path=str(DB_PATH), backend="postgres" if USE_POSTGRES else "sqlite")
+    db_logger.info(
+        "Initializing database schema.",
+        db_path=str(DB_PATH),
+        backend="postgres" if RUNTIME_USE_POSTGRES else "sqlite",
+    )
     with get_conn() as conn:
-        if USE_POSTGRES:
+        if RUNTIME_USE_POSTGRES:
             _executescript(
                 conn,
                 """
