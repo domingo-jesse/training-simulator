@@ -517,7 +517,7 @@ def init_db() -> None:
         _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "id", "TEXT")
-        if USE_POSTGRES:
+        if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
         else:
@@ -525,7 +525,7 @@ def init_db() -> None:
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
 
-        if USE_POSTGRES:
+        if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status)")
@@ -628,7 +628,7 @@ def init_db() -> None:
 def fetch_all(query: str, params: Iterable[Any] = ()) -> List[Dict[str, Any]]:
     try:
         with get_conn() as conn:
-            if USE_POSTGRES:
+            if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
                     cur.execute(_sql(query), tuple(params))
                     rows = cur.fetchall()
@@ -645,7 +645,7 @@ def fetch_all(query: str, params: Iterable[Any] = ()) -> List[Dict[str, Any]]:
 def fetch_one(query: str, params: Iterable[Any] = ()) -> Optional[Dict[str, Any]]:
     try:
         with get_conn() as conn:
-            if USE_POSTGRES:
+            if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
                     cur.execute(_sql(query), tuple(params))
                     row = cur.fetchone()
@@ -667,13 +667,13 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
         db_logger.info(
             "Database write starting.",
             operation="execute",
-            backend="postgres" if USE_POSTGRES else "sqlite",
+            backend="postgres" if RUNTIME_USE_POSTGRES else "sqlite",
             target_table=target_table,
             param_count=len(params_tuple),
             query_preview=query_preview,
         )
         with get_conn() as conn:
-            if USE_POSTGRES:
+            if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
                     cur.execute(_sql(query), params_tuple)
                     if query.lstrip().upper().startswith("INSERT"):
@@ -688,7 +688,7 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
             db_logger.info(
                 "Database write completed.",
                 operation="execute",
-                backend="postgres" if USE_POSTGRES else "sqlite",
+                backend="postgres" if RUNTIME_USE_POSTGRES else "sqlite",
                 target_table=target_table,
                 lastrowid=lastrowid,
             )
@@ -702,7 +702,7 @@ def executemany(query: str, rows: Iterable[Iterable[Any]]) -> None:
     try:
         buffered_rows = list(rows)
         with get_conn() as conn:
-            if USE_POSTGRES:
+            if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
                     cur.executemany(_sql(query), [tuple(r) for r in buffered_rows])
             else:
@@ -715,7 +715,7 @@ def executemany(query: str, rows: Iterable[Iterable[Any]]) -> None:
 
 def list_public_tables() -> list[str]:
     with get_conn() as conn:
-        if USE_POSTGRES:
+        if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute(
                     """
