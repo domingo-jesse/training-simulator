@@ -58,6 +58,10 @@ def _infer_target_table(query: str) -> str | None:
     return None
 
 
+def _is_safe_identifier(value: str) -> bool:
+    return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", value or ""))
+
+
 def get_database_debug_info() -> Dict[str, Any]:
     info: Dict[str, Any] = {
         "backend": "postgres" if USE_POSTGRES else "sqlite",
@@ -678,6 +682,45 @@ def executemany(query: str, rows: Iterable[Iterable[Any]]) -> None:
     except Exception:
         db_logger.exception("Database bulk write failed.", operation="executemany")
         raise
+
+
+def list_public_tables() -> list[str]:
+    with get_conn() as conn:
+        if USE_POSTGRES:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT table_name
+                    FROM information_schema.tables
+                    WHERE table_schema = 'public'
+                      AND table_type = 'BASE TABLE'
+                    ORDER BY table_name
+                    """
+                )
+                rows = cur.fetchall()
+                return [str(r["table_name"]) for r in rows]
+
+        rows = conn.execute(
+            """
+            SELECT name
+            FROM sqlite_master
+            WHERE type='table' AND name NOT LIKE 'sqlite_%'
+            ORDER BY name
+            """
+        ).fetchall()
+        return [str(r["name"]) for r in rows]
+
+
+def fetch_table_rows(table_name: str, row_limit: int | None = None) -> list[Dict[str, Any]]:
+    if not _is_safe_identifier(table_name):
+        raise ValueError(f"Unsafe table name: {table_name}")
+
+    query = f"SELECT * FROM {table_name}"
+    params: tuple[Any, ...] = ()
+    if row_limit is not None and row_limit > 0:
+        query += " LIMIT ?"
+        params = (row_limit,)
+    return fetch_all(query, params)
 
 
 def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organization_id: int | None = None) -> int:

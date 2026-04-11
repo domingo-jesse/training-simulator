@@ -5,7 +5,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from db import execute, fetch_all, fetch_one
+from db import execute, fetch_all, fetch_one, fetch_table_rows, list_public_tables
 from logger import get_logger
 from log_viewer import (
     LOG_LEVEL_OPTIONS,
@@ -517,6 +517,44 @@ def render_module_builder(current_user: dict) -> None:
             )
             st.success("Module duplicated as draft.")
             st.rerun()
+
+
+def render_database_tables_view() -> None:
+    st.subheader("Database Tables")
+    st.caption("Live table data from the connected database.")
+
+    try:
+        tables = list_public_tables()
+    except Exception:
+        admin_logger.exception("Failed loading table list for database explorer.")
+        st.error("Could not load database table list.")
+        return
+
+    if not tables:
+        st.info("No tables were found in the active database.")
+        return
+
+    selected_tables = st.multiselect("Tables", options=tables, default=tables)
+    row_limit = st.selectbox("Rows per table", options=[25, 50, 100, 250, 500], index=1)
+
+    if not selected_tables:
+        st.info("Choose at least one table to view records.")
+        return
+
+    for table_name in selected_tables:
+        st.markdown(f"#### `{table_name}`")
+        try:
+            rows = fetch_table_rows(table_name, row_limit=row_limit)
+        except Exception:
+            admin_logger.exception("Failed loading table rows.", table=table_name)
+            st.error(f"Could not load rows for table `{table_name}`.")
+            continue
+
+        if not rows:
+            st.caption("No rows found.")
+            continue
+
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
 
 def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
