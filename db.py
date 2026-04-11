@@ -1,4 +1,5 @@
 import json
+import os
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -7,14 +8,25 @@ from typing import Any, Dict, Iterable, List, Optional
 from logger import get_logger
 
 DB_PATH = Path(__file__).resolve().parent / "trainer.db"
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+USE_POSTGRES = DATABASE_URL.startswith("postgres://") or DATABASE_URL.startswith("postgresql://")
 db_logger = get_logger(module="db")
 
 
 @contextmanager
 def get_conn():
     db_logger.debug("Opening database connection.")
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    if USE_POSTGRES:
+        try:
+            import psycopg2
+            import psycopg2.extras
+        except ImportError as exc:
+            raise RuntimeError("DATABASE_URL is set for Postgres, but psycopg2 is not installed.") from exc
+
+        conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+    else:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
     try:
         yield conn
         conn.commit()
@@ -29,12 +41,27 @@ def get_conn():
 
 
 def _table_columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    if USE_POSTGRES:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = %s
+                """,
+                (table,),
+            )
+            return {r["column_name"] for r in cur.fetchall()}
     rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
     return {r["name"] for r in rows}
 
 
 def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
     if column not in _table_columns(conn, table):
+        if USE_POSTGRES:
+            with conn.cursor() as cur:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+            return
         try:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
         except sqlite3.OperationalError as exc:
@@ -50,11 +77,178 @@ def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition
                 conn.execute(f"UPDATE {table} SET {column} = CURRENT_TIMESTAMP WHERE {column} IS NULL")
 
 
+def _sql(query: str) -> str:
+    if not USE_POSTGRES:
+        return query
+    return query.replace("?", "%s")
+
+
+def _executescript(conn, script: str) -> None:
+    if USE_POSTGRES:
+        with conn.cursor() as cur:
+            cur.execute(script)
+        return
+    conn.executescript(script)
+
+
 def init_db() -> None:
-    db_logger.info("Initializing database schema.", db_path=str(DB_PATH))
+    db_logger.info("Initializing database schema.", db_path=str(DB_PATH), backend="postgres" if USE_POSTGRES else "sqlite")
     with get_conn() as conn:
-        conn.executescript(
-            """
+        if USE_POSTGRES:
+            _executescript(
+                conn,
+                """
+                CREATE TABLE IF NOT EXISTS organizations (
+                    organization_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    name TEXT UNIQUE NOT NULL,
+                    email TEXT,
+                    google_subject TEXT,
+                    role TEXT NOT NULL,
+                    team TEXT,
+                    organization_id BIGINT,
+                    is_active INTEGER DEFAULT 1,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS modules (
+                    module_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    difficulty TEXT NOT NULL,
+                    description TEXT,
+                    estimated_time TEXT,
+                    scenario_ticket TEXT,
+                    scenario_context TEXT,
+                    hidden_root_cause TEXT,
+                    expected_reasoning_path TEXT,
+                    expected_diagnosis TEXT,
+                    expected_next_steps TEXT,
+                    expected_customer_response TEXT,
+                    lesson_takeaway TEXT,
+                    organization_id BIGINT,
+                    status TEXT DEFAULT 'published',
+                    learning_objectives TEXT,
+                    content_sections TEXT,
+                    completion_requirements TEXT,
+                    quiz_required INTEGER DEFAULT 0,
+                    created_by BIGINT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                    FOREIGN KEY(created_by) REFERENCES users(user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS investigation_actions (
+                    action_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    module_id BIGINT NOT NULL,
+                    action_name TEXT NOT NULL,
+                    revealed_information TEXT NOT NULL,
+                    FOREIGN KEY(module_id) REFERENCES modules(module_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS attempts (
+                    attempt_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    module_id BIGINT NOT NULL,
+                    organization_id BIGINT,
+                    diagnosis_answer TEXT,
+                    next_steps_answer TEXT,
+                    customer_response TEXT,
+                    escalation_choice TEXT,
+                    notes TEXT,
+                    understanding_score DOUBLE PRECISION,
+                    investigation_score DOUBLE PRECISION,
+                    solution_score DOUBLE PRECISION,
+                    communication_score DOUBLE PRECISION,
+                    total_score DOUBLE PRECISION,
+                    ai_feedback TEXT,
+                    strengths TEXT,
+                    missed_points TEXT,
+                    best_practice_reasoning TEXT,
+                    recommended_response TEXT,
+                    takeaway_summary TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(user_id) REFERENCES users(user_id),
+                    FOREIGN KEY(module_id) REFERENCES modules(module_id),
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS action_logs (
+                    log_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    attempt_id BIGINT NOT NULL,
+                    action_name TEXT NOT NULL,
+                    "timestamp" TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS assignments (
+                    assignment_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    organization_id BIGINT NOT NULL,
+                    module_id BIGINT NOT NULL,
+                    learner_id BIGINT NOT NULL,
+                    assigned_by BIGINT,
+                    due_date TEXT,
+                    assigned_at TIMESTAMPTZ DEFAULT NOW(),
+                    is_active INTEGER DEFAULT 1,
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                    FOREIGN KEY(module_id) REFERENCES modules(module_id),
+                    FOREIGN KEY(learner_id) REFERENCES users(user_id),
+                    FOREIGN KEY(assigned_by) REFERENCES users(user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS learner_profiles (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL UNIQUE,
+                    full_name TEXT NOT NULL,
+                    team TEXT,
+                    status TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active', 'inactive', 'on_leave')),
+                    last_activity TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS module_assignments (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    module_id TEXT NOT NULL,
+                    assigned_at TIMESTAMPTZ DEFAULT NOW(),
+                    assigned_by TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (user_id, module_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
+                    FOREIGN KEY(assigned_by) REFERENCES users(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS module_progress (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    module_id TEXT NOT NULL,
+                    progress_percent INTEGER NOT NULL DEFAULT 0
+                        CHECK (progress_percent >= 0 AND progress_percent <= 100),
+                    started_at TEXT,
+                    completed_at TEXT,
+                    last_activity_at TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE (user_id, module_id),
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE
+                );
+                """,
+            )
+        else:
+            _executescript(
+                conn,
+                """
             CREATE TABLE IF NOT EXISTS organizations (
                 organization_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL
@@ -201,7 +395,7 @@ def init_db() -> None:
                 FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE
             );
             """
-        )
+            )
 
         # Backward-compatible migrations
         _ensure_column(conn, "users", "email", "TEXT")
@@ -225,79 +419,124 @@ def init_db() -> None:
         _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "id", "TEXT")
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
+        if USE_POSTGRES:
+            with conn.cursor() as cur:
+                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
+        else:
+            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
 
-        conn.executescript(
-            """
-            CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id);
-            CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status);
-            CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id);
-            CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id);
-            CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id);
-            CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id);
-            CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at);
+        if USE_POSTGRES:
+            with conn.cursor() as cur:
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at)")
+                cur.execute(
+                    """
+                    CREATE OR REPLACE VIEW learner_dashboard_summary AS
+                    SELECT
+                        u.id AS user_id,
+                        lp.full_name AS name,
+                        lp.team AS team,
+                        lp.status AS status,
+                        COUNT(DISTINCT ma.module_id) AS assigned_modules,
+                        COUNT(DISTINCT CASE WHEN mp.completed_at IS NOT NULL THEN mp.module_id END) AS completed_modules,
+                        MAX(COALESCE(lp.last_activity, mp.last_activity_at)) AS last_activity
+                    FROM users u
+                    JOIN learner_profiles lp
+                        ON lp.user_id = u.id
+                    LEFT JOIN module_assignments ma
+                        ON ma.user_id = u.id
+                    LEFT JOIN module_progress mp
+                        ON mp.user_id = u.id
+                    GROUP BY
+                        u.id,
+                        lp.full_name,
+                        lp.team,
+                        lp.status,
+                        lp.last_activity
+                    """
+                )
+        else:
+            conn.executescript(
+                """
+                CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id);
+                CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status);
+                CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id);
+                CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id);
+                CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id);
+                CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id);
+                CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at);
 
-            DROP TRIGGER IF EXISTS trg_learner_profiles_updated_at;
-            CREATE TRIGGER trg_learner_profiles_updated_at
-            AFTER UPDATE ON learner_profiles
-            FOR EACH ROW
-            WHEN NEW.updated_at = OLD.updated_at
-            BEGIN
-                UPDATE learner_profiles SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
-            END;
+                DROP TRIGGER IF EXISTS trg_learner_profiles_updated_at;
+                CREATE TRIGGER trg_learner_profiles_updated_at
+                AFTER UPDATE ON learner_profiles
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE learner_profiles SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+                END;
 
-            DROP TRIGGER IF EXISTS trg_modules_updated_at;
-            CREATE TRIGGER trg_modules_updated_at
-            AFTER UPDATE ON modules
-            FOR EACH ROW
-            WHEN NEW.updated_at = OLD.updated_at
-            BEGIN
-                UPDATE modules SET updated_at = CURRENT_TIMESTAMP WHERE module_id = OLD.module_id;
-            END;
+                DROP TRIGGER IF EXISTS trg_modules_updated_at;
+                CREATE TRIGGER trg_modules_updated_at
+                AFTER UPDATE ON modules
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE modules SET updated_at = CURRENT_TIMESTAMP WHERE module_id = OLD.module_id;
+                END;
 
-            DROP TRIGGER IF EXISTS trg_module_progress_updated_at;
-            CREATE TRIGGER trg_module_progress_updated_at
-            AFTER UPDATE ON module_progress
-            FOR EACH ROW
-            WHEN NEW.updated_at = OLD.updated_at
-            BEGIN
-                UPDATE module_progress SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
-            END;
+                DROP TRIGGER IF EXISTS trg_module_progress_updated_at;
+                CREATE TRIGGER trg_module_progress_updated_at
+                AFTER UPDATE ON module_progress
+                FOR EACH ROW
+                WHEN NEW.updated_at = OLD.updated_at
+                BEGIN
+                    UPDATE module_progress SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+                END;
 
-            CREATE VIEW IF NOT EXISTS learner_dashboard_summary AS
-            SELECT
-                u.id AS user_id,
-                lp.full_name AS name,
-                lp.team AS team,
-                lp.status AS status,
-                COUNT(DISTINCT ma.module_id) AS assigned_modules,
-                COUNT(DISTINCT CASE WHEN mp.completed_at IS NOT NULL THEN mp.module_id END) AS completed_modules,
-                MAX(COALESCE(lp.last_activity, mp.last_activity_at)) AS last_activity
-            FROM users u
-            JOIN learner_profiles lp
-                ON lp.user_id = u.id
-            LEFT JOIN module_assignments ma
-                ON ma.user_id = u.id
-            LEFT JOIN module_progress mp
-                ON mp.user_id = u.id
-            GROUP BY
-                u.id,
-                lp.full_name,
-                lp.team,
-                lp.status,
-                lp.last_activity;
-            """
-        )
+                CREATE VIEW IF NOT EXISTS learner_dashboard_summary AS
+                SELECT
+                    u.id AS user_id,
+                    lp.full_name AS name,
+                    lp.team AS team,
+                    lp.status AS status,
+                    COUNT(DISTINCT ma.module_id) AS assigned_modules,
+                    COUNT(DISTINCT CASE WHEN mp.completed_at IS NOT NULL THEN mp.module_id END) AS completed_modules,
+                    MAX(COALESCE(lp.last_activity, mp.last_activity_at)) AS last_activity
+                FROM users u
+                JOIN learner_profiles lp
+                    ON lp.user_id = u.id
+                LEFT JOIN module_assignments ma
+                    ON ma.user_id = u.id
+                LEFT JOIN module_progress mp
+                    ON mp.user_id = u.id
+                GROUP BY
+                    u.id,
+                    lp.full_name,
+                    lp.team,
+                    lp.status,
+                    lp.last_activity;
+                """
+            )
     db_logger.info("Database schema initialization complete.")
 
 
-def fetch_all(query: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
+def fetch_all(query: str, params: Iterable[Any] = ()) -> List[Dict[str, Any]]:
     try:
         with get_conn() as conn:
-            cur = conn.execute(query, params)
-            rows = cur.fetchall()
+            if USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(_sql(query), tuple(params))
+                    rows = cur.fetchall()
+            else:
+                cur = conn.execute(query, params)
+                rows = cur.fetchall()
             db_logger.debug("Database read completed.", operation="fetch_all", row_count=len(rows))
             return rows
     except Exception:
@@ -305,11 +544,16 @@ def fetch_all(query: str, params: Iterable[Any] = ()) -> List[sqlite3.Row]:
         raise
 
 
-def fetch_one(query: str, params: Iterable[Any] = ()) -> Optional[sqlite3.Row]:
+def fetch_one(query: str, params: Iterable[Any] = ()) -> Optional[Dict[str, Any]]:
     try:
         with get_conn() as conn:
-            cur = conn.execute(query, params)
-            row = cur.fetchone()
+            if USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(_sql(query), tuple(params))
+                    row = cur.fetchone()
+            else:
+                cur = conn.execute(query, params)
+                row = cur.fetchone()
             db_logger.debug("Database read completed.", operation="fetch_one", found=bool(row))
             return row
     except Exception:
@@ -320,9 +564,20 @@ def fetch_one(query: str, params: Iterable[Any] = ()) -> Optional[sqlite3.Row]:
 def execute(query: str, params: Iterable[Any] = ()) -> int:
     try:
         with get_conn() as conn:
-            cur = conn.execute(query, params)
-            db_logger.info("Database write completed.", operation="execute", lastrowid=cur.lastrowid)
-            return cur.lastrowid
+            if USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(_sql(query), tuple(params))
+                    if query.lstrip().upper().startswith("INSERT"):
+                        cur.execute("SELECT LASTVAL() AS id")
+                        lastrow = cur.fetchone()
+                        lastrowid = int(lastrow["id"]) if lastrow else 0
+                    else:
+                        lastrowid = 0
+            else:
+                cur = conn.execute(query, params)
+                lastrowid = cur.lastrowid
+            db_logger.info("Database write completed.", operation="execute", lastrowid=lastrowid)
+            return lastrowid
     except Exception:
         db_logger.exception("Database write failed.", operation="execute")
         raise
@@ -332,7 +587,11 @@ def executemany(query: str, rows: Iterable[Iterable[Any]]) -> None:
     try:
         buffered_rows = list(rows)
         with get_conn() as conn:
-            conn.executemany(query, buffered_rows)
+            if USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.executemany(_sql(query), [tuple(r) for r in buffered_rows])
+            else:
+                conn.executemany(query, buffered_rows)
             db_logger.info("Database bulk write completed.", operation="executemany", row_count=len(buffered_rows))
     except Exception:
         db_logger.exception("Database bulk write failed.", operation="executemany")
