@@ -303,22 +303,26 @@ def init_db() -> None:
                     team TEXT,
                     status TEXT NOT NULL DEFAULT 'active'
                         CHECK (status IN ('active', 'inactive', 'on_leave')),
+                    organization_id BIGINT,
                     last_activity TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW(),
-                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS module_assignments (
                     id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
                     module_id TEXT NOT NULL,
+                    organization_id BIGINT,
                     assigned_at TIMESTAMPTZ DEFAULT NOW(),
                     assigned_by TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE (user_id, module_id),
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                     FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
                     FOREIGN KEY(assigned_by) REFERENCES users(id) ON DELETE SET NULL
                 );
 
@@ -326,6 +330,7 @@ def init_db() -> None:
                     id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL,
                     module_id TEXT NOT NULL,
+                    organization_id BIGINT,
                     progress_percent INTEGER NOT NULL DEFAULT 0
                         CHECK (progress_percent >= 0 AND progress_percent <= 100),
                     started_at TEXT,
@@ -335,7 +340,8 @@ def init_db() -> None:
                     updated_at TIMESTAMPTZ DEFAULT NOW(),
                     UNIQUE (user_id, module_id),
                     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                    FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE
+                    FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
                 );
                 """,
             )
@@ -454,22 +460,26 @@ def init_db() -> None:
                 team TEXT,
                 status TEXT NOT NULL DEFAULT 'active'
                     CHECK (status IN ('active', 'inactive', 'on_leave')),
+                organization_id INTEGER,
                 last_activity TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
             );
 
             CREATE TABLE IF NOT EXISTS module_assignments (
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 module_id TEXT NOT NULL,
+                organization_id INTEGER,
                 assigned_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 assigned_by TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (user_id, module_id),
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
                 FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
+                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
                 FOREIGN KEY(assigned_by) REFERENCES users(id) ON DELETE SET NULL
             );
 
@@ -477,6 +487,7 @@ def init_db() -> None:
                 id TEXT PRIMARY KEY,
                 user_id TEXT NOT NULL,
                 module_id TEXT NOT NULL,
+                organization_id INTEGER,
                 progress_percent INTEGER NOT NULL DEFAULT 0
                     CHECK (progress_percent >= 0 AND progress_percent <= 100),
                 started_at TEXT,
@@ -486,7 +497,8 @@ def init_db() -> None:
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (user_id, module_id),
                 FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
-                FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE
+                FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
+                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
             );
             """
             )
@@ -552,11 +564,74 @@ def init_db() -> None:
         _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "id", "TEXT")
+        _ensure_column(conn, "learner_profiles", "organization_id", "INTEGER")
+        _ensure_column(conn, "module_assignments", "organization_id", "INTEGER")
+        _ensure_column(conn, "module_progress", "organization_id", "INTEGER")
         if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
+                cur.execute(
+                    """
+                    UPDATE learner_profiles lp
+                    SET organization_id = u.organization_id
+                    FROM users u
+                    WHERE lp.user_id = u.id
+                      AND lp.organization_id IS NULL
+                    """
+                )
+                cur.execute(
+                    """
+                    UPDATE module_assignments ma
+                    SET organization_id = u.organization_id
+                    FROM users u
+                    WHERE ma.user_id = u.id
+                      AND ma.organization_id IS NULL
+                    """
+                )
+                cur.execute(
+                    """
+                    UPDATE module_progress mp
+                    SET organization_id = u.organization_id
+                    FROM users u
+                    WHERE mp.user_id = u.id
+                      AND mp.organization_id IS NULL
+                    """
+                )
         else:
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
+            conn.execute(
+                """
+                UPDATE learner_profiles
+                SET organization_id = (
+                    SELECT u.organization_id
+                    FROM users u
+                    WHERE u.id = learner_profiles.user_id
+                )
+                WHERE organization_id IS NULL
+                """
+            )
+            conn.execute(
+                """
+                UPDATE module_assignments
+                SET organization_id = (
+                    SELECT u.organization_id
+                    FROM users u
+                    WHERE u.id = module_assignments.user_id
+                )
+                WHERE organization_id IS NULL
+                """
+            )
+            conn.execute(
+                """
+                UPDATE module_progress
+                SET organization_id = (
+                    SELECT u.organization_id
+                    FROM users u
+                    WHERE u.id = module_progress.user_id
+                )
+                WHERE organization_id IS NULL
+                """
+            )
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
 
