@@ -17,7 +17,7 @@ def clear_seed_data() -> None:
         execute(f"DELETE FROM attempts WHERE module_id IN ({placeholders})", tuple(module_ids))
         execute(f"DELETE FROM assignments WHERE module_id IN ({placeholders})", tuple(module_ids))
         execute(f"DELETE FROM module_assignments WHERE module_id IN ({placeholders})", tuple(module_ids))
-        execute(f"DELETE FROM learner_progress WHERE module_id IN ({placeholders})", tuple(module_ids))
+        execute(f"DELETE FROM module_progress WHERE module_id IN ({placeholders})", tuple(module_ids))
         execute(f"DELETE FROM investigation_actions WHERE module_id IN ({placeholders})", tuple(module_ids))
         execute(f"DELETE FROM modules WHERE module_id IN ({placeholders})", tuple(module_ids))
 
@@ -29,7 +29,7 @@ def clear_seed_data() -> None:
         execute(f"DELETE FROM assignments WHERE learner_id IN ({user_placeholders}) OR assigned_by IN ({user_placeholders})", tuple(seed_users + seed_users))
         execute(f"DELETE FROM module_assignments WHERE user_id IN ({user_placeholders})", tuple(seed_users))
         execute(f"DELETE FROM learner_profiles WHERE user_id IN ({user_placeholders})", tuple(seed_users))
-        execute(f"DELETE FROM learner_progress WHERE user_id IN ({user_placeholders})", tuple(seed_users))
+        execute(f"DELETE FROM module_progress WHERE user_id IN ({user_placeholders})", tuple(seed_users))
         execute(f"DELETE FROM users WHERE user_id IN ({user_placeholders})", tuple(seed_users))
 
     execute(
