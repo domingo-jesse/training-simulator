@@ -483,6 +483,32 @@ def init_db() -> None:
         _ensure_column(conn, "users", "auth_provider", "TEXT DEFAULT 'local_password'")
         if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    ALTER TABLE learner_profiles
+                    ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                    """
+                )
+                cur.execute(
+                    """
+                    ALTER TABLE module_assignments
+                    ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                    """
+                )
+                cur.execute(
+                    """
+                    ALTER TABLE module_progress
+                    ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                    """
+                )
+                cur.execute(
+                    """
+                    ALTER TABLE users
+                    ALTER COLUMN id TYPE TEXT USING id::TEXT
+                    """
+                )
+        if RUNTIME_USE_POSTGRES:
+            with conn.cursor() as cur:
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
                 cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
         else:
