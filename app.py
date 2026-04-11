@@ -596,6 +596,8 @@ def _render_database_connection_tester() -> None:
                 f"Username: {db_info.get('username')}"
             )
         )
+        if db_info.get("parse_error"):
+            st.warning(f"DATABASE_URL format issue: {db_info['parse_error']}")
     else:
         st.code(f"Backend: sqlite\nPath: {db_info.get('db_path')}")
 
