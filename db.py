@@ -158,6 +158,48 @@ def init_db() -> None:
                 FOREIGN KEY(learner_id) REFERENCES users(user_id),
                 FOREIGN KEY(assigned_by) REFERENCES users(user_id)
             );
+
+            CREATE TABLE IF NOT EXISTS learner_profiles (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL UNIQUE,
+                full_name TEXT NOT NULL,
+                team TEXT,
+                status TEXT NOT NULL DEFAULT 'active'
+                    CHECK (status IN ('active', 'inactive', 'on_leave')),
+                last_activity TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS module_assignments (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                assigned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                assigned_by TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, module_id),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
+                FOREIGN KEY(assigned_by) REFERENCES users(id) ON DELETE SET NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS module_progress (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                module_id TEXT NOT NULL,
+                progress_percent INTEGER NOT NULL DEFAULT 0
+                    CHECK (progress_percent >= 0 AND progress_percent <= 100),
+                started_at TEXT,
+                completed_at TEXT,
+                last_activity_at TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, module_id),
+                FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE
+            );
             """
         )
 
@@ -166,6 +208,8 @@ def init_db() -> None:
         _ensure_column(conn, "users", "google_subject", "TEXT")
         _ensure_column(conn, "users", "organization_id", "INTEGER")
         _ensure_column(conn, "users", "is_active", "INTEGER DEFAULT 1")
+        _ensure_column(conn, "users", "id", "TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
 
         _ensure_column(conn, "modules", "organization_id", "INTEGER")
         _ensure_column(conn, "modules", "status", "TEXT DEFAULT 'published'")
@@ -176,8 +220,72 @@ def init_db() -> None:
         _ensure_column(conn, "modules", "created_by", "INTEGER")
         _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
         _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
+        _ensure_column(conn, "modules", "id", "TEXT")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
+
+        conn.executescript(
+            """
+            CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id);
+            CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status);
+            CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id);
+            CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id);
+            CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id);
+            CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id);
+            CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at);
+
+            DROP TRIGGER IF EXISTS trg_learner_profiles_updated_at;
+            CREATE TRIGGER trg_learner_profiles_updated_at
+            AFTER UPDATE ON learner_profiles
+            FOR EACH ROW
+            WHEN NEW.updated_at = OLD.updated_at
+            BEGIN
+                UPDATE learner_profiles SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+            END;
+
+            DROP TRIGGER IF EXISTS trg_modules_updated_at;
+            CREATE TRIGGER trg_modules_updated_at
+            AFTER UPDATE ON modules
+            FOR EACH ROW
+            WHEN NEW.updated_at = OLD.updated_at
+            BEGIN
+                UPDATE modules SET updated_at = CURRENT_TIMESTAMP WHERE module_id = OLD.module_id;
+            END;
+
+            DROP TRIGGER IF EXISTS trg_module_progress_updated_at;
+            CREATE TRIGGER trg_module_progress_updated_at
+            AFTER UPDATE ON module_progress
+            FOR EACH ROW
+            WHEN NEW.updated_at = OLD.updated_at
+            BEGIN
+                UPDATE module_progress SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+            END;
+
+            CREATE VIEW IF NOT EXISTS learner_dashboard_summary AS
+            SELECT
+                u.id AS user_id,
+                lp.full_name AS name,
+                lp.team AS team,
+                lp.status AS status,
+                COUNT(DISTINCT ma.module_id) AS assigned_modules,
+                COUNT(DISTINCT CASE WHEN mp.completed_at IS NOT NULL THEN mp.module_id END) AS completed_modules,
+                MAX(COALESCE(lp.last_activity, mp.last_activity_at)) AS last_activity
+            FROM users u
+            JOIN learner_profiles lp
+                ON lp.user_id = u.id
+            LEFT JOIN module_assignments ma
+                ON ma.user_id = u.id
+            LEFT JOIN module_progress mp
+                ON mp.user_id = u.id
+            GROUP BY
+                u.id,
+                lp.full_name,
+                lp.team,
+                lp.status,
+                lp.last_activity;
+            """
+        )
     db_logger.info("Database schema initialization complete.")
 
 

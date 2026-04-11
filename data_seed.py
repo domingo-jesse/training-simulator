@@ -330,9 +330,95 @@ def backfill_existing_data() -> None:
     execute("UPDATE attempts SET organization_id = COALESCE(organization_id, ?)", (org_id,))
 
 
+def sync_uuid_backed_learning_tables() -> None:
+    # Ensure UUID-like IDs exist for legacy integer keyed rows.
+    execute("UPDATE users SET id = LOWER(HEX(RANDOMBLOB(16))) WHERE id IS NULL")
+    execute("UPDATE modules SET id = LOWER(HEX(RANDOMBLOB(16))) WHERE id IS NULL")
+
+    # learner_profiles: derived from users + latest attempt activity.
+    execute(
+        """
+        INSERT INTO learner_profiles (id, user_id, full_name, team, status, last_activity, created_at, updated_at)
+        SELECT
+            LOWER(HEX(RANDOMBLOB(16))) AS id,
+            u.id AS user_id,
+            COALESCE(u.name, u.email, 'Learner') AS full_name,
+            u.team AS team,
+            CASE WHEN COALESCE(u.is_active, 1) = 1 THEN 'active' ELSE 'inactive' END AS status,
+            MAX(a.created_at) AS last_activity,
+            COALESCE(u.created_at, CURRENT_TIMESTAMP) AS created_at,
+            CURRENT_TIMESTAMP AS updated_at
+        FROM users u
+        LEFT JOIN attempts a ON a.user_id = u.user_id
+        WHERE u.role = 'learner' AND u.id IS NOT NULL
+        GROUP BY u.user_id, u.id, u.name, u.email, u.team, u.is_active, u.created_at
+        ON CONFLICT(user_id) DO UPDATE SET
+            full_name = excluded.full_name,
+            team = excluded.team,
+            status = excluded.status,
+            last_activity = COALESCE(excluded.last_activity, learner_profiles.last_activity),
+            updated_at = CURRENT_TIMESTAMP
+        """
+    )
+
+    # module_assignments: mirror legacy assignments using UUID-like user/module IDs.
+    execute(
+        """
+        INSERT INTO module_assignments (id, user_id, module_id, assigned_at, assigned_by, created_at)
+        SELECT
+            LOWER(HEX(RANDOMBLOB(16))) AS id,
+            lu.id AS user_id,
+            lm.id AS module_id,
+            asg.assigned_at,
+            au.id AS assigned_by,
+            COALESCE(asg.assigned_at, CURRENT_TIMESTAMP) AS created_at
+        FROM assignments asg
+        JOIN users lu ON lu.user_id = asg.learner_id
+        JOIN modules lm ON lm.module_id = asg.module_id
+        LEFT JOIN users au ON au.user_id = asg.assigned_by
+        WHERE lu.id IS NOT NULL AND lm.id IS NOT NULL
+        ON CONFLICT(user_id, module_id) DO UPDATE SET
+            assigned_at = excluded.assigned_at,
+            assigned_by = excluded.assigned_by
+        """
+    )
+
+    # module_progress: 100% if completed attempt exists; otherwise 0%.
+    execute(
+        """
+        INSERT INTO module_progress (
+            id, user_id, module_id, progress_percent, started_at, completed_at, last_activity_at, created_at, updated_at
+        )
+        SELECT
+            LOWER(HEX(RANDOMBLOB(16))) AS id,
+            u.id AS user_id,
+            m.id AS module_id,
+            CASE WHEN MAX(att.created_at) IS NOT NULL THEN 100 ELSE 0 END AS progress_percent,
+            MIN(asg.assigned_at) AS started_at,
+            MAX(att.created_at) AS completed_at,
+            MAX(att.created_at) AS last_activity_at,
+            COALESCE(MIN(asg.assigned_at), CURRENT_TIMESTAMP) AS created_at,
+            CURRENT_TIMESTAMP AS updated_at
+        FROM assignments asg
+        JOIN users u ON u.user_id = asg.learner_id
+        JOIN modules m ON m.module_id = asg.module_id
+        LEFT JOIN attempts att ON att.user_id = asg.learner_id AND att.module_id = asg.module_id
+        WHERE u.id IS NOT NULL AND m.id IS NOT NULL
+        GROUP BY u.id, m.id
+        ON CONFLICT(user_id, module_id) DO UPDATE SET
+            progress_percent = excluded.progress_percent,
+            started_at = COALESCE(module_progress.started_at, excluded.started_at),
+            completed_at = excluded.completed_at,
+            last_activity_at = excluded.last_activity_at,
+            updated_at = CURRENT_TIMESTAMP
+        """
+    )
+
+
 def seed_all() -> None:
     _ensure_org()
     user_ids = seed_users()
     seed_modules()
     seed_assignments_and_attempts(user_ids)
     backfill_existing_data()
+    sync_uuid_backed_learning_tables()
