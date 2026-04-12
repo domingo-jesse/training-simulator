@@ -90,3 +90,45 @@ def filter_inactive_learners(df: pd.DataFrame) -> pd.DataFrame:
     if "status" in df.columns:
         return df[~df["status"].apply(is_active_status)].copy()
     return df.iloc[0:0].copy()
+
+
+def normalize_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def apply_learner_filters(
+    df: pd.DataFrame,
+    search_text: str = "",
+    team_filter: str = "All",
+    org_filter: str = "All",
+) -> pd.DataFrame:
+    filtered = df.copy()
+    if filtered.empty:
+        return filtered
+
+    filtered["name"] = filtered["name"].fillna("") if "name" in filtered.columns else ""
+    filtered["team"] = filtered["team"].fillna("") if "team" in filtered.columns else ""
+    filtered["organization_name"] = (
+        filtered["organization_name"].fillna("Unassigned") if "organization_name" in filtered.columns else "Unassigned"
+    )
+
+    query = normalize_text(search_text).lower()
+    if query:
+        filtered = filtered[
+            filtered["name"].str.lower().str.contains(query, na=False)
+            | filtered["team"].str.lower().str.contains(query, na=False)
+        ]
+
+    if team_filter != "All" and "team" in filtered.columns:
+        filtered = filtered[filtered["team"] == team_filter]
+
+    if org_filter != "All" and "organization_name" in filtered.columns:
+        filtered = filtered[filtered["organization_name"] == org_filter]
+
+    return filtered
+
+
+def build_learner_option_label(row: pd.Series) -> str:
+    name = normalize_text(row.get("name")) or "Unnamed learner"
+    team = normalize_text(row.get("team")) or "No team"
+    return f"{name} ({team})"
