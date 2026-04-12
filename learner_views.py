@@ -154,6 +154,13 @@ def render_module_library(user: Dict) -> None:
     if pending_start:
         _start_module_warning_dialog(pending_start)
 
+    active_module_id = st.session_state.get("active_module_id")
+    if active_module_id:
+        st.markdown("### Active Module Workspace")
+        st.caption("You're now in your personal module view for this assignment.")
+        render_scenario_page(user)
+        st.markdown("---")
+
     assigned_modules = [module for module in assignments if module["status"] != "Completed"]
     completed_modules = [module for module in assignments if module["status"] == "Completed"]
     tab_assigned, tab_completed = st.tabs(["Assigned", "Completed"])
@@ -215,9 +222,6 @@ def render_module_library(user: Dict) -> None:
                                 st.session_state.page = "Results"
                                 st.rerun()
 
-    if st.session_state.get("active_module_id"):
-        st.markdown("---")
-        render_scenario_page(user)
 
 
 def render_scenario_page(user: Dict) -> None:
