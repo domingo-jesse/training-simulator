@@ -228,13 +228,23 @@ def render_learner_management(current_user: dict) -> None:
             use_container_width=True,
         )
 
+        tab_key = tab_name.lower().replace(" ", "_")
+        multiselect_key = f"learner_bulk_select_{tab_key}"
         learner_options = {f"{r['name']} ({r['team'] or 'No team'})": int(r["user_id"]) for _, r in scoped.iterrows()}
+        option_labels = list(learner_options.keys())
+
+        existing_selection = st.session_state.get(multiselect_key, [])
+        valid_selection = [label for label in existing_selection if label in option_labels]
+        if existing_selection != valid_selection:
+            st.session_state[multiselect_key] = valid_selection
+
         selected_learners = st.multiselect(
             "Select learners",
-            options=list(learner_options.keys()),
-            key=f"learner_bulk_select_{tab_name.lower().replace(' ', '_')}",
+            options=option_labels,
+            key=multiselect_key,
         )
         selected_ids = [learner_options[label] for label in selected_learners]
+        st.caption(f"{len(selected_ids)} of {len(scoped)} filtered learners selected")
 
         if show_active:
             action_label = "Deactivate selected learners"
@@ -245,7 +255,19 @@ def render_learner_management(current_user: dict) -> None:
             new_status = True
             action_type = "primary"
 
-        if st.button(action_label, type=action_type, key=f"bulk_action_{tab_name.lower().replace(' ', '_')}"):
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            if st.button("Select All Filtered", key=f"select_all_filtered_{tab_key}"):
+                st.session_state[multiselect_key] = option_labels
+                st.rerun()
+        with c2:
+            if st.button("Clear Selection", key=f"clear_selection_{tab_key}"):
+                st.session_state[multiselect_key] = []
+                st.rerun()
+        with c3:
+            run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}")
+
+        if run_bulk_action:
             if not selected_ids:
                 st.warning("Select at least one learner.")
                 return
