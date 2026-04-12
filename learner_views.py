@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime, timezone
 from typing import Dict
 
@@ -25,6 +27,26 @@ def _build_scenario_overview(module: Dict) -> str:
         _compact_text(module.get("scenario_context", "")),
     ]
     return " ".join(part for part in parts if part)
+
+
+def _estimated_minutes(value: str | None, fallback: int = 20) -> int:
+    match = re.search(r"(\d+)", value or "")
+    if not match:
+        return fallback
+    return max(1, int(match.group(1)))
+
+
+def _question_options(options_text: str | None) -> list[str]:
+    return [line.strip() for line in (options_text or "").splitlines() if line.strip()]
+
+
+def _format_duration(seconds: int | None) -> str:
+    if seconds is None:
+        return "N/A"
+    safe_seconds = max(0, int(seconds))
+    minutes = safe_seconds // 60
+    remainder = safe_seconds % 60
+    return f"{minutes}m {remainder:02d}s"
 
 
 def _assigned_modules(user: Dict):
@@ -287,6 +309,10 @@ def render_scenario_page(user: Dict) -> None:
         (module_id, user["organization_id"]),
     )
     actions = fetch_all("SELECT * FROM investigation_actions WHERE module_id = ?", (module_id,))
+    assessment_questions = fetch_all(
+        "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
+        (module_id,),
+    )
 
     st.subheader(module["title"])
     st.caption(f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
@@ -302,6 +328,31 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(used_actions_key, [])
     st.session_state.setdefault(revealed_key, {})
     st.session_state.setdefault(started_at_key, datetime.now(timezone.utc).isoformat())
+
+    started_at_iso = st.session_state.get(started_at_key)
+    try:
+        started_at_dt = datetime.fromisoformat(started_at_iso) if started_at_iso else datetime.now(timezone.utc)
+    except (TypeError, ValueError):
+        started_at_dt = datetime.now(timezone.utc)
+        st.session_state[started_at_key] = started_at_dt.isoformat()
+
+    duration_minutes = _estimated_minutes(module.get("estimated_time"), fallback=20)
+    deadline = started_at_dt.timestamp() + (duration_minutes * 60)
+    now_ts = datetime.now(timezone.utc).timestamp()
+    remaining_seconds = int(deadline - now_ts)
+    timer_key = f"timer_submitted_{module_id}"
+    st.session_state.setdefault(timer_key, False)
+
+    @st.fragment(run_every="1s")
+    def _render_countdown(seconds_left: int) -> None:
+        minutes = max(0, seconds_left) // 60
+        seconds = max(0, seconds_left) % 60
+        if seconds_left > 0:
+            st.info(f"⏳ Time remaining: {minutes:02d}:{seconds:02d}")
+        else:
+            st.error("⏰ Time is up. Your current work will be submitted automatically.")
+
+    _render_countdown(remaining_seconds)
 
     cols = st.columns(3)
     for idx, action in enumerate(actions):
@@ -322,49 +373,87 @@ def render_scenario_page(user: Dict) -> None:
     customer_response = st.text_area("Customer response", key=f"customer_{module_id}", height=120)
     escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"])
 
-    if st.button("Send to database: Submit module", type="primary"):
+    st.markdown("### Assessment questions")
+    question_answers: dict[str, str] = {}
+    for question in assessment_questions:
+        question_key = f"assessment_q_{module_id}_{question['question_id']}"
+        if question.get("question_type") == "multiple_choice":
+            options = _question_options(question.get("options_text"))
+            answer = st.radio(
+                f"Q{question['question_order']}. {question['question_text']}",
+                options=options if options else ["No options configured"],
+                key=question_key,
+                index=None,
+            )
+            question_answers[str(question["question_id"])] = answer or ""
+        else:
+            answer = st.text_area(
+                f"Q{question['question_order']}. {question['question_text']}",
+                key=question_key,
+                height=100,
+            )
+            question_answers[str(question["question_id"])] = answer or ""
+
+    def _submit_module_attempt(*, timed_out: bool) -> None:
         scenario_logger = view_logger.bind(scenario_id=module_id)
-        scenario_logger.info("Form submitted.", form="submit_module")
+        scenario_logger.info("Form submitted.", form="submit_module", timed_out=timed_out)
         submitted_at = datetime.now(timezone.utc)
-        started_at_iso = st.session_state.get(started_at_key)
+        started_at_iso_inner = st.session_state.get(started_at_key)
         started_at = None
         try:
-            started_at = datetime.fromisoformat(started_at_iso) if started_at_iso else None
+            started_at = datetime.fromisoformat(started_at_iso_inner) if started_at_iso_inner else None
         except (TypeError, ValueError):
             started_at = None
         elapsed_seconds = int((submitted_at - started_at).total_seconds()) if started_at else None
+        time_limit_seconds = duration_minutes * 60
+        time_remaining_seconds = max(0, time_limit_seconds - (elapsed_seconds or 0)) if elapsed_seconds is not None else None
+        time_out_note = "\n\nTime limit reached before completion." if timed_out else ""
         answers = {
             "diagnosis_answer": diagnosis,
             "next_steps_answer": next_steps,
             "customer_response": customer_response,
             "escalation_choice": escalation_choice,
-            "notes": notes,
+            "notes": f"{notes}{time_out_note}",
             "started_at": started_at.isoformat() if started_at else None,
             "submitted_at": submitted_at.isoformat(),
             "elapsed_seconds": elapsed_seconds,
-            "attempt_state": "graded",
+            "time_limit_seconds": time_limit_seconds,
+            "time_remaining_seconds": time_remaining_seconds,
+            "attempt_state": "time_expired" if timed_out else "graded",
             "graded_by_type": "system",
             "graded_by_user_id": None,
             "graded_at": submitted_at.isoformat(),
             "actions_used": list(st.session_state[used_actions_key]),
             "actions_used_count": len(st.session_state[used_actions_key]),
+            "timed_out": timed_out,
+            "question_responses": json.dumps(question_answers),
         }
         try:
             evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
             payload = {**answers, **evaluation}
             attempt_id = insert_attempt(user["user_id"], module_id, payload, user["organization_id"])
             log_actions(attempt_id, st.session_state[used_actions_key])
-            scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id)
+            scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id, timed_out=timed_out)
 
             st.session_state.latest_attempt_id = attempt_id
             st.session_state.active_module_id = None
             st.session_state.page = "Results"
             st.session_state.pop(started_at_key, None)
-            st.toast("🎉 Thank you — you've completed this module!")
+            st.session_state[timer_key] = True
+            if timed_out:
+                st.toast("⏰ Time ran out — we submitted your current work for grading.")
+            else:
+                st.toast("🎉 Thank you — you've completed this module!")
             st.rerun()
         except Exception:
             scenario_logger.exception("Failed to submit module.")
             st.error("We couldn't submit this module. Please try again.")
+
+    if remaining_seconds <= 0 and not st.session_state.get(timer_key):
+        _submit_module_attempt(timed_out=True)
+
+    if st.button("Send to database: Submit module", type="primary", disabled=st.session_state.get(timer_key, False)):
+        _submit_module_attempt(timed_out=False)
 
 
 def render_results_page(user: Dict) -> None:
@@ -387,6 +476,14 @@ def render_results_page(user: Dict) -> None:
         return
 
     st.subheader(f"Results • {attempt['title']}")
+    if int(attempt.get("timed_out") or 0) == 1 or attempt.get("attempt_state") == "time_expired":
+        st.warning("This assessment was auto-submitted because the time limit expired.")
+    st.caption(
+        "Time given: "
+        f"{_format_duration(attempt.get('time_limit_seconds'))} • "
+        f"Time taken: {_format_duration(attempt.get('elapsed_seconds'))} • "
+        f"Time left: {_format_duration(attempt.get('time_remaining_seconds'))}"
+    )
     metric_row(
         {
             "Total score": f"{attempt['total_score']}%",

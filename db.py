@@ -254,6 +254,8 @@ def init_db() -> None:
                     started_at TIMESTAMPTZ,
                     submitted_at TIMESTAMPTZ,
                     elapsed_seconds INTEGER,
+                    time_limit_seconds INTEGER,
+                    time_remaining_seconds INTEGER,
                     attempt_state TEXT DEFAULT 'submitted',
                     graded_by_type TEXT,
                     graded_by_user_id BIGINT,
@@ -263,6 +265,8 @@ def init_db() -> None:
                     customer_response TEXT,
                     escalation_choice TEXT,
                     notes TEXT,
+                    timed_out INTEGER DEFAULT 0,
+                    question_responses TEXT,
                     understanding_score DOUBLE PRECISION,
                     investigation_score DOUBLE PRECISION,
                     solution_score DOUBLE PRECISION,
@@ -406,6 +410,7 @@ def init_db() -> None:
                     completion_requirements TEXT,
                     input_quiz_required INTEGER DEFAULT 0,
                     requested_question_count INTEGER DEFAULT 5,
+                    input_estimated_minutes INTEGER,
                     generated_title TEXT,
                     generated_description TEXT,
                     generated_scenario_overview TEXT,
@@ -422,6 +427,8 @@ def init_db() -> None:
                     question_order INTEGER NOT NULL,
                     question_text TEXT NOT NULL,
                     rationale TEXT,
+                    question_type TEXT DEFAULT 'open_text',
+                    options_text TEXT,
                     approval_status TEXT DEFAULT 'pending',
                     admin_feedback TEXT,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -435,6 +442,8 @@ def init_db() -> None:
                     question_order INTEGER NOT NULL,
                     question_text TEXT NOT NULL,
                     rationale TEXT,
+                    question_type TEXT DEFAULT 'open_text',
+                    options_text TEXT,
                     source_run_id BIGINT,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
@@ -508,6 +517,8 @@ def init_db() -> None:
                 started_at TEXT,
                 submitted_at TEXT,
                 elapsed_seconds INTEGER,
+                time_limit_seconds INTEGER,
+                time_remaining_seconds INTEGER,
                 attempt_state TEXT DEFAULT 'submitted',
                 graded_by_type TEXT,
                 graded_by_user_id INTEGER,
@@ -517,6 +528,8 @@ def init_db() -> None:
                 customer_response TEXT,
                 escalation_choice TEXT,
                 notes TEXT,
+                timed_out INTEGER DEFAULT 0,
+                question_responses TEXT,
                 understanding_score REAL,
                 investigation_score REAL,
                 solution_score REAL,
@@ -660,6 +673,7 @@ def init_db() -> None:
                 completion_requirements TEXT,
                 input_quiz_required INTEGER DEFAULT 0,
                 requested_question_count INTEGER DEFAULT 5,
+                input_estimated_minutes INTEGER,
                 generated_title TEXT,
                 generated_description TEXT,
                 generated_scenario_overview TEXT,
@@ -676,6 +690,8 @@ def init_db() -> None:
                 question_order INTEGER NOT NULL,
                 question_text TEXT NOT NULL,
                 rationale TEXT,
+                question_type TEXT DEFAULT 'open_text',
+                options_text TEXT,
                 approval_status TEXT DEFAULT 'pending',
                 admin_feedback TEXT,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -689,6 +705,8 @@ def init_db() -> None:
                 question_order INTEGER NOT NULL,
                 question_text TEXT NOT NULL,
                 rationale TEXT,
+                question_type TEXT DEFAULT 'open_text',
+                options_text TEXT,
                 source_run_id INTEGER,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
@@ -831,10 +849,14 @@ def init_db() -> None:
         _ensure_column(conn, "attempts", "started_at", "TIMESTAMPTZ")
         _ensure_column(conn, "attempts", "submitted_at", "TIMESTAMPTZ")
         _ensure_column(conn, "attempts", "elapsed_seconds", "INTEGER")
+        _ensure_column(conn, "attempts", "time_limit_seconds", "INTEGER")
+        _ensure_column(conn, "attempts", "time_remaining_seconds", "INTEGER")
         _ensure_column(conn, "attempts", "attempt_state", "TEXT DEFAULT 'submitted'")
         _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
         _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
         _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
+        _ensure_column(conn, "attempts", "timed_out", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "attempts", "question_responses", "TEXT")
         _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
         _ensure_column(conn, "submission_scores", "understanding_rationale", "TEXT")
         _ensure_column(conn, "submission_scores", "investigation_rationale", "TEXT")
@@ -848,7 +870,12 @@ def init_db() -> None:
         _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
         _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
         _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "module_generation_runs", "input_estimated_minutes", "INTEGER")
         _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
+        _ensure_column(conn, "module_generation_questions", "question_type", "TEXT DEFAULT 'open_text'")
+        _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")
+        _ensure_column(conn, "module_questions", "question_type", "TEXT DEFAULT 'open_text'")
+        _ensure_column(conn, "module_questions", "options_text", "TEXT")
 
         if RUNTIME_USE_POSTGRES:
             _executescript(
@@ -1134,13 +1161,12 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
     attempt_id = execute(
         """
         INSERT INTO attempts (
-            user_id, module_id, organization_id, started_at, submitted_at, elapsed_seconds, attempt_state, graded_by_type, graded_by_user_id, graded_at,
-            diagnosis_answer, next_steps_answer, customer_response,
-            escalation_choice, notes,
+            user_id, module_id, organization_id, started_at, submitted_at, elapsed_seconds, time_limit_seconds, time_remaining_seconds, attempt_state, graded_by_type, graded_by_user_id, graded_at,
+            diagnosis_answer, next_steps_answer, customer_response, escalation_choice, notes, timed_out, question_responses,
             understanding_score, investigation_score, solution_score, communication_score,
             total_score, ai_feedback, strengths, missed_points,
             best_practice_reasoning, recommended_response, takeaway_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -1149,6 +1175,8 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("started_at"),
             payload.get("submitted_at"),
             payload.get("elapsed_seconds"),
+            payload.get("time_limit_seconds"),
+            payload.get("time_remaining_seconds"),
             payload.get("attempt_state", "graded"),
             payload.get("graded_by_type", "system"),
             payload.get("graded_by_user_id"),
@@ -1158,6 +1186,8 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("customer_response"),
             payload.get("escalation_choice"),
             payload.get("notes"),
+            int(bool(payload.get("timed_out"))),
+            payload.get("question_responses"),
             payload["category_scores"]["understanding"],
             payload["category_scores"]["investigation"],
             payload["category_scores"]["solution_quality"],
