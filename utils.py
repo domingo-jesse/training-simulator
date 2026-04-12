@@ -14,11 +14,11 @@ def inject_styles() -> None:
         .main .block-container {padding-top: 1.8rem; padding-bottom: 2.2rem; max-width: 1200px;}
         .stApp,
         [data-testid="stAppViewContainer"] {
-            background: linear-gradient(145deg, #f8fafc, #f1f5f9 55%, #ffffff);
+            background: linear-gradient(145deg, #edf1f6, #e4e9f0 55%, #f3f6fa);
             color: #0f172a;
         }
         [data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, #ffffff, #f8fafc);
+            background: linear-gradient(180deg, #f6f8fb, #edf1f6);
             border-right: 1px solid rgba(15, 23, 42, 0.08);
         }
         .stApp [data-testid="stMarkdownContainer"],
