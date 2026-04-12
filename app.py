@@ -90,11 +90,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-database_url = st.secrets.get("DATABASE_URL", "")
-st.write("Has DATABASE_URL:", bool(database_url))
-st.write("Using pooler host:", "pooler.supabase.com" in database_url)
-st.write("Has sslmode:", "sslmode=require" in database_url)
-
 def hash_password(password: str) -> str:
     """Demo-only hashing helper.
 
