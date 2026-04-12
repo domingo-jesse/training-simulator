@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 from datetime import date, datetime, timedelta, timezone
+from io import StringIO
 from uuid import uuid4
 
 import pandas as pd
@@ -1754,6 +1757,10 @@ QA_RUN_MODES = ["quick", "standard", "full"]
 QA_STATUSES = ["not_run", "pass", "fail", "warning"]
 QA_TABS = ["Overview", "Test Results", "History", "Failed Tests", "Categories"]
 
+QA_EXPORT_PROMPT = (
+    "Analyze these QA failures, identify likely root causes, group related failures, and suggest fixes in priority order."
+)
+
 
 def _qa_environment_tag() -> str:
     env = (
@@ -1772,6 +1779,270 @@ def _qa_environment_tag() -> str:
 
 def _qa_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _qa_sanitize_text(value: str) -> str:
+    text = str(value or "")
+    replacements = [
+        (r"(?i)(api[_\-\s]?key\s*[:=]\s*)([^\s,;]+)", r"\1[REDACTED]"),
+        (r"(?i)(token\s*[:=]\s*)([^\s,;]+)", r"\1[REDACTED]"),
+        (r"(?i)(password\s*[:=]\s*)([^\s,;]+)", r"\1[REDACTED]"),
+        (r"(?i)(authorization\s*:\s*bearer\s+)([^\s,;]+)", r"\1[REDACTED]"),
+        (r"(?i)(secret[_\-\s]?url\s*[:=]\s*)([^\s,;]+)", r"\1[REDACTED]"),
+    ]
+    for pattern, repl in replacements:
+        text = re.sub(pattern, repl, text)
+    return text
+
+
+def _qa_extract_stack_trace(error_message: str) -> str:
+    if not error_message:
+        return ""
+    if "Traceback" in error_message:
+        return _qa_sanitize_text(error_message)
+    return ""
+
+
+def _qa_issue_type(record: dict) -> str:
+    category = (record.get("category") or "").lower()
+    test_type = (record.get("type") or "").lower()
+    test_name = (record.get("name") or "").lower()
+    if "auth" in category or "permission" in category or test_type == "permission":
+        return "auth"
+    if "database" in category or test_type == "data":
+        return "database"
+    if "ui" in category or test_type == "ui":
+        return "ui"
+    if "ai" in category or test_type == "ai":
+        return "ai"
+    if "filter" in test_name or "search" in test_name:
+        return "data"
+    if "regression" in category:
+        return "regression"
+    return "unknown"
+
+
+def collect_failure_summary(record: dict) -> dict:
+    expected = _qa_sanitize_text(record.get("expected_result") or "")
+    actual = _qa_sanitize_text(record.get("actual_result") or "")
+    error_message = _qa_sanitize_text(record.get("error_message") or "")
+    summary = actual or error_message or "Test reported a failure without details."
+    detailed = error_message or actual or "No detailed error explanation provided."
+    return {
+        "test_name": record.get("name", ""),
+        "failure_summary": summary[:220],
+        "detailed_error_explanation": detailed,
+        "what_broke": actual or "Behavior did not match expected outcome.",
+        "where_it_broke": record.get("category", ""),
+        "expected": expected,
+        "actual": actual,
+        "probable_root_cause": "unknown",
+        "impacted_component": record.get("category", ""),
+        "raw_error": error_message,
+        "issue_type": _qa_issue_type(record),
+    }
+
+
+def generate_recommendations_summary(records: list[dict]) -> list[str]:
+    failed_records = [record for record in records if record.get("status") == "fail"]
+    if not failed_records:
+        return ["No failed tests detected; continue routine monitoring and periodic full regression runs."]
+
+    by_category = {}
+    for record in failed_records:
+        category = record.get("category", "Unknown")
+        by_category[category] = by_category.get(category, 0) + 1
+
+    recs: list[str] = []
+    if by_category.get("Authentication", 0) >= 2:
+        recs.append("Multiple auth-related tests failed; inspect auth/session configuration, role gates, and credential validation.")
+    if by_category.get("Filtering and Search", 0) >= 2:
+        recs.append("Several filtering/search checks failed; review filter predicates, state synchronization, and query parameter handling.")
+    if by_category.get("Learner Management", 0) >= 2:
+        recs.append("Learner management failures detected; verify is_active transitions and active/inactive tab filtering logic.")
+    if by_category.get("Scenario Builder", 0) >= 2:
+        recs.append("Scenario builder issues detected; review wizard session-state persistence and step navigation transitions.")
+    if by_category.get("Database Integrity", 0) >= 1:
+        recs.append("Database integrity failures detected; check schema assumptions, write paths, null handling, and relationship integrity.")
+    if by_category.get("Permissions", 0) >= 1:
+        recs.append("Permission test failures present; verify admin/learner access controls and hidden-control rendering conditions.")
+    if not recs:
+        recs.append("Review failed tests grouped by category and severity to isolate shared dependencies and highest-impact regressions first.")
+    return recs
+
+
+def _qa_compact_result_entry(record: dict, include_stack_traces: bool, include_expected_actual: bool) -> dict:
+    error_message = _qa_sanitize_text(record.get("error_message") or "")
+    entry = {
+        "test_id": record.get("id", ""),
+        "test_name": record.get("name", ""),
+        "category": record.get("category", ""),
+        "severity": record.get("severity", ""),
+        "type": record.get("type", ""),
+        "source": record.get("source", ""),
+        "status": record.get("status", "not_run"),
+        "environment": record.get("environment", ""),
+        "started_at": record.get("started_at", ""),
+        "finished_at": record.get("last_run_at", ""),
+        "duration_ms": int(record.get("duration_ms") or 0),
+        "description": record.get("description", ""),
+        "expected_result": _qa_sanitize_text(record.get("expected_result") or "") if include_expected_actual else "",
+        "actual_result": _qa_sanitize_text(record.get("actual_result") or "") if include_expected_actual else "",
+        "error_message": error_message,
+        "stack_trace": _qa_extract_stack_trace(error_message) if include_stack_traces else "",
+        "likely_impacted_area": record.get("category", ""),
+        "notes": "",
+        "rerunnable": True,
+    }
+    if entry["status"] in {"fail", "warning"}:
+        entry.update(
+            {
+                "concise_failure_summary": (entry["actual_result"] or entry["error_message"] or "Issue reported.")[:220],
+                "detailed_error_explanation": entry["error_message"] or entry["actual_result"],
+                "what_broke": entry["actual_result"] or "Outcome diverged from expected behavior.",
+                "where_it_broke": entry["category"],
+                "what_was_expected": entry["expected_result"],
+                "what_actually_happened": entry["actual_result"] or entry["error_message"],
+                "issue_classification": _qa_issue_type(record),
+            }
+        )
+    return entry
+
+
+def build_qa_report(
+    *,
+    run_records: list[dict],
+    run_context: dict,
+    include_passed: bool,
+    include_warnings: bool,
+    include_stack_traces: bool,
+    include_expected_actual: bool,
+    include_recommendations_summary: bool,
+) -> dict:
+    processed = [
+        _qa_compact_result_entry(record, include_stack_traces, include_expected_actual)
+        for record in run_records
+        if (include_passed or record.get("status") != "pass")
+        and (include_warnings or record.get("status") != "warning")
+    ]
+
+    passed = sum(1 for record in run_records if record.get("status") == "pass")
+    failed = sum(1 for record in run_records if record.get("status") == "fail")
+    warnings = sum(1 for record in run_records if record.get("status") == "warning")
+    not_run = sum(1 for record in run_records if record.get("status") == "not_run")
+    total_tests = len(run_records)
+    total_duration_ms = sum(int(record.get("duration_ms") or 0) for record in run_records)
+
+    failures = [collect_failure_summary(record) for record in run_records if record.get("status") == "fail"]
+    warning_summary = [collect_failure_summary(record) for record in run_records if record.get("status") == "warning"]
+
+    category_breakdown = pd.DataFrame(run_records).groupby("category").size().to_dict() if run_records else {}
+    severity_breakdown = pd.DataFrame(run_records).groupby("severity").size().to_dict() if run_records else {}
+
+    report = {
+        "metadata": {
+            "report_id": uuid4().hex,
+            "generated_at": _qa_now_iso(),
+            "app_name": st.secrets.get("APP_NAME", "Training Simulator"),
+            "app_version": st.secrets.get("APP_VERSION", "unknown"),
+            "environment": run_context.get("environment", _qa_environment_tag()),
+            "run_mode": run_context.get("run_mode", "full"),
+            "total_tests": total_tests,
+            "passed": passed,
+            "failed": failed,
+            "warnings": warnings,
+            "not_run": not_run,
+            "pass_rate": round((passed / total_tests * 100.0), 2) if total_tests else 0.0,
+            "total_duration_ms": total_duration_ms,
+        },
+        "summary": {
+            "failed_tests_summary": failures,
+            "warning_summary": warning_summary,
+            "category_breakdown": category_breakdown,
+            "severity_breakdown": severity_breakdown,
+        },
+        "failures": failures,
+        "warnings": warning_summary,
+        "all_results": processed,
+        "recommendations": generate_recommendations_summary(run_records) if include_recommendations_summary else [],
+    }
+    return report
+
+
+def build_failed_only_report(report: dict, include_warnings: bool = True) -> dict:
+    statuses = {"fail", "warning"} if include_warnings else {"fail"}
+    filtered_results = [row for row in report.get("all_results", []) if row.get("status") in statuses]
+    filtered_failures = list(report.get("failures", []))
+    filtered_warnings = report.get("warnings", []) if include_warnings else []
+    return {
+        **report,
+        "metadata": {**report.get("metadata", {}), "run_mode": "failed_only"},
+        "all_results": filtered_results,
+        "failures": filtered_failures,
+        "warnings": filtered_warnings,
+    }
+
+
+def flatten_report_for_csv(report: dict) -> pd.DataFrame:
+    rows = report.get("all_results", [])
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+def render_markdown_report(report: dict, failed_only: bool = False, include_recommendations: bool = True) -> str:
+    metadata = report.get("metadata", {})
+    summary = report.get("summary", {})
+    lines = []
+    if failed_only:
+        lines.append(f"> {QA_EXPORT_PROMPT}\n")
+    lines.extend(
+        [
+            f"# QA Report ({metadata.get('report_id', 'n/a')})",
+            "",
+            f"- Generated At: {metadata.get('generated_at', '')}",
+            f"- App: {metadata.get('app_name', '')}",
+            f"- Version: {metadata.get('app_version', '')}",
+            f"- Environment: {metadata.get('environment', '')}",
+            f"- Run Mode: {metadata.get('run_mode', '')}",
+            f"- Total Tests: {metadata.get('total_tests', 0)}",
+            f"- Passed: {metadata.get('passed', 0)}",
+            f"- Failed: {metadata.get('failed', 0)}",
+            f"- Warnings: {metadata.get('warnings', 0)}",
+            f"- Not Run: {metadata.get('not_run', 0)}",
+            f"- Pass Rate: {metadata.get('pass_rate', 0)}%",
+            f"- Total Duration: {metadata.get('total_duration_ms', 0)} ms",
+            "",
+            "## Category Breakdown",
+        ]
+    )
+    for category, count in summary.get("category_breakdown", {}).items():
+        lines.append(f"- {category}: {count}")
+    lines.append("")
+    lines.append("## Severity Breakdown")
+    for severity, count in summary.get("severity_breakdown", {}).items():
+        lines.append(f"- {severity}: {count}")
+    lines.append("")
+    lines.append("## Test Results")
+    for row in report.get("all_results", []):
+        lines.extend(
+            [
+                f"### {row.get('test_name', '')} ({row.get('status', '').upper()})",
+                f"- Category: {row.get('category', '')}",
+                f"- Severity: {row.get('severity', '')}",
+                f"- Type: {row.get('type', '')}",
+                f"- Duration: {row.get('duration_ms', 0)} ms",
+                f"- Expected: {row.get('expected_result', '')}",
+                f"- Actual: {row.get('actual_result', '')}",
+                f"- Error: {row.get('error_message', '')}",
+                "",
+            ]
+        )
+    if include_recommendations:
+        lines.append("## Recommendations / Next Steps")
+        for recommendation in report.get("recommendations", []):
+            lines.append(f"- {recommendation}")
+    return "\n".join(lines).strip() + "\n"
 
 
 def _qa_status(status: str) -> str:
@@ -2185,6 +2456,7 @@ def _qa_execute_test(definition: dict, current_user: dict, environment: str) -> 
             **definition,
             "environment": environment,
             "status": "warning",
+            "started_at": started.isoformat(),
             "last_run_at": finished.isoformat(),
             "duration_ms": int((finished - started).total_seconds() * 1000),
             "error_message": "Skipped in production (safe-only guard).",
@@ -2201,6 +2473,7 @@ def _qa_execute_test(definition: dict, current_user: dict, environment: str) -> 
         **definition,
         "environment": environment,
         "status": _qa_status(outcome.get("status", "warning")),
+        "started_at": started.isoformat(),
         "last_run_at": finished.isoformat(),
         "duration_ms": int((finished - started).total_seconds() * 1000),
         "error_message": outcome.get("error_message", ""),
@@ -2232,6 +2505,7 @@ def _qa_execute_batch(definitions: list[dict], current_user: dict, environment: 
         "duration_ms": int((ended - started).total_seconds() * 1000),
         "triggered_by": triggered_by,
         "summary_snapshot": f"pass={passed}, fail={failed}, warning={warnings}",
+        "records": records,
     }
     return records, history
 
@@ -2246,6 +2520,7 @@ def _qa_results_dataframe(definitions: list[dict], environment: str) -> pd.DataF
                 **definition,
                 "environment": result.get("environment", environment),
                 "status": result.get("status", "not_run"),
+                "started_at": result.get("started_at", ""),
                 "last_run_at": result.get("last_run_at", ""),
                 "duration_ms": result.get("duration_ms"),
                 "error_message": result.get("error_message", ""),
@@ -2310,8 +2585,92 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
                 "duration_ms": int(record.get("duration_ms") or 0),
                 "triggered_by": current_user.get("email", "admin"),
                 "summary_snapshot": f"{record['status']} · {record['name']}",
+                "records": [record],
             }
             st.session_state["qa_run_history"] = [history, *st.session_state.get("qa_run_history", [])][:50]
+
+
+def _qa_resolve_run_records(results_df: pd.DataFrame, history: list[dict], selection: str, selected_run_id: str | None) -> tuple[list[dict], dict]:
+    if selection == "latest_run" and history:
+        selected = history[0]
+        return list(selected.get("records", [])), selected
+    if selection == "history_run" and selected_run_id:
+        selected = next((run for run in history if run.get("run_id") == selected_run_id), None)
+        if selected and selected.get("records"):
+            return list(selected.get("records", [])), selected
+    records = results_df.to_dict(orient="records")
+    return records, {
+        "run_id": "current_snapshot",
+        "timestamp": _qa_now_iso(),
+        "environment": _qa_environment_tag(),
+        "run_mode": "snapshot",
+    }
+
+
+def _qa_render_export_section(results_df: pd.DataFrame, history: list[dict], environment: str) -> None:
+    st.markdown("### Export QA Reports")
+    source_col, run_col = st.columns([1, 1])
+    with source_col:
+        source = st.selectbox(
+            "Export Source",
+            options=["latest_results", "latest_run", "history_run"],
+            format_func=lambda value: {
+                "latest_results": "Latest results snapshot",
+                "latest_run": "Latest executed run",
+                "history_run": "Selected historical run",
+            }[value],
+        )
+    with run_col:
+        run_ids = [f"{run['run_id']} · {run['timestamp']}" for run in history]
+        selected_label = st.selectbox("Historical run", options=run_ids or ["No history available"])
+        selected_run_id = selected_label.split(" · ")[0] if run_ids else None
+
+    toggle_cols = st.columns(6)
+    include_passed = toggle_cols[0].toggle("Include passed tests", value=True)
+    include_warnings = toggle_cols[1].toggle("Include warnings", value=True)
+    include_only_failed = toggle_cols[2].toggle("Include only failed tests", value=False)
+    include_stack_traces = toggle_cols[3].toggle("Include stack traces", value=True)
+    include_expected_actual = toggle_cols[4].toggle("Include expected vs actual", value=True)
+    include_recommendations = toggle_cols[5].toggle("Include recommendations summary", value=True)
+
+    run_records, run_context = _qa_resolve_run_records(
+        results_df,
+        history,
+        selection=source,
+        selected_run_id=selected_run_id if source == "history_run" else None,
+    )
+    run_context = {**run_context, "environment": run_context.get("environment", environment)}
+    report = build_qa_report(
+        run_records=run_records,
+        run_context=run_context,
+        include_passed=include_passed,
+        include_warnings=include_warnings,
+        include_stack_traces=include_stack_traces,
+        include_expected_actual=include_expected_actual,
+        include_recommendations_summary=include_recommendations,
+    )
+    failed_only_report = build_failed_only_report(report, include_warnings=include_warnings)
+    export_report = failed_only_report if include_only_failed else report
+
+    csv_df = flatten_report_for_csv(export_report)
+    csv_buffer = StringIO()
+    csv_df.to_csv(csv_buffer, index=False)
+    csv_payload = csv_buffer.getvalue()
+    markdown_payload = render_markdown_report(export_report, failed_only=include_only_failed, include_recommendations=include_recommendations)
+    json_payload = json.dumps(export_report, indent=2, default=str)
+
+    filename_prefix = f"qa_report_{run_context.get('run_id', 'latest')}"
+    button_cols = st.columns(4)
+    button_cols[0].download_button("Download JSON Report", data=json_payload, file_name=f"{filename_prefix}.json", mime="application/json")
+    button_cols[1].download_button("Download CSV Report", data=csv_payload, file_name=f"{filename_prefix}.csv", mime="text/csv")
+    button_cols[2].download_button("Download Markdown Report", data=markdown_payload, file_name=f"{filename_prefix}.md", mime="text/markdown")
+    button_cols[3].download_button(
+        "Download Failed Tests Only Report",
+        data=render_markdown_report(failed_only_report, failed_only=True, include_recommendations=include_recommendations),
+        file_name=f"{filename_prefix}_failed_only.md",
+        mime="text/markdown",
+    )
+    st.download_button("Download TXT Summary", data=markdown_payload, file_name=f"{filename_prefix}.txt", mime="text/plain")
 
 
 def _qa_apply_table_filters(results_df: pd.DataFrame) -> pd.DataFrame:
@@ -2394,6 +2753,7 @@ def render_admin_quality_hub(current_user: dict) -> None:
 
     with tab_history:
         _qa_render_history()
+        _qa_render_export_section(results_df, st.session_state.get("qa_run_history", []), environment)
 
     with tab_failed:
         failed_df = results_df[results_df["status"] == "fail"]
