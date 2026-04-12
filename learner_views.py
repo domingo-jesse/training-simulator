@@ -124,7 +124,8 @@ def render_learner_home(user: Dict) -> None:
 
 def render_module_library(user: Dict) -> None:
     view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.subheader("Assigned Modules")
+    in_workspace_mode = st.session_state.get("learner_page") == "Module Workspace"
+    st.subheader("Module Workspace" if in_workspace_mode else "Assigned Modules")
     try:
         assignments = _assigned_modules(user)
     except Exception:
@@ -147,6 +148,7 @@ def render_module_library(user: Dict) -> None:
         if c2.button("Yes, start now", key=f"confirm_start_{module['assignment_id']}_{module['module_id']}", type="primary"):
             view_logger.info("Start module confirmed.", action="start_module_confirmed", scenario_id=module["module_id"])
             st.session_state.active_module_id = module["module_id"]
+            st.session_state.page = "Module Workspace"
             st.session_state.pending_start_module = None
             st.rerun()
 
@@ -156,10 +158,23 @@ def render_module_library(user: Dict) -> None:
 
     active_module_id = st.session_state.get("active_module_id")
     if active_module_id:
-        st.markdown("### Active Module Workspace")
-        st.caption("You're now in your personal module view for this assignment.")
-        render_scenario_page(user)
-        st.markdown("---")
+        if in_workspace_mode:
+            st.caption("You're in your personal module workspace for the selected assignment.")
+            c1, c2 = st.columns([3, 1])
+            with c2:
+                if st.button("Exit workspace", use_container_width=True):
+                    st.session_state.active_module_id = None
+                    st.session_state.page = "Assigned Modules"
+                    st.rerun()
+            render_scenario_page(user)
+            return
+        st.info("You already have an active module workspace. Open **Module Workspace** from the sidebar to continue.")
+    elif in_workspace_mode:
+        st.info("No active module workspace yet. Start a module from **Assigned Modules**.")
+        if st.button("Go to assigned modules", type="primary"):
+            st.session_state.page = "Assigned Modules"
+            st.rerun()
+        return
 
     assigned_modules = [module for module in assignments if module["status"] != "Completed"]
     completed_modules = [module for module in assignments if module["status"] == "Completed"]
@@ -260,6 +275,7 @@ def render_scenario_page(user: Dict) -> None:
         st.success(f"You've already completed this module. Score: {existing_attempt['total_score']}%")
         st.info("This assignment allows one graded submission. If reassigned by your admin, you can attempt it again.")
         if st.button("View completed results", type="secondary"):
+            st.session_state.active_module_id = None
             st.session_state.latest_attempt_id = int(existing_attempt["attempt_id"])
             st.session_state.page = "Results"
             st.rerun()
@@ -321,6 +337,7 @@ def render_scenario_page(user: Dict) -> None:
             scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id)
 
             st.session_state.latest_attempt_id = attempt_id
+            st.session_state.active_module_id = None
             st.session_state.page = "Results"
             st.toast("🎉 Thank you — you've completed this module!")
             st.rerun()

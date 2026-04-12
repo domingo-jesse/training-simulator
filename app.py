@@ -885,7 +885,7 @@ def render_main_app() -> None:
         elif current_page == "Debug Logs":
             render_admin_log_viewer()
     else:
-        pages = ["Home", "Assigned Modules", "Results", "My Progress"]
+        pages = ["Home", "Assigned Modules", "Module Workspace", "Results", "My Progress"]
         requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
@@ -900,6 +900,8 @@ def render_main_app() -> None:
         if current_page == "Home":
             render_learner_home(user)
         elif current_page == "Assigned Modules":
+            render_module_library(user)
+        elif current_page == "Module Workspace":
             render_module_library(user)
         elif current_page == "Results":
             render_results_page(user)
