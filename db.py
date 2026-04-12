@@ -251,6 +251,13 @@ def init_db() -> None:
                     user_id BIGINT NOT NULL,
                     module_id BIGINT NOT NULL,
                     organization_id BIGINT,
+                    started_at TIMESTAMPTZ,
+                    submitted_at TIMESTAMPTZ,
+                    elapsed_seconds INTEGER,
+                    attempt_state TEXT DEFAULT 'submitted',
+                    graded_by_type TEXT,
+                    graded_by_user_id BIGINT,
+                    graded_at TIMESTAMPTZ,
                     diagnosis_answer TEXT,
                     next_steps_answer TEXT,
                     customer_response TEXT,
@@ -270,7 +277,8 @@ def init_db() -> None:
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     FOREIGN KEY(user_id) REFERENCES users(user_id),
                     FOREIGN KEY(module_id) REFERENCES modules(module_id),
-                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                    FOREIGN KEY(graded_by_user_id) REFERENCES users(user_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS action_logs (
@@ -289,10 +297,34 @@ def init_db() -> None:
                     investigation_score DOUBLE PRECISION NOT NULL,
                     solution_score DOUBLE PRECISION NOT NULL,
                     communication_score DOUBLE PRECISION NOT NULL,
+                    understanding_rationale TEXT,
+                    investigation_rationale TEXT,
+                    solution_rationale TEXT,
+                    communication_rationale TEXT,
                     total_score DOUBLE PRECISION NOT NULL,
+                    scoring_provider TEXT,
+                    scoring_model_name TEXT,
+                    scoring_prompt_template_id TEXT,
+                    scoring_temperature DOUBLE PRECISION,
+                    scoring_config_json TEXT,
                     scored_at TIMESTAMPTZ DEFAULT NOW(),
                     score_inputs_json TEXT,
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS submission_regrade_history (
+                    regrade_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    attempt_id BIGINT NOT NULL,
+                    old_total_score DOUBLE PRECISION,
+                    new_total_score DOUBLE PRECISION,
+                    old_category_scores_json TEXT,
+                    new_category_scores_json TEXT,
+                    reason TEXT,
+                    changed_by_type TEXT NOT NULL DEFAULT 'admin',
+                    changed_by_user_id BIGINT,
+                    changed_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                    FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS assignments (
@@ -473,6 +505,13 @@ def init_db() -> None:
                 user_id INTEGER NOT NULL,
                 module_id INTEGER NOT NULL,
                 organization_id INTEGER,
+                started_at TEXT,
+                submitted_at TEXT,
+                elapsed_seconds INTEGER,
+                attempt_state TEXT DEFAULT 'submitted',
+                graded_by_type TEXT,
+                graded_by_user_id INTEGER,
+                graded_at TEXT,
                 diagnosis_answer TEXT,
                 next_steps_answer TEXT,
                 customer_response TEXT,
@@ -492,7 +531,8 @@ def init_db() -> None:
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES users(user_id),
                 FOREIGN KEY(module_id) REFERENCES modules(module_id),
-                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
+                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                FOREIGN KEY(graded_by_user_id) REFERENCES users(user_id)
             );
 
             CREATE TABLE IF NOT EXISTS action_logs (
@@ -511,10 +551,34 @@ def init_db() -> None:
                 investigation_score REAL NOT NULL,
                 solution_score REAL NOT NULL,
                 communication_score REAL NOT NULL,
+                understanding_rationale TEXT,
+                investigation_rationale TEXT,
+                solution_rationale TEXT,
+                communication_rationale TEXT,
                 total_score REAL NOT NULL,
+                scoring_provider TEXT,
+                scoring_model_name TEXT,
+                scoring_prompt_template_id TEXT,
+                scoring_temperature REAL,
+                scoring_config_json TEXT,
                 scored_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 score_inputs_json TEXT,
                 FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS submission_regrade_history (
+                regrade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id INTEGER NOT NULL,
+                old_total_score REAL,
+                new_total_score REAL,
+                old_category_scores_json TEXT,
+                new_category_scores_json TEXT,
+                reason TEXT,
+                changed_by_type TEXT NOT NULL DEFAULT 'admin',
+                changed_by_user_id INTEGER,
+                changed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
             );
 
             CREATE TABLE IF NOT EXISTS assignments (
@@ -764,11 +828,68 @@ def init_db() -> None:
             )
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
+        _ensure_column(conn, "attempts", "started_at", "TIMESTAMPTZ")
+        _ensure_column(conn, "attempts", "submitted_at", "TIMESTAMPTZ")
+        _ensure_column(conn, "attempts", "elapsed_seconds", "INTEGER")
+        _ensure_column(conn, "attempts", "attempt_state", "TEXT DEFAULT 'submitted'")
+        _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
+        _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
+        _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
         _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
+        _ensure_column(conn, "submission_scores", "understanding_rationale", "TEXT")
+        _ensure_column(conn, "submission_scores", "investigation_rationale", "TEXT")
+        _ensure_column(conn, "submission_scores", "solution_rationale", "TEXT")
+        _ensure_column(conn, "submission_scores", "communication_rationale", "TEXT")
+        _ensure_column(conn, "submission_scores", "scoring_provider", "TEXT")
+        _ensure_column(conn, "submission_scores", "scoring_model_name", "TEXT")
+        _ensure_column(conn, "submission_scores", "scoring_prompt_template_id", "TEXT")
+        _ensure_column(conn, "submission_scores", "scoring_temperature", "DOUBLE PRECISION")
+        _ensure_column(conn, "submission_scores", "scoring_config_json", "TEXT")
         _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
         _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
         _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
         _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
+
+        if RUNTIME_USE_POSTGRES:
+            _executescript(
+                conn,
+                """
+                CREATE TABLE IF NOT EXISTS submission_regrade_history (
+                    regrade_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    attempt_id BIGINT NOT NULL,
+                    old_total_score DOUBLE PRECISION,
+                    new_total_score DOUBLE PRECISION,
+                    old_category_scores_json TEXT,
+                    new_category_scores_json TEXT,
+                    reason TEXT,
+                    changed_by_type TEXT NOT NULL DEFAULT 'admin',
+                    changed_by_user_id BIGINT,
+                    changed_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                    FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
+                )
+                """,
+            )
+        else:
+            _executescript(
+                conn,
+                """
+                CREATE TABLE IF NOT EXISTS submission_regrade_history (
+                    regrade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    attempt_id INTEGER NOT NULL,
+                    old_total_score REAL,
+                    new_total_score REAL,
+                    old_category_scores_json TEXT,
+                    new_category_scores_json TEXT,
+                    reason TEXT,
+                    changed_by_type TEXT NOT NULL DEFAULT 'admin',
+                    changed_by_user_id INTEGER,
+                    changed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                    FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
+                )
+                """,
+            )
 
         if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
@@ -781,6 +902,9 @@ def init_db() -> None:
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score)")
+                cur.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_submission_regrade_history_attempt_id ON submission_regrade_history(attempt_id)"
+                )
                 cur.execute(
                     """
                     CREATE OR REPLACE VIEW learner_dashboard_summary AS
@@ -819,6 +943,7 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at);
                 CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id);
                 CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score);
+                CREATE INDEX IF NOT EXISTS idx_submission_regrade_history_attempt_id ON submission_regrade_history(attempt_id);
 
                 DROP TRIGGER IF EXISTS trg_learner_profiles_updated_at;
                 CREATE TRIGGER trg_learner_profiles_updated_at
@@ -1009,17 +1134,25 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
     attempt_id = execute(
         """
         INSERT INTO attempts (
-            user_id, module_id, organization_id, diagnosis_answer, next_steps_answer, customer_response,
+            user_id, module_id, organization_id, started_at, submitted_at, elapsed_seconds, attempt_state, graded_by_type, graded_by_user_id, graded_at,
+            diagnosis_answer, next_steps_answer, customer_response,
             escalation_choice, notes,
             understanding_score, investigation_score, solution_score, communication_score,
             total_score, ai_feedback, strengths, missed_points,
             best_practice_reasoning, recommended_response, takeaway_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
             module_id,
             organization_id,
+            payload.get("started_at"),
+            payload.get("submitted_at"),
+            payload.get("elapsed_seconds"),
+            payload.get("attempt_state", "graded"),
+            payload.get("graded_by_type", "system"),
+            payload.get("graded_by_user_id"),
+            payload.get("graded_at", payload.get("submitted_at")),
             payload.get("diagnosis_answer"),
             payload.get("next_steps_answer"),
             payload.get("customer_response"),
@@ -1048,9 +1181,18 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             investigation_score,
             solution_score,
             communication_score,
+            understanding_rationale,
+            investigation_rationale,
+            solution_rationale,
+            communication_rationale,
             total_score,
+            scoring_provider,
+            scoring_model_name,
+            scoring_prompt_template_id,
+            scoring_temperature,
+            scoring_config_json,
             score_inputs_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             attempt_id,
@@ -1059,7 +1201,16 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload["category_scores"]["investigation"],
             payload["category_scores"]["solution_quality"],
             payload["category_scores"]["communication"],
+            payload.get("category_rationales", {}).get("understanding"),
+            payload.get("category_rationales", {}).get("investigation"),
+            payload.get("category_rationales", {}).get("solution_quality"),
+            payload.get("category_rationales", {}).get("communication"),
             payload["total_score"],
+            payload.get("scoring_engine", {}).get("provider"),
+            payload.get("scoring_engine", {}).get("model_name"),
+            payload.get("scoring_engine", {}).get("prompt_template_id"),
+            payload.get("scoring_engine", {}).get("temperature"),
+            json.dumps(payload.get("scoring_engine", {}).get("config", {})),
             json.dumps(
                 {
                     "actions_used": payload.get("actions_used", []),
@@ -1078,4 +1229,38 @@ def log_actions(attempt_id: int, actions: List[str]) -> None:
     executemany(
         "INSERT INTO action_logs (attempt_id, action_name) VALUES (?, ?)",
         [(attempt_id, action) for action in actions],
+    )
+
+
+def record_regrade(
+    attempt_id: int,
+    old_scores: Dict[str, Any],
+    new_scores: Dict[str, Any],
+    reason: str,
+    changed_by_type: str = "admin",
+    changed_by_user_id: int | None = None,
+) -> None:
+    execute(
+        """
+        INSERT INTO submission_regrade_history (
+            attempt_id,
+            old_total_score,
+            new_total_score,
+            old_category_scores_json,
+            new_category_scores_json,
+            reason,
+            changed_by_type,
+            changed_by_user_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            attempt_id,
+            old_scores.get("total_score"),
+            new_scores.get("total_score"),
+            json.dumps(old_scores.get("category_scores", {})),
+            json.dumps(new_scores.get("category_scores", {})),
+            reason,
+            changed_by_type,
+            changed_by_user_id,
+        ),
     )
