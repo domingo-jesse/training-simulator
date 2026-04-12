@@ -16,7 +16,14 @@ from log_viewer import (
     read_full_file_for_download,
     read_log_lines,
 )
-from utils import filter_active_learners, filter_inactive_learners, metric_row, to_df
+from utils import (
+    apply_learner_filters,
+    build_learner_option_label,
+    filter_active_learners,
+    filter_inactive_learners,
+    metric_row,
+    to_df,
+)
 
 admin_logger = get_logger(module="admin_views")
 
@@ -190,7 +197,7 @@ def render_learner_management(current_user: dict) -> None:
     df["is_active"] = df["is_active"].astype(bool)
     df["status"] = df["is_active"].map({True: "Active", False: "Inactive"})
 
-    c1, c2, c3, c4 = st.columns(4)
+    c1, c2, c3 = st.columns(3)
     with c1:
         q = st.text_input("Search learners")
     with c2:
@@ -199,23 +206,7 @@ def render_learner_management(current_user: dict) -> None:
     with c3:
         org_options = sorted(df["organization_name"].unique().tolist())
         org_filter = st.selectbox("Organization", ["All"] + org_options)
-    with c4:
-        status_filter = st.selectbox("Status filter", ["All", "Active", "Inactive"])
-
-    filtered = df.copy()
-    if q:
-        filtered = filtered[
-            filtered["name"].str.contains(q, case=False, na=False)
-            | filtered["team"].str.contains(q, case=False, na=False)
-        ]
-    if team_filter != "All":
-        filtered = filtered[filtered["team"] == team_filter]
-    if org_filter != "All":
-        filtered = filtered[filtered["organization_name"] == org_filter]
-    if status_filter == "Active":
-        filtered = filtered[filtered["is_active"]]
-    elif status_filter == "Inactive":
-        filtered = filtered[~filtered["is_active"]]
+    filtered = apply_learner_filters(df, search_text=q, team_filter=team_filter, org_filter=org_filter)
 
     def _render_learner_tab(tab_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
         scoped = filter_active_learners(tab_df) if show_active else filter_inactive_learners(tab_df)
@@ -238,7 +229,7 @@ def render_learner_management(current_user: dict) -> None:
 
         tab_key = tab_name.lower().replace(" ", "_")
         multiselect_key = f"learner_bulk_select_{tab_key}"
-        learner_options = {f"{r['name']} ({r['team'] or 'No team'})": int(r["user_id"]) for _, r in scoped.iterrows()}
+        learner_options = {build_learner_option_label(r): int(r["user_id"]) for _, r in scoped.iterrows()}
         option_labels = list(learner_options.keys())
 
         if multiselect_key not in st.session_state:
@@ -323,7 +314,18 @@ def render_assignment_management(current_user: dict) -> None:
     st.subheader("Assignment Management")
 
     learners = fetch_all(
-        "SELECT user_id, name, is_active FROM users WHERE role='learner' AND organization_id=? AND is_active = TRUE ORDER BY name",
+        """
+        SELECT
+            u.user_id,
+            u.name,
+            u.team,
+            u.is_active,
+            o.name AS organization_name
+        FROM users u
+        LEFT JOIN organizations o ON o.organization_id = u.organization_id
+        WHERE u.role='learner' AND u.organization_id=?
+        ORDER BY u.name
+        """,
         (org_id,),
     )
     modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? ORDER BY title", (org_id,))
@@ -337,13 +339,40 @@ def render_assignment_management(current_user: dict) -> None:
     with st.container(border=True):
         st.markdown("#### Assign module")
         module_map = {f"{m['title']} ({m['status']})": int(m["module_id"]) for m in modules}
-        learner_map = {l["name"]: int(l["user_id"]) for l in learners}
+        learners_df = to_df(learners)
+        learners_df["team"] = learners_df["team"].fillna("")
+        learners_df["organization_name"] = learners_df["organization_name"].fillna("Unassigned")
+
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            q = st.text_input("Search learners", key="assignment_search_learners")
+        with fc2:
+            team_options = sorted([team for team in learners_df["team"].unique().tolist() if team])
+            team_filter = st.selectbox("Team/Department", ["All"] + team_options, key="assignment_team_filter")
+        with fc3:
+            org_options = sorted(learners_df["organization_name"].unique().tolist())
+            org_filter = st.selectbox("Organization", ["All"] + org_options, key="assignment_org_filter")
+
+        filtered_active_learners = apply_learner_filters(
+            filter_active_learners(learners_df),
+            search_text=q,
+            team_filter=team_filter,
+            org_filter=org_filter,
+        )
+        learner_map = {
+            build_learner_option_label(row): int(row["user_id"])
+            for _, row in filtered_active_learners.sort_values("name").iterrows()
+        }
         learner_options = list(learner_map.keys())
         learner_multiselect_key = "assign_training_learners"
 
         if learner_multiselect_key not in st.session_state:
             st.session_state[learner_multiselect_key] = []
-        st.session_state[learner_multiselect_key] = [x for x in st.session_state[learner_multiselect_key] if x in learner_options]
+        st.session_state[learner_multiselect_key] = [
+            x for x in st.session_state[learner_multiselect_key] if x in learner_options
+        ]
+
+        st.caption(f"{len(filtered_active_learners)} active learners match current filters")
 
         selected_module = st.selectbox("Module", list(module_map.keys()))
         selected_learners = st.multiselect("Learners", learner_options, key=learner_multiselect_key)
