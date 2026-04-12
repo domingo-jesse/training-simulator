@@ -96,9 +96,6 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-if "db_initialized" not in st.session_state:
-    st.session_state.db_initialized = False
-
 def hash_password(password: str) -> str:
     """Demo-only hashing helper.
 
@@ -121,7 +118,6 @@ def init_state() -> None:
         "show_password": False,
         "page": None,
         "bootstrapped": False,
-        "db_initialized": False,
         "bootstrap_error": None,
         "admin_page": "Dashboard",
         "admin_nav_group": "Operations",
@@ -136,15 +132,19 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
+@st.cache_resource
+def initialize_once() -> bool:
+    """Run database initialization once per process."""
+    init_db()
+    return True
+
+
 def _ensure_platform_data() -> bool:
     if st.session_state.get("bootstrapped"):
         return True
     app_logger.info("Bootstrapping platform data.")
     try:
         with st.spinner("Preparing platform data..."):
-            if not st.session_state.db_initialized:
-                init_db()
-                st.session_state.db_initialized = True
             clear_seed_data()
         st.session_state["bootstrapped"] = True
         st.session_state["bootstrap_error"] = None
@@ -1033,6 +1033,7 @@ def main() -> None:
     init_state()
     st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
     app_logger.info("App startup.", session_id=st.session_state.get("session_id"))
+    initialize_once()
     _ensure_platform_data()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):

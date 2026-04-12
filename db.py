@@ -193,6 +193,7 @@ def init_db() -> None:
         try:
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
+                    cur.execute("SET lock_timeout = '2s';")
                     cur.execute(
                         """
                         SELECT pg_advisory_lock(123456);
@@ -931,7 +932,6 @@ def init_db() -> None:
 
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
-                    cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id)")
@@ -972,7 +972,6 @@ def init_db() -> None:
             else:
                 conn.executescript(
                     """
-                CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id);
                 CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status);
                 CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id);
                 CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id);
