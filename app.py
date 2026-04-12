@@ -883,7 +883,7 @@ def render_main_app() -> None:
             st.session_state["admin_page"] = operations_pages[0]
         if st.session_state.get("admin_nav_group") == "Quality Assurance" and st.session_state.get("admin_page") in operations_pages:
             st.session_state["admin_page"] = qa_pages[0]
-        current_page = st.session_state["admin_page"]
+        current_page = st.session_state.get("admin_page", "Dashboard")
         user_logger.info("Admin page load.", page=current_page)
         if current_page == "Dashboard":
             render_admin_dashboard(user)
@@ -914,7 +914,7 @@ def render_main_app() -> None:
             options=pages,
             key="learner_page",
         )
-        current_page = st.session_state["learner_page"]
+        current_page = st.session_state.get("learner_page", "Home")
         user_logger.info("Learner page load.", page=current_page)
         if current_page == "Home":
             render_learner_home(user)
@@ -929,9 +929,9 @@ def render_main_app() -> None:
 
 
 def main() -> None:
-    st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
-    app_logger.info("App startup.", session_id=st.session_state["session_id"])
     init_state()
+    st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
+    app_logger.info("App startup.", session_id=st.session_state.get("session_id"))
     _ensure_platform_data()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
