@@ -760,15 +760,17 @@ def render_grading_center(current_user: dict) -> None:
                 a.created_at,
                 u.name AS learner_name,
                 m.title AS module_title,
-                a.total_score,
-                a.understanding_score,
-                a.investigation_score,
-                a.solution_score,
-                a.communication_score,
+                COALESCE(ss.total_score, a.total_score) AS total_score,
+                COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
+                COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
+                COALESCE(ss.solution_score, a.solution_score) AS solution_score,
+                COALESCE(ss.communication_score, a.communication_score) AS communication_score,
+                ss.scoring_version,
                 a.ai_feedback
             FROM attempts a
             JOIN users u ON u.user_id = a.user_id
             JOIN modules m ON m.module_id = a.module_id
+            LEFT JOIN submission_scores ss ON ss.attempt_id = a.attempt_id
             WHERE a.organization_id = ?
               AND u.is_active = TRUE
             ORDER BY a.created_at DESC
@@ -829,6 +831,7 @@ def render_grading_center(current_user: dict) -> None:
     feedback_row = filtered[filtered["attempt_id"] == selected_attempt].iloc[0]
     with st.container(border=True):
         st.markdown("#### AI feedback")
+        st.caption(f"Scoring version: {feedback_row.get('scoring_version') or 'legacy'}")
         st.write(feedback_row["ai_feedback"] or "No feedback available.")
 
 

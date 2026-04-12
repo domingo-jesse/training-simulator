@@ -66,6 +66,7 @@ EXPECTED_PLATFORM_TABLES = (
     "module_questions",
     "investigation_actions",
     "attempts",
+    "submission_scores",
     "action_logs",
     "assignments",
     "learner_profiles",

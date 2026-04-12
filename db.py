@@ -281,6 +281,20 @@ def init_db() -> None:
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS submission_scores (
+                    submission_score_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    attempt_id BIGINT NOT NULL UNIQUE,
+                    scoring_version TEXT NOT NULL DEFAULT 'heuristic_v1',
+                    understanding_score DOUBLE PRECISION NOT NULL,
+                    investigation_score DOUBLE PRECISION NOT NULL,
+                    solution_score DOUBLE PRECISION NOT NULL,
+                    communication_score DOUBLE PRECISION NOT NULL,
+                    total_score DOUBLE PRECISION NOT NULL,
+                    scored_at TIMESTAMPTZ DEFAULT NOW(),
+                    score_inputs_json TEXT,
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
+                );
+
                 CREATE TABLE IF NOT EXISTS assignments (
                     assignment_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     organization_id BIGINT NOT NULL,
@@ -487,6 +501,20 @@ def init_db() -> None:
                 action_name TEXT NOT NULL,
                 timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS submission_scores (
+                submission_score_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id INTEGER NOT NULL UNIQUE,
+                scoring_version TEXT NOT NULL DEFAULT 'heuristic_v1',
+                understanding_score REAL NOT NULL,
+                investigation_score REAL NOT NULL,
+                solution_score REAL NOT NULL,
+                communication_score REAL NOT NULL,
+                total_score REAL NOT NULL,
+                scored_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                score_inputs_json TEXT,
+                FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
             );
 
             CREATE TABLE IF NOT EXISTS assignments (
@@ -736,6 +764,7 @@ def init_db() -> None:
             )
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
+        _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
         _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
         _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
         _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
@@ -750,6 +779,8 @@ def init_db() -> None:
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id)")
                 cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id)")
+                cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score)")
                 cur.execute(
                     """
                     CREATE OR REPLACE VIEW learner_dashboard_summary AS
@@ -786,6 +817,8 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id);
                 CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id);
                 CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at);
+                CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id);
+                CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score);
 
                 DROP TRIGGER IF EXISTS trg_learner_profiles_updated_at;
                 CREATE TRIGGER trg_learner_profiles_updated_at
@@ -973,7 +1006,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
         user = fetch_one("SELECT organization_id FROM users WHERE user_id = ?", (user_id,))
         organization_id = user["organization_id"] if user else None
 
-    return execute(
+    attempt_id = execute(
         """
         INSERT INTO attempts (
             user_id, module_id, organization_id, diagnosis_answer, next_steps_answer, customer_response,
@@ -1005,6 +1038,38 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload["takeaway_summary"],
         ),
     )
+
+    execute(
+        """
+        INSERT INTO submission_scores (
+            attempt_id,
+            scoring_version,
+            understanding_score,
+            investigation_score,
+            solution_score,
+            communication_score,
+            total_score,
+            score_inputs_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            attempt_id,
+            payload.get("scoring_version", "heuristic_v1"),
+            payload["category_scores"]["understanding"],
+            payload["category_scores"]["investigation"],
+            payload["category_scores"]["solution_quality"],
+            payload["category_scores"]["communication"],
+            payload["total_score"],
+            json.dumps(
+                {
+                    "actions_used": payload.get("actions_used", []),
+                    "actions_used_count": payload.get("actions_used_count", 0),
+                    "escalation_choice": payload.get("escalation_choice"),
+                }
+            ),
+        ),
+    )
+    return attempt_id
 
 
 def log_actions(attempt_id: int, actions: List[str]) -> None:

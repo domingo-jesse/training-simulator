@@ -61,6 +61,7 @@ def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) ->
         missed.append("Customer response should include impact, timing, and prevention language.")
 
     result = {
+        "scoring_version": "heuristic_v1",
         "total_score": total_score,
         "category_scores": {
             "understanding": understanding,
