@@ -122,6 +122,10 @@ def init_state() -> None:
         "admin_page": "Dashboard",
         "admin_nav_group": "Operations",
         "learner_page": "Home",
+        "ui_event": None,
+        "db_test_nonce": 0,
+        "db_test_result": None,
+        "quick_connect_result": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -133,8 +137,9 @@ def _ensure_platform_data() -> bool:
         return True
     app_logger.info("Bootstrapping platform data.")
     try:
-        init_db()
-        clear_seed_data()
+        with st.spinner("Preparing platform data..."):
+            init_db()
+            clear_seed_data()
         st.session_state["bootstrapped"] = True
         st.session_state["bootstrap_error"] = None
         app_logger.info("Platform bootstrap complete.")
@@ -603,6 +608,12 @@ def _sync_google_identity_if_present() -> None:
 
 
 def _run_database_connection_test() -> tuple[bool, str, list[str], list[str]]:
+    nonce = int(st.session_state.get("db_test_nonce", 0))
+    return _run_database_connection_test_cached(nonce)
+
+
+@st.cache_data(ttl=120, show_spinner=False)
+def _run_database_connection_test_cached(_nonce: int) -> tuple[bool, str, list[str], list[str]]:
     """Checks DB connectivity and presence of expected platform tables."""
     try:
         db_info = get_database_debug_info()
@@ -639,10 +650,19 @@ def _run_database_connection_test() -> tuple[bool, str, list[str], list[str]]:
         return False, f"Database connection test failed: {exc}", list(EXPECTED_PLATFORM_TABLES), []
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _get_db_info_cached() -> dict[str, Any]:
+    return get_database_debug_info()
+
+
+def _set_ui_event(event_name: str) -> None:
+    st.session_state["ui_event"] = event_name
+
+
 def _render_database_connection_tester() -> None:
     st.markdown("#### Database Connection Tester")
     st.caption("Use this to verify the app can connect and detect the expected platform tables.")
-    db_info = get_database_debug_info()
+    db_info = _get_db_info_cached()
     if db_info["backend"] == "postgres":
         st.code(
             (
@@ -658,33 +678,58 @@ def _render_database_connection_tester() -> None:
     else:
         st.code(f"Backend: sqlite\nPath: {db_info.get('db_path')}")
 
-    if st.button("Quick connect check", key="quick_connect_check", use_container_width=True):
-        try:
-            conn = psycopg2.connect(
-                st.secrets["DATABASE_URL"],
-                connect_timeout=10,
-            )
-            cur = conn.cursor()
-            cur.execute("SELECT version();")
-            result = cur.fetchone()
-            st.success("✅ Connected to database!")
-            st.write(result)
-        except Exception as exc:
-            st.error("❌ Connection failed")
-            st.write(type(exc).__name__)
-            st.write(str(exc))
-        finally:
-            try:
-                cur.close()
-            except Exception:
-                pass
-            try:
-                conn.close()
-            except Exception:
-                pass
+    with st.form("db_tools_form"):
+        action_cols = st.columns(2)
+        with action_cols[0]:
+            quick_connect = st.form_submit_button("Quick connect check", use_container_width=True)
+        with action_cols[1]:
+            run_db_test = st.form_submit_button("Run database test", use_container_width=True)
 
-    if st.button("Run database test", key="run_db_test", use_container_width=True):
-        ok, message, missing, extra = _run_database_connection_test()
+    if quick_connect:
+        with st.spinner("Checking direct database connectivity..."):
+            cur = None
+            conn = None
+            try:
+                conn = psycopg2.connect(
+                    st.secrets["DATABASE_URL"],
+                    connect_timeout=10,
+                )
+                cur = conn.cursor()
+                cur.execute("SELECT version();")
+                result = cur.fetchone()
+                st.session_state["quick_connect_result"] = ("success", result)
+            except Exception as exc:
+                st.session_state["quick_connect_result"] = ("error", f"{type(exc).__name__}: {exc}")
+            finally:
+                try:
+                    if cur:
+                        cur.close()
+                except Exception:
+                    pass
+                try:
+                    if conn:
+                        conn.close()
+                except Exception:
+                    pass
+
+    if run_db_test:
+        st.session_state["db_test_nonce"] = int(st.session_state.get("db_test_nonce", 0)) + 1
+        with st.spinner("Inspecting database tables..."):
+            st.session_state["db_test_result"] = _run_database_connection_test()
+
+    quick_connect_result = st.session_state.get("quick_connect_result")
+    if quick_connect_result:
+        status, payload = quick_connect_result
+        if status == "success":
+            st.success("✅ Connected to database!")
+            st.write(payload)
+        else:
+            st.error("❌ Connection failed")
+            st.write(payload)
+
+    db_test_result = st.session_state.get("db_test_result")
+    if db_test_result:
+        ok, message, missing, extra = db_test_result
         if ok:
             st.success(message)
         else:
@@ -722,26 +767,26 @@ def render_login_view() -> None:
 
     pending = st.session_state.get("pending_google")
     if pending:
-        st.info(f"Google account detected: {pending.get('email') or 'Unknown email'}")
-        action_a, action_b = st.columns(2)
-        with action_a:
-            if st.button("Send to database: Create account", use_container_width=True, key="pending_google_create"):
-                ok, message, user = create_google_account(
-                    role=pending.get("expected_role", "learner"),
-                    email=pending.get("email", ""),
-                    full_name=pending.get("full_name", "Google User"),
+        pending_placeholder = st.empty()
+        with pending_placeholder.container():
+            st.info(f"Google account detected: {pending.get('email') or 'Unknown email'}")
+            action_a, action_b = st.columns(2)
+            with action_a:
+                st.button(
+                    "Send to database: Create account",
+                    use_container_width=True,
+                    key="pending_google_create",
+                    on_click=_set_ui_event,
+                    args=("pending_google_create",),
                 )
-                if ok and user:
-                    _sign_in_user(user, "google")
-                    st.session_state["post_create_success"] = message
-                    st.rerun()
-                st.session_state["auth_error"] = message
-                st.rerun()
-        with action_b:
-            if st.button("Back to sign in", use_container_width=True, key="pending_google_back"):
-                st.session_state["pending_google"] = None
-                st.session_state["auth_error"] = None
-                st.logout()
+            with action_b:
+                st.button(
+                    "Back to sign in",
+                    use_container_width=True,
+                    key="pending_google_back",
+                    on_click=_set_ui_event,
+                    args=("pending_google_back",),
+                )
 
     learner_tab, admin_tab = st.tabs(["Learner", "Admin"])
 
@@ -760,10 +805,13 @@ def render_login_view() -> None:
                 st.rerun()
 
         _render_google_button("learner")
-        if st.button("Create account", key="create_link_learner", use_container_width=True):
-            st.session_state["auth_view"] = "create_account"
-            st.session_state["selected_role"] = "learner"
-            st.rerun()
+        st.button(
+            "Create account",
+            key="create_link_learner",
+            use_container_width=True,
+            on_click=_set_ui_event,
+            args=("create_link_learner",),
+        )
 
     with admin_tab:
         with st.form("local_login_admin", clear_on_submit=False):
@@ -780,13 +828,49 @@ def render_login_view() -> None:
                 st.rerun()
 
         _render_google_button("admin")
-        if st.button("Create account", key="create_link_admin", use_container_width=True):
-            st.session_state["auth_view"] = "create_account"
-            st.session_state["selected_role"] = "admin"
-            st.rerun()
+        st.button(
+            "Create account",
+            key="create_link_admin",
+            use_container_width=True,
+            on_click=_set_ui_event,
+            args=("create_link_admin",),
+        )
 
     with st.expander("Database tools", expanded=False):
         _render_database_connection_tester()
+
+    ui_event = st.session_state.get("ui_event")
+    if not ui_event:
+        return
+
+    st.session_state["ui_event"] = None
+    if ui_event == "pending_google_create":
+        ok, message, user = create_google_account(
+            role=pending.get("expected_role", "learner") if pending else "learner",
+            email=pending.get("email", "") if pending else "",
+            full_name=pending.get("full_name", "Google User") if pending else "Google User",
+        )
+        if ok and user:
+            _sign_in_user(user, "google")
+            st.session_state["post_create_success"] = message
+            st.rerun()
+        st.session_state["auth_error"] = message
+        st.rerun()
+
+    if ui_event == "pending_google_back":
+        st.session_state["pending_google"] = None
+        st.session_state["auth_error"] = None
+        st.logout()
+
+    if ui_event == "create_link_learner":
+        st.session_state["auth_view"] = "create_account"
+        st.session_state["selected_role"] = "learner"
+        st.rerun()
+
+    if ui_event == "create_link_admin":
+        st.session_state["auth_view"] = "create_account"
+        st.session_state["selected_role"] = "admin"
+        st.rerun()
 
 
 
