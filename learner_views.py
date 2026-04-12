@@ -125,6 +125,17 @@ def render_learner_home(user: Dict) -> None:
 def render_module_library(user: Dict) -> None:
     view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Assigned Modules")
+
+    if st.session_state.get("active_module_id"):
+        st.caption("Module workspace")
+        if st.button("← Back to assigned modules", key="back_to_assigned_modules"):
+            st.session_state.active_module_id = None
+            st.session_state.pending_start_module = None
+            st.rerun()
+        st.markdown("---")
+        render_scenario_page(user)
+        return
+
     try:
         assignments = _assigned_modules(user)
     except Exception:
@@ -214,11 +225,6 @@ def render_module_library(user: Dict) -> None:
                                 st.session_state.latest_attempt_id = int(attempt["attempt_id"])
                                 st.session_state.page = "Results"
                                 st.rerun()
-
-    if st.session_state.get("active_module_id"):
-        st.markdown("---")
-        render_scenario_page(user)
-
 
 def render_scenario_page(user: Dict) -> None:
     view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
@@ -317,6 +323,7 @@ def render_scenario_page(user: Dict) -> None:
             scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id)
 
             st.session_state.latest_attempt_id = attempt_id
+            st.session_state.active_module_id = None
             st.session_state.page = "Results"
             st.toast("🎉 Thank you — you've completed this module!")
             st.rerun()
@@ -379,6 +386,7 @@ def render_results_page(user: Dict) -> None:
     with c1:
         st.success("✅ Thank you! You've completed this module.")
     if c2.button("Back to assignments"):
+        st.session_state.active_module_id = None
         st.session_state.page = "Assigned Modules"
         st.rerun()
 
