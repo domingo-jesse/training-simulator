@@ -184,6 +184,7 @@ def apply_learner_filters(
 
     filtered["name"] = filtered["name"].fillna("") if "name" in filtered.columns else ""
     filtered["team"] = filtered["team"].fillna("") if "team" in filtered.columns else ""
+    filtered["department"] = filtered["department"].fillna("") if "department" in filtered.columns else ""
     filtered["organization_name"] = (
         filtered["organization_name"].fillna("Unassigned") if "organization_name" in filtered.columns else "Unassigned"
     )
@@ -193,6 +194,7 @@ def apply_learner_filters(
         filtered = filtered[
             filtered["name"].str.lower().str.contains(query, na=False)
             | filtered["team"].str.lower().str.contains(query, na=False)
+            | filtered["department"].str.lower().str.contains(query, na=False)
         ]
 
     if team_filter != "All" and "team" in filtered.columns:

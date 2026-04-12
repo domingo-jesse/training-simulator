@@ -2137,7 +2137,11 @@ def _qa_test_db_connection(_current_user: dict) -> dict:
     try:
         info = get_database_debug_info()
         healthy = bool(info.get("can_connect"))
-        return _qa_result("pass" if healthy else "fail", f"Database connectivity check can_connect={healthy}")
+        reason = str(info.get("connect_reason") or "No reason provided.")
+        return _qa_result(
+            "pass" if healthy else "fail",
+            f"Database connectivity check can_connect={healthy}; reason={reason}",
+        )
     except Exception as exc:
         return _qa_result("fail", "Database debug info check failed.", f"{type(exc).__name__}: {exc}")
 

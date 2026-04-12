@@ -79,6 +79,8 @@ def get_database_debug_info() -> Dict[str, Any]:
         "backend": "postgres",
         "postgres_configured": True,
         "database_url_set": bool(DATABASE_URL),
+        "can_connect": False,
+        "connect_reason": "Connection has not been attempted yet.",
     }
     try:
         parsed = urlparse(DATABASE_URL)
@@ -99,8 +101,35 @@ def get_database_debug_info() -> Dict[str, Any]:
                 "database": None,
                 "username": None,
                 "parse_error": str(exc),
+                "connect_reason": f"Invalid DATABASE_URL format: {exc}",
             }
         )
+        return info
+
+    if not DATABASE_URL:
+        info["connect_reason"] = "DATABASE_URL is not configured."
+        return info
+
+    try:
+        import psycopg2
+    except ImportError:
+        info["connect_reason"] = "psycopg2 is not installed."
+        return info
+
+    try:
+        with psycopg2.connect(DATABASE_URL, connect_timeout=5) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT 1 AS ok;")
+                row = cur.fetchone()
+        info["can_connect"] = bool(row and row[0] == 1)
+        info["connect_reason"] = (
+            "Connection established and validation query succeeded."
+            if info["can_connect"]
+            else "Connection opened but validation query returned an unexpected result."
+        )
+    except Exception as exc:
+        info["connect_reason"] = f"{type(exc).__name__}: {exc}"
+
     return info
 
 
