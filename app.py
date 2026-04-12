@@ -15,6 +15,7 @@ from admin_views import (
     render_grading_center,
     render_learner_management,
     render_admin_log_viewer,
+    render_manage_modules,
     render_module_builder,
     render_progress_tracking,
     render_admin_quality_hub,
@@ -860,6 +861,7 @@ def render_main_app() -> None:
             "Progress Tracking",
             "Learner Management",
             "Module Builder",
+            "Manage Modules",
             "Database Tables",
             "Debug Logs",
         ]
@@ -904,6 +906,8 @@ def render_main_app() -> None:
             render_learner_management(user)
         elif current_page == "Module Builder":
             render_module_builder(user)
+        elif current_page == "Manage Modules":
+            render_manage_modules(user)
         elif current_page == "Database Tables":
             render_database_tables_view()
         elif current_page == "Debug Logs":
