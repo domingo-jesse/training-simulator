@@ -932,6 +932,8 @@ def init_db() -> None:
 
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
+                    # IMPORTANT: keep idx_learner_profiles_user_id out of runtime init.
+                    # Create it manually via one-time SQL migration to avoid startup lock contention.
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id)")

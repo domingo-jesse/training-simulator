@@ -1034,7 +1034,6 @@ def main() -> None:
     st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
     app_logger.info("App startup.", session_id=st.session_state.get("session_id"))
     initialize_once()
-    _ensure_platform_data()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
         inject_styles()
