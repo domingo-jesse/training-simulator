@@ -25,7 +25,6 @@ from learner_views import (
     render_module_library,
     render_progress_page,
     render_results_page,
-    render_scenario_page,
 )
 from logger import get_logger
 from utils import inject_styles
@@ -891,7 +890,7 @@ def render_main_app() -> None:
         elif current_page == "Debug Logs":
             render_admin_log_viewer()
     else:
-        pages = ["Home", "Assigned Modules", "Scenario", "Results", "My Progress"]
+        pages = ["Home", "Assigned Modules", "Results", "My Progress"]
         requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
@@ -907,8 +906,6 @@ def render_main_app() -> None:
             render_learner_home(user)
         elif current_page == "Assigned Modules":
             render_module_library(user)
-        elif current_page == "Scenario":
-            render_scenario_page(user)
         elif current_page == "Results":
             render_results_page(user)
         elif current_page == "My Progress":
