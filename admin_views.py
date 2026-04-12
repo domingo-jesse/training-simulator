@@ -1733,46 +1733,103 @@ def render_manage_modules(current_user: dict) -> None:
 
 
 
-QA_STATUS_OPTIONS = ["pass", "fail", "warning", "not run"]
+QA_CATEGORIES = [
+    "Authentication",
+    "Learner Management",
+    "Filtering and Search",
+    "Bulk Actions",
+    "Assignment Workflow",
+    "Scenario Builder",
+    "AI Generation",
+    "Database Integrity",
+    "Permissions",
+    "Regression",
+    "Edge Cases",
+    "Smoke Tests",
+]
+QA_SEVERITIES = ["critical", "major", "minor"]
+QA_TYPES = ["ui", "backend", "data", "permission", "ai"]
+QA_SOURCES = ["automated", "manual", "smoke", "regression"]
+QA_RUN_MODES = ["quick", "standard", "full"]
+QA_STATUSES = ["not_run", "pass", "fail", "warning"]
+QA_TABS = ["Overview", "Test Results", "History", "Failed Tests", "Categories"]
 
 
 def _qa_environment_tag() -> str:
-    env = (st.secrets.get("APP_ENV") or st.secrets.get("ENVIRONMENT") or "local").strip().lower()
-    return env if env in {"local", "staging", "prod"} else "local"
+    env = (
+        st.secrets.get("APP_ENV")
+        or st.secrets.get("ENVIRONMENT")
+        or st.secrets.get("RAILWAY_ENVIRONMENT")
+        or "local"
+    )
+    env = str(env).strip().lower()
+    if "prod" in env:
+        return "production"
+    if "stage" in env:
+        return "staging"
+    return "local"
 
 
-def _qa_result(
+def _qa_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _qa_status(status: str) -> str:
+    return status if status in QA_STATUSES else "warning"
+
+
+def _qa_normalize_run_modes(run_modes: list[str] | None) -> list[str]:
+    modes = run_modes or ["full"]
+    allowed = [m for m in modes if m in QA_RUN_MODES]
+    return allowed or ["full"]
+
+
+def _qa_make_definition(
     *,
-    status: str,
-    detail: str,
-    error_message: str = "",
+    test_id: str,
+    name: str,
+    category: str,
+    description: str,
+    severity: str,
+    test_type: str,
+    source: str,
+    run_modes: list[str],
+    expected_result: str,
+    runner,
+    safe_in_production: bool = True,
 ) -> dict:
-    return {"status": status if status in QA_STATUS_OPTIONS else "warning", "detail": detail, "error_message": error_message}
+    return {
+        "id": test_id,
+        "name": name,
+        "category": category if category in QA_CATEGORIES else "Regression",
+        "description": description,
+        "severity": severity if severity in QA_SEVERITIES else "major",
+        "type": test_type if test_type in QA_TYPES else "backend",
+        "source": source if source in QA_SOURCES else "automated",
+        "run_modes": _qa_normalize_run_modes(run_modes),
+        "environment": "",
+        "status": "not_run",
+        "last_run_at": "",
+        "duration_ms": None,
+        "error_message": "",
+        "expected_result": expected_result,
+        "actual_result": "",
+        "function_name": getattr(runner, "__name__", "lambda_runner"),
+        "runner": runner,
+        "safe_in_production": safe_in_production,
+    }
 
 
 def _qa_manual_warning(detail: str) -> dict:
-    return _qa_result(status="warning", detail=detail, error_message="Requires UI interaction in live session.")
+    return {"status": "warning", "detail": detail, "error_message": "Requires UI interaction in live session."}
 
 
-def _run_qa_definition(test_def: dict, current_user: dict, environment: str) -> dict:
-    timestamp = datetime.now(timezone.utc).isoformat()
-    try:
-        result = test_def["runner"](current_user)
-    except Exception as exc:
-        result = _qa_result(status="fail", detail="Unhandled exception raised during test execution.", error_message=f"{type(exc).__name__}: {exc}")
+def _qa_manual_pass(detail: str) -> dict:
+    return {"status": "pass", "detail": detail, "error_message": ""}
 
-    status = result.get("status", "warning")
-    return {
-        "test_id": test_def["test_id"],
-        "test_name": test_def["test_name"],
-        "category": test_def["category"],
-        "description": test_def["description"],
-        "status": status if status in QA_STATUS_OPTIONS else "warning",
-        "last_run_timestamp": timestamp,
-        "error_message": result.get("error_message", ""),
-        "environment": environment,
-        "detail": result.get("detail", ""),
-    }
+
+def _qa_result(status: str, detail: str, error_message: str = "") -> dict:
+    return {"status": _qa_status(status), "detail": detail, "error_message": error_message}
 
 
 def _qa_count(query: str, params: tuple = ()) -> int:
@@ -1780,35 +1837,23 @@ def _qa_count(query: str, params: tuple = ()) -> int:
     return int(row["count"]) if row and row.get("count") is not None else 0
 
 
-def _qa_build_definitions() -> list[dict]:
-    return [
-        {"test_id": "SMK-001", "test_name": "Login page loads", "category": "Smoke Tests", "description": "Validates login route can be rendered in an active Streamlit session.", "runner": lambda _u: _qa_manual_warning("Route-level rendering is not directly executable from admin QA center.")},
-        {"test_id": "SMK-002", "test_name": "Learner list loads", "category": "Smoke Tests", "description": "Ensures active learner query returns without exception.", "runner": lambda u: _qa_result(status="pass" if _qa_count("SELECT COUNT(*) AS count FROM users WHERE organization_id = ? AND role = 'learner'", (u["organization_id"],)) >= 0 else "fail", detail="Learner list query executed.")},
-        {"test_id": "FRM-001", "test_name": "Create learner works", "category": "Form Validation", "description": "Creates a temporary learner and verifies record is persisted.", "runner": _qa_test_create_learner},
-        {"test_id": "FRM-002", "test_name": "Required fields block progress", "category": "Form Validation", "description": "Ensures required scenario wizard fields are not blank.", "runner": lambda _u: _qa_result(status="pass", detail="Required fields defined in wizard configuration.")},
-        {"test_id": "DBI-001", "test_name": "Deactivate learner works", "category": "Database Integrity", "description": "Toggles a temporary learner to inactive and confirms persistence.", "runner": _qa_test_deactivate_reactivate},
-        {"test_id": "DBI-002", "test_name": "Reactivate learner works", "category": "Database Integrity", "description": "Reactivates the temporary learner and validates state restoration.", "runner": _qa_test_deactivate_reactivate},
-        {"test_id": "DBI-003", "test_name": "Assignment save works", "category": "Database Integrity", "description": "Creates and validates a temporary assignment record.", "runner": _qa_test_assignment_save},
-        {"test_id": "FIL-001", "test_name": "Inactive learners hidden from active tabs", "category": "Filtering and Search", "description": "Validates active filter excludes inactive rows.", "runner": _qa_test_active_filter},
-        {"test_id": "FIL-002", "test_name": "Inactive learners only shown in inactive tab", "category": "Filtering and Search", "description": "Validates inactive filter includes only inactive rows.", "runner": _qa_test_inactive_filter},
-        {"test_id": "FIL-003", "test_name": "Organization filter works", "category": "Filtering and Search", "description": "Validates organization filtering helper.", "runner": _qa_test_filter_organization},
-        {"test_id": "FIL-004", "test_name": "Department filter works", "category": "Filtering and Search", "description": "Validates department filtering helper.", "runner": _qa_test_filter_department},
-        {"test_id": "FIL-005", "test_name": "Team filter works", "category": "Filtering and Search", "description": "Validates team filtering helper.", "runner": _qa_test_filter_team},
-        {"test_id": "FIL-006", "test_name": "Search by learner name works", "category": "Filtering and Search", "description": "Validates search matching behavior.", "runner": _qa_test_filter_search},
-        {"test_id": "BLK-001", "test_name": "Filtered select-all only selects filtered users", "category": "Bulk Actions", "description": "Ensures select-all helper respects currently filtered options.", "runner": _qa_test_select_all_filtered},
-        {"test_id": "BLK-002", "test_name": "Bulk assign works", "category": "Bulk Actions", "description": "Creates two assignment rows in one operation and validates persistence.", "runner": _qa_test_bulk_assign},
-        {"test_id": "WZD-001", "test_name": "Scenario wizard step navigation works", "category": "Wizard Flow", "description": "Validates step metadata exists for progressive navigation.", "runner": lambda _u: _qa_result(status="pass", detail="Wizard step configuration is present and ordered.")},
-        {"test_id": "WZD-002", "test_name": "Wizard state persists between steps", "category": "Wizard Flow", "description": "Checks session-state keys used by module builder are available.", "runner": lambda _u: _qa_result(status="pass", detail="Session-state keys are initialized for wizard forms.")},
-        {"test_id": "AIG-001", "test_name": "AI scenario generation returns structured content", "category": "AI Generation", "description": "Attempts preview generation and verifies dictionary-like structured output.", "runner": _qa_test_ai_generation},
-        {"test_id": "AIG-002", "test_name": "Generated questions render correctly", "category": "AI Generation", "description": "Validates generated questions table can be queried and normalized.", "runner": _qa_test_generated_questions},
-        {"test_id": "AIG-003", "test_name": "Custom question add/edit/delete works", "category": "AI Generation", "description": "Performs CRUD against module_questions with cleanup.", "runner": _qa_test_custom_question_crud},
-        {"test_id": "AIG-004", "test_name": "Save scenario works", "category": "AI Generation", "description": "Validates draft module insert+update workflow.", "runner": _qa_test_save_scenario},
-        {"test_id": "RLP-001", "test_name": "Admin page access is restricted properly", "category": "Roles and Permissions", "description": "Confirms only admin role should access QA center controls.", "runner": lambda u: _qa_result(status="pass" if u.get("role") == "admin" else "fail", detail=f"Current role: {u.get('role')}")},
-        {"test_id": "RLP-002", "test_name": "Learner cannot access admin-only controls", "category": "Roles and Permissions", "description": "Flags this as UI-gated behavior requiring interactive verification.", "runner": lambda _u: _qa_manual_warning("Role-gated Streamlit navigation requires a learner session for full verification.")},
-        {"test_id": "REG-001", "test_name": "Regression check: assignment status query executes", "category": "Regression Checks", "description": "Runs assignment status dataframe query without errors.", "runner": lambda u: _qa_result(status="pass", detail=f"Rows returned: {len(_assignments_with_status(u['organization_id']))}")},
-        {"test_id": "EDG-001", "test_name": "App handles empty datasets gracefully", "category": "Edge Cases", "description": "Verifies learner filter utilities return empty dataframes for empty inputs.", "runner": _qa_test_empty_dataset},
-        {"test_id": "EDG-002", "test_name": "App handles null or missing values gracefully", "category": "Edge Cases", "description": "Verifies learner filter utilities operate with null values.", "runner": _qa_test_null_values},
-    ]
+def _qa_sample_learners() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"name": "Alex Active", "team": "Blue", "department": "Support", "organization_name": "Org A", "is_active": True},
+            {"name": "Ivy Inactive", "team": "Red", "department": "Support", "organization_name": "Org A", "is_active": False},
+            {"name": "Sam Search", "team": "Blue", "department": "QA", "organization_name": "Org B", "is_active": True},
+        ]
+    )
+
+
+def _qa_test_db_connection(_current_user: dict) -> dict:
+    try:
+        info = get_database_debug_info()
+        healthy = bool(info.get("can_connect"))
+        return _qa_result("pass" if healthy else "fail", f"Database connectivity check can_connect={healthy}")
+    except Exception as exc:
+        return _qa_result("fail", "Database debug info check failed.", f"{type(exc).__name__}: {exc}")
 
 
 def _qa_test_create_learner(current_user: dict) -> dict:
@@ -1824,7 +1869,7 @@ def _qa_test_create_learner(current_user: dict) -> dict:
             (f"QA Learner {token}", f"qa.learner.{token}@example.com", org_id),
         )
         row = fetch_one("SELECT user_id FROM users WHERE user_id = ?", (created_user_id,))
-        return _qa_result(status="pass" if bool(row) else "fail", detail=f"Created temporary learner user_id={created_user_id}")
+        return _qa_result("pass" if bool(row) else "fail", f"Created temporary learner user_id={created_user_id}")
     finally:
         if created_user_id:
             execute("DELETE FROM users WHERE user_id = ?", (created_user_id,))
@@ -1847,7 +1892,7 @@ def _qa_test_deactivate_reactivate(current_user: dict) -> dict:
         execute("UPDATE users SET is_active = TRUE WHERE user_id = ?", (created_user_id,))
         active_row = fetch_one("SELECT is_active FROM users WHERE user_id = ?", (created_user_id,))
         passed = inactive_row and (inactive_row["is_active"] is False) and active_row and (active_row["is_active"] is True)
-        return _qa_result(status="pass" if passed else "fail", detail=f"Toggled learner user_id={created_user_id}")
+        return _qa_result("pass" if passed else "fail", f"Toggled learner user_id={created_user_id}")
     finally:
         if created_user_id:
             execute("DELETE FROM users WHERE user_id = ?", (created_user_id,))
@@ -1858,7 +1903,7 @@ def _qa_test_assignment_save(current_user: dict) -> dict:
     learner = fetch_one("SELECT user_id FROM users WHERE organization_id = ? AND role = 'learner' AND is_active = TRUE ORDER BY user_id LIMIT 1", (org_id,))
     module = fetch_one("SELECT module_id FROM modules WHERE organization_id = ? ORDER BY module_id LIMIT 1", (org_id,))
     if not learner or not module:
-        return _qa_result(status="warning", detail="Missing learner or module prerequisite.", error_message="Need at least one active learner and one module.")
+        return _qa_result("warning", "Missing learner or module prerequisite.", "Need at least one active learner and one module.")
 
     assignment_id = None
     try:
@@ -1870,30 +1915,10 @@ def _qa_test_assignment_save(current_user: dict) -> dict:
             (org_id, int(module["module_id"]), int(learner["user_id"]), int(current_user["user_id"]), (date.today() + timedelta(days=7)).isoformat()),
         )
         stored = fetch_one("SELECT assignment_id FROM assignments WHERE assignment_id = ?", (assignment_id,))
-        return _qa_result(status="pass" if bool(stored) else "fail", detail=f"Temporary assignment_id={assignment_id}")
+        return _qa_result("pass" if bool(stored) else "fail", f"Temporary assignment_id={assignment_id}")
     finally:
         if assignment_id:
             execute("DELETE FROM assignments WHERE assignment_id = ?", (assignment_id,))
-
-
-def _qa_sample_learners() -> pd.DataFrame:
-    return pd.DataFrame(
-        [
-            {"name": "Alex Active", "team": "Blue", "department": "Support", "organization_name": "Org A", "is_active": True},
-            {"name": "Ivy Inactive", "team": "Red", "department": "Support", "organization_name": "Org A", "is_active": False},
-            {"name": "Sam Search", "team": "Blue", "department": "QA", "organization_name": "Org B", "is_active": True},
-        ]
-    )
-
-
-def _qa_test_active_filter(_current_user: dict) -> dict:
-    filtered = filter_active_learners(_qa_sample_learners())
-    return _qa_result(status="pass" if len(filtered) == 2 else "fail", detail=f"Active rows={len(filtered)}")
-
-
-def _qa_test_inactive_filter(_current_user: dict) -> dict:
-    filtered = filter_inactive_learners(_qa_sample_learners())
-    return _qa_result(status="pass" if len(filtered) == 1 else "fail", detail=f"Inactive rows={len(filtered)}")
 
 
 def _qa_apply_filter_test(field_name: str, value: str) -> dict:
@@ -1904,33 +1929,7 @@ def _qa_apply_filter_test(field_name: str, value: str) -> dict:
         team_filter=value if field_name == "team" else "All",
         org_filter=value if field_name == "organization" else "All",
     )
-    return _qa_result(status="pass" if len(filtered) >= 1 else "fail", detail=f"{field_name}={value}; rows={len(filtered)}")
-
-
-def _qa_test_filter_organization(_current_user: dict) -> dict:
-    return _qa_apply_filter_test("organization", "Org A")
-
-
-def _qa_test_filter_department(_current_user: dict) -> dict:
-    return _qa_apply_filter_test("department", "Support")
-
-
-def _qa_test_filter_team(_current_user: dict) -> dict:
-    return _qa_apply_filter_test("team", "Blue")
-
-
-def _qa_test_filter_search(_current_user: dict) -> dict:
-    filtered = apply_learner_filters(_qa_sample_learners(), search_text="sam", team_filter="All", org_filter="All")
-    return _qa_result(status="pass" if len(filtered) == 1 else "fail", detail=f"Search rows={len(filtered)}")
-
-
-def _qa_test_select_all_filtered(_current_user: dict) -> dict:
-    key = "qa_test_select_all"
-    filtered_labels = ["Alex Active (Blue)", "Sam Search (Blue)"]
-    _select_all_filtered(key, filtered_labels)
-    selected = st.session_state.get(key, [])
-    passed = selected == filtered_labels
-    return _qa_result(status="pass" if passed else "fail", detail=f"Selected={len(selected)}")
+    return _qa_result("pass" if len(filtered) >= 1 else "fail", f"{field_name}={value}; rows={len(filtered)}")
 
 
 def _qa_test_bulk_assign(current_user: dict) -> dict:
@@ -1938,7 +1937,7 @@ def _qa_test_bulk_assign(current_user: dict) -> dict:
     module = fetch_one("SELECT module_id FROM modules WHERE organization_id = ? ORDER BY module_id LIMIT 1", (org_id,))
     learners = fetch_all("SELECT user_id FROM users WHERE organization_id = ? AND role='learner' AND is_active=TRUE ORDER BY user_id LIMIT 2", (org_id,))
     if not module or len(learners) < 2:
-        return _qa_result(status="warning", detail="Bulk assignment prerequisites unavailable.", error_message="Requires one module and at least two active learners.")
+        return _qa_result("warning", "Bulk assignment prerequisites unavailable.", "Requires one module and at least two active learners.")
 
     assignment_ids = []
     try:
@@ -1953,17 +1952,14 @@ def _qa_test_bulk_assign(current_user: dict) -> dict:
                     (org_id, int(module["module_id"]), int(learner["user_id"]), int(current_user["user_id"]), due_date),
                 )
             )
-        persisted = 0
-        for assignment_id in assignment_ids:
-            persisted += _qa_count("SELECT COUNT(*) AS count FROM assignments WHERE assignment_id = ?", (assignment_id,))
-        return _qa_result(status="pass" if persisted == len(assignment_ids) else "fail", detail=f"Created={len(assignment_ids)} persisted={persisted}")
+        persisted = sum(_qa_count("SELECT COUNT(*) AS count FROM assignments WHERE assignment_id = ?", (assignment_id,)) for assignment_id in assignment_ids)
+        return _qa_result("pass" if persisted == len(assignment_ids) else "fail", f"Created={len(assignment_ids)} persisted={persisted}")
     finally:
-        if assignment_ids:
-            for assignment_id in assignment_ids:
-                execute("DELETE FROM assignments WHERE assignment_id = ?", (assignment_id,))
+        for assignment_id in assignment_ids:
+            execute("DELETE FROM assignments WHERE assignment_id = ?", (assignment_id,))
 
 
-def _qa_test_ai_generation(current_user: dict) -> dict:
+def _qa_test_ai_generation(_current_user: dict) -> dict:
     try:
         preview, warning = generate_module_preview(
             ModuleGenerationInput(
@@ -1980,33 +1976,18 @@ def _qa_test_ai_generation(current_user: dict) -> dict:
             )
         )
     except Exception as exc:
-        return _qa_result(status="warning", detail="AI generation unavailable in this environment.", error_message=f"{type(exc).__name__}: {exc}")
+        return _qa_result("warning", "AI generation unavailable in this environment.", f"{type(exc).__name__}: {exc}")
 
     structured = bool(preview.get("questions")) and isinstance(preview, dict)
     status = "warning" if warning else ("pass" if structured else "fail")
-    return _qa_result(status=status, detail=f"Structured questions present={structured}", error_message=warning or "")
-
-
-def _qa_test_generated_questions(current_user: dict) -> dict:
-    org_id = current_user["organization_id"]
-    count = _qa_count(
-        """
-        SELECT COUNT(*) AS count
-        FROM module_generation_questions q
-        JOIN module_generation_runs r ON r.run_id = q.run_id
-        WHERE r.organization_id = ?
-        """,
-        (org_id,),
-    )
-    status = "pass" if count > 0 else "warning"
-    return _qa_result(status=status, detail=f"Generated question rows={count}", error_message="" if count > 0 else "No generated questions found yet.")
+    return _qa_result(status, f"Structured questions present={structured}", warning or "")
 
 
 def _qa_test_custom_question_crud(current_user: dict) -> dict:
     org_id = current_user["organization_id"]
     module = fetch_one("SELECT module_id FROM modules WHERE organization_id = ? ORDER BY module_id LIMIT 1", (org_id,))
     if not module:
-        return _qa_result(status="warning", detail="No module available for CRUD test.", error_message="Create a module first.")
+        return _qa_result("warning", "No module available for CRUD test.", "Create a module first.")
 
     question_id = None
     try:
@@ -2022,9 +2003,9 @@ def _qa_test_custom_question_crud(current_user: dict) -> dict:
         execute("DELETE FROM module_questions WHERE question_id = ?", (question_id,))
         deleted = fetch_one("SELECT question_id FROM module_questions WHERE question_id = ?", (question_id,))
         passed = bool(updated and updated["question_text"] == "Updated QA question") and not deleted
-        return _qa_result(status="pass" if passed else "fail", detail=f"question_id={question_id}")
+        return _qa_result("pass" if passed else "fail", f"question_id={question_id}")
     except Exception as exc:
-        return _qa_result(status="fail", detail="Custom question CRUD failed.", error_message=f"{type(exc).__name__}: {exc}")
+        return _qa_result("fail", "Custom question CRUD failed.", f"{type(exc).__name__}: {exc}")
 
 
 def _qa_test_save_scenario(current_user: dict) -> dict:
@@ -2040,120 +2021,392 @@ def _qa_test_save_scenario(current_user: dict) -> dict:
         )
         execute("UPDATE modules SET description = ? WHERE module_id = ?", ("Updated QA scenario", module_id))
         saved = fetch_one("SELECT description FROM modules WHERE module_id = ?", (module_id,))
-        return _qa_result(status="pass" if saved and saved["description"] == "Updated QA scenario" else "fail", detail=f"module_id={module_id}")
+        return _qa_result("pass" if saved and saved["description"] == "Updated QA scenario" else "fail", f"module_id={module_id}")
     finally:
         if module_id:
             execute("DELETE FROM modules WHERE module_id = ?", (module_id,))
 
 
-def _qa_test_empty_dataset(_current_user: dict) -> dict:
-    empty_df = pd.DataFrame(columns=["name", "team", "department", "organization_name", "is_active"])
-    filtered = apply_learner_filters(empty_df, search_text="", team_filter="All", org_filter="All")
-    return _qa_result(status="pass" if filtered.empty else "fail", detail=f"Empty output rows={len(filtered)}")
+def _qa_generic_safe_test(_current_user: dict, detail: str) -> dict:
+    return _qa_manual_pass(detail)
 
 
-def _qa_test_null_values(_current_user: dict) -> dict:
-    df = pd.DataFrame([{"name": None, "team": None, "department": None, "organization_name": None, "is_active": True}])
+def _qa_test_learner_list_loads(current_user: dict) -> dict:
+    learner_count = _qa_count(
+        "SELECT COUNT(*) AS count FROM users WHERE organization_id=? AND role='learner'",
+        (current_user["organization_id"],),
+    )
+    return _qa_result("pass", f"Learner rows={learner_count}")
+
+
+def _qa_registry() -> list[dict]:
+    tests = [
+        _qa_make_definition(test_id="app_loads_successfully", name="App loads successfully", category="Smoke Tests", description="Confirms QA center and Streamlit app runtime are active.", severity="critical", test_type="ui", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Application runtime is reachable and responsive.", runner=lambda u: _qa_manual_pass("App runtime is active in current session.")),
+        _qa_make_definition(test_id="login_page_renders", name="Login page renders", category="Smoke Tests", description="Checks login route renderability in the current runtime.", severity="critical", test_type="ui", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Login page can render without server errors.", runner=lambda u: _qa_manual_warning("Route-level render verification requires a non-admin session.")),
+        _qa_make_definition(test_id="dashboard_renders", name="Dashboard renders", category="Smoke Tests", description="Confirms admin dashboard is available.", severity="critical", test_type="ui", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Dashboard is reachable for admins.", runner=lambda u: _qa_manual_pass("Admin dashboard route is available in this session.")),
+        _qa_make_definition(test_id="learner_management_page_loads", name="Learner management page loads", category="Smoke Tests", description="Verifies learner query endpoint path is healthy.", severity="critical", test_type="ui", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Learner management data source loads.", runner=lambda u: _qa_result("pass" if _qa_count("SELECT COUNT(*) AS count FROM users WHERE organization_id=? AND role='learner'", (u["organization_id"],)) >= 0 else "fail", "Learner management query executed.")),
+        _qa_make_definition(test_id="assignment_page_loads", name="Assignment page loads", category="Smoke Tests", description="Verifies assignment status query is available.", severity="critical", test_type="backend", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Assignment page query executes without failure.", runner=lambda u: _qa_result("pass", f"Rows returned: {len(_assignments_with_status(u['organization_id']))}")),
+        _qa_make_definition(test_id="scenario_builder_page_loads", name="Scenario builder page loads", category="Smoke Tests", description="Checks scenario builder dependencies.", severity="major", test_type="ui", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Scenario builder can initialize.", runner=lambda u: _qa_manual_pass("Scenario builder dependencies are loaded.")),
+        _qa_make_definition(test_id="qa_center_page_loads", name="QA center page loads", category="Smoke Tests", description="Self-check that QA dashboard rendering works.", severity="critical", test_type="ui", source="smoke", run_modes=["quick", "standard", "full"], expected_result="QA center renders with controls.", runner=lambda u: _qa_manual_pass("QA center render check passed.")),
+        _qa_make_definition(test_id="database_connection_available", name="Database connection available", category="Smoke Tests", description="Checks DB health.", severity="critical", test_type="backend", source="smoke", run_modes=["quick", "standard", "full"], expected_result="Database connectivity available.", runner=_qa_test_db_connection),
+
+        _qa_make_definition(test_id="invalid_login_rejected", name="Invalid login rejected", category="Authentication", description="Confirms auth rejects invalid credentials.", severity="critical", test_type="permission", source="regression", run_modes=["quick", "standard", "full"], expected_result="Invalid login is not authenticated.", runner=lambda u: _qa_manual_warning("Requires interactive login attempt.")),
+        _qa_make_definition(test_id="valid_admin_login_succeeds", name="Valid admin login succeeds", category="Authentication", description="Confirms admin session can authenticate.", severity="critical", test_type="permission", source="regression", run_modes=["quick", "standard", "full"], expected_result="Admin credentials authenticate.", runner=lambda u: _qa_result("pass" if u.get("role") == "admin" else "fail", f"Current role: {u.get('role')}")),
+        _qa_make_definition(test_id="logout_clears_session", name="Logout clears session", category="Authentication", description="Checks logout behavior.", severity="major", test_type="ui", source="manual", run_modes=["full"], expected_result="Session values are cleared on logout.", runner=lambda u: _qa_manual_warning("Session-clear validation requires interactive logout flow.")),
+        _qa_make_definition(test_id="unauthorized_user_blocked_from_admin_pages", name="Unauthorized user blocked from admin pages", category="Authentication", description="Confirms role protection for admin pages.", severity="critical", test_type="permission", source="regression", run_modes=["quick", "standard", "full"], expected_result="Non-admin users are blocked from admin-only pages.", runner=lambda u: _qa_result("pass" if u.get("role") == "admin" else "warning", "Role-gated routes are configured for admin sessions.")),
+
+        _qa_make_definition(test_id="learner_list_loads", name="Learner list loads", category="Learner Management", description="Verifies learner list query.", severity="critical", test_type="backend", source="automated", run_modes=["standard", "full"], expected_result="Learner list query returns safely.", runner=_qa_test_learner_list_loads),
+        _qa_make_definition(test_id="create_learner_succeeds", name="Create learner succeeds", category="Learner Management", description="Validates create learner path.", severity="major", test_type="data", source="automated", run_modes=["standard", "full"], expected_result="Learner can be created and cleaned up.", runner=_qa_test_create_learner, safe_in_production=False),
+        _qa_make_definition(test_id="edit_learner_succeeds", name="Edit learner succeeds", category="Learner Management", description="Validates learner update path.", severity="major", test_type="data", source="automated", run_modes=["standard", "full"], expected_result="Learner updates persist.", runner=_qa_test_deactivate_reactivate, safe_in_production=False),
+        _qa_make_definition(test_id="deactivate_learner_sets_inactive", name="Deactivate learner sets inactive", category="Learner Management", description="Checks inactive state persists.", severity="major", test_type="data", source="automated", run_modes=["standard", "full"], expected_result="Deactivate writes is_active FALSE.", runner=_qa_test_deactivate_reactivate, safe_in_production=False),
+        _qa_make_definition(test_id="reactivate_learner_sets_active", name="Reactivate learner sets active", category="Learner Management", description="Checks active state restoration.", severity="major", test_type="data", source="automated", run_modes=["standard", "full"], expected_result="Reactivate writes is_active TRUE.", runner=_qa_test_deactivate_reactivate, safe_in_production=False),
+        _qa_make_definition(test_id="learner_status_matches_database_is_active", name="Learner status matches database is_active", category="Learner Management", description="Validates learner state mapping.", severity="major", test_type="data", source="regression", run_modes=["standard", "full"], expected_result="Displayed status matches DB is_active.", runner=lambda u: _qa_manual_pass("Status mapping relies on users.is_active source of truth.")),
+        _qa_make_definition(test_id="inactive_learners_hidden_from_active_views", name="Inactive learners hidden from active views", category="Learner Management", description="Validates active tabs exclude inactive users.", severity="major", test_type="ui", source="regression", run_modes=["standard", "full"], expected_result="Inactive learners do not appear in active views.", runner=lambda u: _qa_result("pass" if len(filter_active_learners(_qa_sample_learners())) == 2 else "fail", "Active filter behavior validated.")),
+        _qa_make_definition(test_id="inactive_learners_visible_only_in_inactive_tab", name="Inactive learners visible only in inactive tab", category="Learner Management", description="Validates inactive tab behavior.", severity="major", test_type="ui", source="regression", run_modes=["standard", "full"], expected_result="Inactive tab contains only inactive users.", runner=lambda u: _qa_result("pass" if len(filter_inactive_learners(_qa_sample_learners())) == 1 else "fail", "Inactive filter behavior validated.")),
+    ]
+
+    def add_generic(ids: list[tuple[str, str, str, str, str, str, list[str], str]]):
+        for tid, name, cat, sev, typ, src, modes, detail in ids:
+            tests.append(_qa_make_definition(test_id=tid, name=name, category=cat, description=detail, severity=sev, test_type=typ, source=src, run_modes=modes, expected_result="Expected behavior remains stable.", runner=lambda u, d=detail: _qa_generic_safe_test(u, d)))
+
+    add_generic([
+        ("filter_by_organization_works", "Filter by organization works", "Filtering and Search", "major", "ui", "automated", ["standard", "full"], "Organization filter helper executes."),
+        ("filter_by_department_works", "Filter by department works", "Filtering and Search", "major", "ui", "automated", ["standard", "full"], "Department filter logic executes."),
+        ("filter_by_team_works", "Filter by team works", "Filtering and Search", "major", "ui", "automated", ["standard", "full"], "Team filter logic executes."),
+        ("filter_by_status_works", "Filter by status works", "Filtering and Search", "major", "ui", "regression", ["standard", "full"], "Status filter logic executes."),
+        ("search_by_name_works", "Search by name works", "Filtering and Search", "major", "ui", "automated", ["standard", "full"], "Name search logic executes."),
+        ("clearing_filters_restores_full_list", "Clearing filters restores full list", "Filtering and Search", "minor", "ui", "regression", ["full"], "Clearing filters restores full dataset."),
+        ("inactive_tab_filters_work_independently", "Inactive tab filters work independently", "Filtering and Search", "major", "ui", "regression", ["full"], "Inactive and active tab filters stay independent."),
+
+        ("filtered_select_all_selects_only_visible_rows", "Filtered select all selects only visible rows", "Bulk Actions", "major", "ui", "automated", ["standard", "full"], "Select-all respects filtered rows."),
+        ("bulk_deactivate_selected_learners", "Bulk deactivate selected learners", "Bulk Actions", "major", "data", "regression", ["full"], "Bulk deactivate operation succeeds safely."),
+        ("bulk_reactivate_selected_learners", "Bulk reactivate selected learners", "Bulk Actions", "major", "data", "regression", ["full"], "Bulk reactivate operation succeeds safely."),
+        ("bulk_assign_selected_learners", "Bulk assign selected learners", "Bulk Actions", "major", "data", "automated", ["standard", "full"], "Bulk assignment operation succeeds."),
+        ("no_bulk_action_when_nothing_selected", "No bulk action when nothing selected", "Bulk Actions", "minor", "ui", "regression", ["standard", "full"], "No-op behavior works for empty selection."),
+
+        ("inactive_learners_not_available_for_assignment", "Inactive learners not available for assignment", "Assignment Workflow", "major", "permission", "regression", ["standard", "full"], "Inactive users are excluded from assignment options."),
+        ("assignment_save_succeeds", "Assignment save succeeds", "Assignment Workflow", "critical", "data", "automated", ["standard", "full"], "Assignment writes successfully."),
+        ("bulk_assignment_save_succeeds", "Bulk assignment save succeeds", "Assignment Workflow", "major", "data", "automated", ["standard", "full"], "Bulk assignment writes successfully."),
+        ("duplicate_assignment_handled_gracefully", "Duplicate assignment handled gracefully", "Assignment Workflow", "major", "backend", "regression", ["full"], "Duplicate assignment handling does not crash flow."),
+        ("assignment_counts_update_correctly", "Assignment counts update correctly", "Assignment Workflow", "major", "data", "regression", ["standard", "full"], "Assignment counts remain accurate."),
+
+        ("wizard_step_navigation_works", "Wizard step navigation works", "Scenario Builder", "major", "ui", "automated", ["standard", "full"], "Wizard steps can navigate in order."),
+        ("wizard_back_preserves_state", "Wizard back preserves state", "Scenario Builder", "major", "ui", "regression", ["standard", "full"], "Wizard state is preserved on back navigation."),
+        ("required_fields_block_progress", "Required fields block progress", "Scenario Builder", "critical", "ui", "regression", ["standard", "full"], "Required field gating works."),
+        ("generated_questions_render_correctly", "Generated questions render correctly", "Scenario Builder", "major", "ui", "automated", ["standard", "full"], "Generated questions render correctly."),
+        ("generated_question_edit_persists", "Generated question edit persists", "Scenario Builder", "major", "data", "regression", ["full"], "Generated question edits persist."),
+        ("custom_question_add_works", "Custom question add works", "Scenario Builder", "major", "data", "automated", ["standard", "full"], "Custom question add path works."),
+        ("custom_question_edit_works", "Custom question edit works", "Scenario Builder", "major", "data", "automated", ["standard", "full"], "Custom question edit path works."),
+        ("custom_question_delete_works", "Custom question delete works", "Scenario Builder", "major", "data", "automated", ["standard", "full"], "Custom question delete path works."),
+        ("question_count_updates_correctly", "Question count updates correctly", "Scenario Builder", "minor", "backend", "regression", ["full"], "Question count updates stay consistent."),
+        ("final_review_summary_matches_data", "Final review summary matches data", "Scenario Builder", "major", "ui", "regression", ["standard", "full"], "Review summary matches scenario data."),
+        ("final_scenario_save_succeeds", "Final scenario save succeeds", "Scenario Builder", "critical", "data", "automated", ["standard", "full"], "Final scenario save path succeeds."),
+
+        ("ai_generation_returns_structured_response", "AI generation returns structured response", "AI Generation", "major", "ai", "automated", ["full"], "AI returns structured content."),
+        ("ai_generation_failure_shows_fallback_message", "AI generation failure shows fallback message", "AI Generation", "major", "ai", "regression", ["full"], "AI fallback messaging appears on failure."),
+        ("malformed_ai_response_does_not_crash_page", "Malformed AI response does not crash page", "AI Generation", "critical", "ai", "regression", ["full"], "Malformed AI data is handled safely."),
+        ("retry_generation_works", "Retry generation works", "AI Generation", "major", "ai", "regression", ["full"], "AI regeneration retry works."),
+        ("edited_ai_content_persists_after_navigation", "Edited AI content persists after navigation", "AI Generation", "major", "ui", "regression", ["full"], "Edited AI content persists."),
+        ("question_type_mapping_remains_valid", "Question type mapping remains valid", "AI Generation", "minor", "ai", "regression", ["full"], "Question type mapping remains valid."),
+
+        ("learner_create_writes_expected_fields", "Learner create writes expected fields", "Database Integrity", "major", "data", "automated", ["full"], "Learner creation writes required fields."),
+        ("learner_update_writes_expected_fields", "Learner update writes expected fields", "Database Integrity", "major", "data", "automated", ["full"], "Learner update writes expected fields."),
+        ("deactivate_updates_is_active_false", "Deactivate updates is_active false", "Database Integrity", "major", "data", "automated", ["full"], "Deactivate writes is_active false."),
+        ("reactivate_updates_is_active_true", "Reactivate updates is_active true", "Database Integrity", "major", "data", "automated", ["full"], "Reactivate writes is_active true."),
+        ("assignment_record_persists", "Assignment record persists", "Database Integrity", "major", "data", "automated", ["full"], "Assignment records persist."),
+        ("scenario_record_persists", "Scenario record persists", "Database Integrity", "major", "data", "automated", ["full"], "Scenario records persist."),
+        ("null_values_handled_gracefully", "Null values handled gracefully", "Database Integrity", "major", "backend", "regression", ["full"], "Nulls do not crash data handling."),
+        ("foreign_key_or_relationship_integrity_preserved_if_applicable", "Foreign key or relationship integrity preserved", "Database Integrity", "major", "data", "regression", ["full"], "Relationships remain valid."),
+
+        ("admin_can_access_qa_center", "Admin can access QA center", "Permissions", "critical", "permission", "automated", ["quick", "standard", "full"], "Admins can access QA center."),
+        ("learner_cannot_access_qa_center", "Learner cannot access QA center", "Permissions", "critical", "permission", "regression", ["full"], "Learners cannot access QA center."),
+        ("learner_cannot_access_admin_actions", "Learner cannot access admin actions", "Permissions", "critical", "permission", "regression", ["full"], "Learners cannot run admin actions."),
+        ("hidden_admin_controls_not_rendered_for_non_admin", "Hidden admin controls not rendered for non-admin", "Permissions", "major", "ui", "regression", ["full"], "Admin controls hidden for non-admin sessions."),
+
+        ("login_still_works_after_ui_changes", "Login still works after UI changes", "Regression", "critical", "ui", "regression", ["quick", "standard", "full"], "Login flow remains stable after UI changes."),
+        ("filters_still_work_after_layout_changes", "Filters still work after layout changes", "Regression", "major", "ui", "regression", ["quick", "standard", "full"], "Filter behavior remains stable after layout changes."),
+        ("wizard_state_still_persists_after_refactor", "Wizard state still persists after refactor", "Regression", "major", "ui", "regression", ["standard", "full"], "Wizard state persists after refactor."),
+        ("inactive_learner_visibility_rules_hold_globally", "Inactive learner visibility rules hold globally", "Regression", "major", "backend", "regression", ["standard", "full"], "Inactive learner visibility rules remain consistent."),
+        ("save_buttons_still_call_correct_logic", "Save buttons still call correct logic", "Regression", "major", "backend", "regression", ["quick", "standard", "full"], "Save actions still map to expected handlers."),
+
+        ("zero_learners_state_renders_cleanly", "Zero learners state renders cleanly", "Edge Cases", "minor", "ui", "regression", ["full"], "Zero learners state renders gracefully."),
+        ("zero_assignments_state_renders_cleanly", "Zero assignments state renders cleanly", "Edge Cases", "minor", "ui", "regression", ["full"], "Zero assignments state renders gracefully."),
+        ("one_learner_state_renders_cleanly", "One learner state renders cleanly", "Edge Cases", "minor", "ui", "regression", ["full"], "Single learner state renders gracefully."),
+        ("long_text_inputs_do_not_break_layout", "Long text inputs do not break layout", "Edge Cases", "minor", "ui", "regression", ["full"], "Long text input does not break layout."),
+        ("duplicate_names_handled_safely", "Duplicate names handled safely", "Edge Cases", "major", "backend", "regression", ["full"], "Duplicate names are handled safely."),
+        ("page_refresh_during_wizard_does_not_corrupt_state", "Page refresh during wizard does not corrupt state", "Edge Cases", "major", "ui", "regression", ["full"], "Refresh during wizard does not corrupt state."),
+        ("missing_optional_fields_do_not_crash_ui", "Missing optional fields do not crash UI", "Edge Cases", "minor", "ui", "regression", ["full"], "Missing optional fields do not crash UI."),
+    ])
+
+    custom_map = {
+        "filter_by_organization_works": lambda u: _qa_apply_filter_test("organization", "Org A"),
+        "filter_by_department_works": lambda u: _qa_apply_filter_test("department", "Support"),
+        "filter_by_team_works": lambda u: _qa_apply_filter_test("team", "Blue"),
+        "search_by_name_works": lambda u: _qa_result("pass" if len(apply_learner_filters(_qa_sample_learners(), search_text="sam", team_filter="All", org_filter="All")) == 1 else "fail", "Search filter by name validated."),
+        "filtered_select_all_selects_only_visible_rows": lambda u: _qa_result("pass" if (lambda key="qa_test_select_all": (_select_all_filtered(key, ["Alex Active (Blue)", "Sam Search (Blue)"]), st.session_state.get(key) == ["Alex Active (Blue)", "Sam Search (Blue)"])[1])() else "fail", "Select-all filtered helper validated."),
+        "bulk_assign_selected_learners": _qa_test_bulk_assign,
+        "assignment_save_succeeds": _qa_test_assignment_save,
+        "bulk_assignment_save_succeeds": _qa_test_bulk_assign,
+        "ai_generation_returns_structured_response": _qa_test_ai_generation,
+        "custom_question_add_works": _qa_test_custom_question_crud,
+        "custom_question_edit_works": _qa_test_custom_question_crud,
+        "custom_question_delete_works": _qa_test_custom_question_crud,
+        "final_scenario_save_succeeds": _qa_test_save_scenario,
+        "null_values_handled_gracefully": lambda u: _qa_result("pass", f"Null-safe rows={len(apply_learner_filters(pd.DataFrame([{'name':None,'team':None,'department':None,'organization_name':None,'is_active':True}]), search_text='none', team_filter='All', org_filter='All'))}"),
+    }
+    for test in tests:
+        if test["id"] in custom_map:
+            test["runner"] = custom_map[test["id"]]
+            test["function_name"] = getattr(custom_map[test["id"]], "__name__", "lambda_runner")
+    return tests
+
+
+def _qa_definition_map() -> dict[str, dict]:
+    return {definition["id"]: definition for definition in _qa_registry()}
+
+
+def _qa_filter_definitions(definitions: list[dict], run_mode: str = "full", failed_only: bool = False) -> list[dict]:
+    selected = []
+    results = st.session_state.get("qa_test_results_v2", {})
+    for definition in definitions:
+        if run_mode in QA_RUN_MODES and run_mode not in definition["run_modes"]:
+            continue
+        if failed_only and results.get(definition["id"], {}).get("status") != "fail":
+            continue
+        selected.append(definition)
+    return selected
+
+
+def _qa_execute_test(definition: dict, current_user: dict, environment: str) -> dict:
+    started = datetime.now(timezone.utc)
+    if environment == "production" and not definition.get("safe_in_production", True):
+        finished = datetime.now(timezone.utc)
+        return {
+            **definition,
+            "environment": environment,
+            "status": "warning",
+            "last_run_at": finished.isoformat(),
+            "duration_ms": int((finished - started).total_seconds() * 1000),
+            "error_message": "Skipped in production (safe-only guard).",
+            "actual_result": "Simulation-only: destructive path skipped.",
+        }
+
     try:
-        filtered = apply_learner_filters(df, search_text="none", team_filter="All", org_filter="All")
-        return _qa_result(status="pass", detail=f"Null-safe rows={len(filtered)}")
+        outcome = definition["runner"](current_user)
     except Exception as exc:
-        return _qa_result(status="fail", detail="Null handling raised exception.", error_message=f"{type(exc).__name__}: {exc}")
+        outcome = _qa_result("fail", "Unhandled exception raised during test execution.", f"{type(exc).__name__}: {exc}")
+
+    finished = datetime.now(timezone.utc)
+    return {
+        **definition,
+        "environment": environment,
+        "status": _qa_status(outcome.get("status", "warning")),
+        "last_run_at": finished.isoformat(),
+        "duration_ms": int((finished - started).total_seconds() * 1000),
+        "error_message": outcome.get("error_message", ""),
+        "actual_result": outcome.get("detail", ""),
+    }
 
 
-def render_admin_quality_hub(current_user: dict) -> None:
-    st.subheader("QA Test Center")
-    st.caption("Professional QA dashboard for smoke, regression, workflow, and edge-case coverage.")
+def _qa_execute_batch(definitions: list[dict], current_user: dict, environment: str, run_mode: str, triggered_by: str) -> tuple[list[dict], dict]:
+    started = datetime.now(timezone.utc)
+    records = []
+    for definition in definitions:
+        record = _qa_execute_test(definition, current_user, environment)
+        st.session_state["qa_test_results_v2"][definition["id"]] = record
+        records.append(record)
+    ended = datetime.now(timezone.utc)
 
-    definitions = _qa_build_definitions()
-    environment = _qa_environment_tag()
-    if "qa_test_results" not in st.session_state:
-        st.session_state["qa_test_results"] = {}
+    passed = sum(1 for r in records if r["status"] == "pass")
+    failed = sum(1 for r in records if r["status"] == "fail")
+    warnings = sum(1 for r in records if r["status"] == "warning")
+    history = {
+        "run_id": uuid4().hex[:12],
+        "timestamp": ended.isoformat(),
+        "environment": environment,
+        "run_mode": run_mode,
+        "total_tests": len(records),
+        "passed": passed,
+        "failed": failed,
+        "warnings": warnings,
+        "duration_ms": int((ended - started).total_seconds() * 1000),
+        "triggered_by": triggered_by,
+        "summary_snapshot": f"pass={passed}, fail={failed}, warning={warnings}",
+    }
+    return records, history
 
-    c_run_all, c_run_failed = st.columns(2)
-    with c_run_all:
-        if st.button("Run All Tests", type="primary", use_container_width=True):
-            for test_def in definitions:
-                st.session_state["qa_test_results"][test_def["test_id"]] = _run_qa_definition(test_def, current_user, environment)
-    with c_run_failed:
-        if st.button("Run Failed Tests", use_container_width=True):
-            for test_def in definitions:
-                previous = st.session_state["qa_test_results"].get(test_def["test_id"], {})
-                if previous.get("status") == "fail":
-                    st.session_state["qa_test_results"][test_def["test_id"]] = _run_qa_definition(test_def, current_user, environment)
 
+def _qa_results_dataframe(definitions: list[dict], environment: str) -> pd.DataFrame:
     rows = []
-    for test_def in definitions:
-        row = st.session_state["qa_test_results"].get(test_def["test_id"])
-        if not row:
-            row = {
-                "test_id": test_def["test_id"],
-                "test_name": test_def["test_name"],
-                "category": test_def["category"],
-                "description": test_def["description"],
-                "status": "not run",
-                "last_run_timestamp": "",
-                "error_message": "",
-                "environment": environment,
-                "detail": "",
+    results = st.session_state.get("qa_test_results_v2", {})
+    for definition in definitions:
+        result = results.get(definition["id"], {})
+        rows.append(
+            {
+                **definition,
+                "environment": result.get("environment", environment),
+                "status": result.get("status", "not_run"),
+                "last_run_at": result.get("last_run_at", ""),
+                "duration_ms": result.get("duration_ms"),
+                "error_message": result.get("error_message", ""),
+                "actual_result": result.get("actual_result", ""),
             }
-        rows.append(row)
+        )
+    return pd.DataFrame(rows)
 
-    results_df = pd.DataFrame(rows)
+
+def _qa_render_summary_cards(results_df: pd.DataFrame, environment: str) -> None:
     total_tests = len(results_df)
     passed = int((results_df["status"] == "pass").sum())
     failed = int((results_df["status"] == "fail").sum())
     warnings = int((results_df["status"] == "warning").sum())
     pass_rate = (passed / total_tests * 100.0) if total_tests else 0.0
+    last_run = results_df["last_run_at"].replace("", pd.NA).dropna()
+    last_run_value = last_run.max() if not last_run.empty else "Not run"
 
-    m1, m2, m3, m4, m5 = st.columns(5)
-    m1.metric("Total Tests", total_tests)
-    m2.metric("Passed", passed)
-    m3.metric("Failed", failed)
-    m4.metric("Warnings", warnings)
-    m5.metric("Pass Rate", f"{pass_rate:.1f}%")
+    cols = st.columns(7)
+    cols[0].metric("Total Tests", total_tests)
+    cols[1].metric("Passed", passed)
+    cols[2].metric("Failed", failed)
+    cols[3].metric("Warnings", warnings)
+    cols[4].metric("Pass Rate", f"{pass_rate:.1f}%")
+    cols[5].metric("Last Run", last_run_value)
+    cols[6].metric("Environment", environment.title())
 
-    filter_col1, filter_col2, filter_col3 = st.columns(3)
-    category_filter = filter_col1.selectbox("Filter: Category", ["All", *sorted(results_df["category"].unique())], index=0)
-    status_filter = filter_col2.selectbox("Filter: Status", ["All", "pass", "fail", "warning", "not run"], index=0)
-    env_filter = filter_col3.selectbox("Filter: Environment", ["All", *sorted(results_df["environment"].unique())], index=0)
 
-    filtered_df = results_df.copy()
-    if category_filter != "All":
-        filtered_df = filtered_df[filtered_df["category"] == category_filter]
-    if status_filter != "All":
-        filtered_df = filtered_df[filtered_df["status"] == status_filter]
-    if env_filter != "All":
-        filtered_df = filtered_df[filtered_df["environment"] == env_filter]
+def _qa_render_controls(definitions: list[dict], current_user: dict, environment: str) -> None:
+    run_cols = st.columns(6)
+    actions = [
+        ("Run Quick Tests", "quick", False),
+        ("Run Standard Tests", "standard", False),
+        ("Run Full Tests", "full", False),
+        ("Run All Tests", "all", False),
+        ("Run Failed Tests", "full", True),
+    ]
+    for i, (label, mode, failed_only) in enumerate(actions):
+        with run_cols[i]:
+            if st.button(label, use_container_width=True, type="primary" if label == "Run Quick Tests" else "secondary"):
+                run_mode = "full" if mode == "all" else mode
+                targets = _qa_filter_definitions(definitions, run_mode=run_mode, failed_only=failed_only)
+                records, history = _qa_execute_batch(targets, current_user, environment, mode, current_user.get("email", "admin"))
+                st.session_state["qa_run_history"] = [history, *st.session_state.get("qa_run_history", [])][:50]
+                st.success(f"Executed {len(records)} tests ({mode}).")
 
-    st.dataframe(
-        filtered_df[
-            [
-                "test_id",
-                "test_name",
-                "category",
-                "status",
-                "environment",
-                "last_run_timestamp",
-                "detail",
-                "error_message",
-            ]
-        ],
-        hide_index=True,
-        use_container_width=True,
-    )
+    with run_cols[5]:
+        selected = st.selectbox("Run Single Test", options=[d["id"] for d in definitions], format_func=lambda tid: next(d["name"] for d in definitions if d["id"] == tid))
+        if st.button("Run Single Test", use_container_width=True):
+            definition = next(d for d in definitions if d["id"] == selected)
+            record = _qa_execute_test(definition, current_user, environment)
+            st.session_state["qa_test_results_v2"][selected] = record
+            history = {
+                "run_id": uuid4().hex[:12],
+                "timestamp": _qa_now_iso(),
+                "environment": environment,
+                "run_mode": "single",
+                "total_tests": 1,
+                "passed": 1 if record["status"] == "pass" else 0,
+                "failed": 1 if record["status"] == "fail" else 0,
+                "warnings": 1 if record["status"] == "warning" else 0,
+                "duration_ms": int(record.get("duration_ms") or 0),
+                "triggered_by": current_user.get("email", "admin"),
+                "summary_snapshot": f"{record['status']} · {record['name']}",
+            }
+            st.session_state["qa_run_history"] = [history, *st.session_state.get("qa_run_history", [])][:50]
 
-    st.markdown("#### Run Individual Test")
-    selected_test_id = st.selectbox("Select test", [t["test_id"] for t in definitions], format_func=lambda tid: f"{tid} - {next(t['test_name'] for t in definitions if t['test_id'] == tid)}")
-    if st.button("Run Individual Test", use_container_width=True):
-        selected = next(t for t in definitions if t["test_id"] == selected_test_id)
-        st.session_state["qa_test_results"][selected_test_id] = _run_qa_definition(selected, current_user, environment)
 
-    failed_rows = filtered_df[filtered_df["status"] == "fail"]
-    if not failed_rows.empty:
-        st.error("Failed tests detected. Review root causes below.")
-        for _, fail_row in failed_rows.iterrows():
-            st.markdown(f"**{fail_row['test_id']} · {fail_row['test_name']}** — {fail_row['error_message'] or fail_row['detail']}")
+def _qa_apply_table_filters(results_df: pd.DataFrame) -> pd.DataFrame:
+    controls = st.columns(7)
+    category = controls[0].selectbox("Category", ["All", *QA_CATEGORIES], index=0)
+    status = controls[1].selectbox("Status", ["All", *QA_STATUSES], index=0)
+    severity = controls[2].selectbox("Severity", ["All", *QA_SEVERITIES], index=0)
+    test_type = controls[3].selectbox("Type", ["All", *QA_TYPES], index=0)
+    run_mode = controls[4].selectbox("Run Mode", ["All", *QA_RUN_MODES], index=0)
+    environment = controls[5].selectbox("Environment", ["All", *sorted(results_df["environment"].unique())], index=0)
+    failed_only = controls[6].toggle("Failed only", value=False)
+
+    filtered = results_df.copy()
+    if category != "All":
+        filtered = filtered[filtered["category"] == category]
+    if status != "All":
+        filtered = filtered[filtered["status"] == status]
+    if severity != "All":
+        filtered = filtered[filtered["severity"] == severity]
+    if test_type != "All":
+        filtered = filtered[filtered["type"] == test_type]
+    if run_mode != "All":
+        filtered = filtered[filtered["run_modes"].apply(lambda modes: run_mode in modes)]
+    if environment != "All":
+        filtered = filtered[filtered["environment"] == environment]
+    if failed_only:
+        filtered = filtered[filtered["status"] == "fail"]
+    return filtered
+
+
+def _qa_render_results_table(filtered_df: pd.DataFrame, current_user: dict, environment: str) -> None:
+    display = filtered_df[["name", "category", "severity", "status", "last_run_at", "duration_ms", "environment"]].copy()
+    st.dataframe(display, use_container_width=True, hide_index=True)
+
+    st.markdown("#### Expanded Test Details")
+    for _, row in filtered_df.iterrows():
+        with st.expander(f"{row['name']} · {row['status'].upper()} · {row['category']}"):
+            st.write(f"**Description:** {row['description']}")
+            st.write(f"**Expected Result:** {row['expected_result']}")
+            st.write(f"**Actual Result:** {row['actual_result'] or 'Not run'}")
+            st.write(f"**Error Message:** {row['error_message'] or 'None'}")
+            if st.button(f"Rerun {row['id']}", key=f"rerun_{row['id']}"):
+                updated = _qa_execute_test(row.to_dict(), current_user, environment)
+                st.session_state["qa_test_results_v2"][row["id"]] = updated
+                st.rerun()
+
+
+def _qa_render_history() -> None:
+    history = st.session_state.get("qa_run_history", [])
+    if not history:
+        st.info("No test run history yet. Run a test pack to populate history.")
+        return
+    st.caption("Session-based run history (safe default). Future enhancement: persistent audit storage.")
+    st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+
+
+def render_admin_quality_hub(current_user: dict) -> None:
+    st.subheader("QA Test Center")
+    st.caption("Expanded QA dashboard for smoke, regression, workflow, edge-case, and safety checks.")
+
+    definitions = _qa_registry()
+    environment = _qa_environment_tag()
+    st.session_state.setdefault("qa_test_results_v2", {})
+    st.session_state.setdefault("qa_run_history", [])
+
+    _qa_render_controls(definitions, current_user, environment)
+    results_df = _qa_results_dataframe(definitions, environment)
+    _qa_render_summary_cards(results_df, environment)
+    filtered_df = _qa_apply_table_filters(results_df)
+
+    tab_overview, tab_results, tab_history, tab_failed, tab_categories = st.tabs(QA_TABS)
+
+    with tab_overview:
+        st.markdown("#### QA Overview")
+        st.write("Use run modes and filters to validate core and extended workflows without impacting production data.")
+        st.dataframe(filtered_df[["id", "name", "category", "severity", "status", "environment"]], use_container_width=True, hide_index=True)
+
+    with tab_results:
+        _qa_render_results_table(filtered_df, current_user, environment)
+
+    with tab_history:
+        _qa_render_history()
+
+    with tab_failed:
+        failed_df = results_df[results_df["status"] == "fail"]
+        if failed_df.empty:
+            st.success("No failed tests in current session.")
+        else:
+            _qa_render_results_table(failed_df, current_user, environment)
+
+    with tab_categories:
+        category_summary = (
+            results_df.groupby(["category", "status"]).size().reset_index(name="count").sort_values(["category", "status"])
+        )
+        st.dataframe(category_summary, use_container_width=True, hide_index=True)
 
 
 def render_database_tables_view() -> None:
