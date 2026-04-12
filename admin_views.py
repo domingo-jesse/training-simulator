@@ -871,96 +871,277 @@ def _estimated_time_to_minutes(value: str | None, fallback: int = 20) -> int:
     return max(1, int(digits))
 
 
+def _is_present(value: object) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    return True
+
+
+def _render_wizard_progress(step_index: int, total_steps: int, title: str) -> None:
+    st.caption(f"Step {step_index + 1} of {total_steps}")
+    st.progress((step_index + 1) / total_steps)
+    st.markdown(f"#### {title}")
+
+
 def render_module_builder(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     st.subheader("Module Builder")
     st.caption("Build from admin input → AI draft preview → approve/deny scenario + questions → publish.")
 
     st.markdown("#### Step 1: Enter module goals")
-    with st.form("generate_module_preview"):
-        title = st.text_input("Title")
-        category = st.text_input("Category", value="General")
-        difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"])
-        role_focus = st.text_input("Role being simulated (e.g., Support Tier 1, Team Lead)")
-        test_focus = st.text_input("What should this module test?")
-        description = st.text_area("Description")
-        learning_objectives = st.text_area("Learning objectives (one per line)")
-        scenario_constraints = st.text_area("Scenario context / constraints")
-        content_sections = st.text_area("Ordered content sections (one per line)")
-        completion_requirements = st.text_area("Completion requirements")
-        quiz_required = st.checkbox("Quiz required", value=True)
-        estimated_minutes = st.number_input("Estimated assessment time (minutes)", min_value=1, max_value=240, value=20, step=1)
-        question_count = st.slider("AI-generated questions", min_value=5, max_value=6, value=5)
+    module_builder_step_key = "module_builder_step"
+    module_builder_form_key = "module_builder_form"
+    module_builder_defaults = {
+        "title": "",
+        "category": "General",
+        "difficulty": "Beginner",
+        "role_focus": "",
+        "test_focus": "",
+        "description": "",
+        "learning_objectives": "",
+        "scenario_constraints": "",
+        "content_sections": "",
+        "completion_requirements": "",
+        "quiz_required": True,
+        "estimated_minutes": 20,
+        "question_count": 5,
+    }
+    if module_builder_step_key not in st.session_state:
+        st.session_state[module_builder_step_key] = 0
+    if module_builder_form_key not in st.session_state:
+        st.session_state[module_builder_form_key] = dict(module_builder_defaults)
+    module_form = st.session_state[module_builder_form_key]
 
-        generate_preview = st.form_submit_button("OpenAI: Generate module preview", type="primary")
-        if generate_preview:
-            payload = ModuleGenerationInput(
-                title=title.strip(),
-                category=category.strip() or "General",
-                difficulty=difficulty,
-                description=description.strip(),
-                role_focus=role_focus.strip(),
-                test_focus=test_focus.strip(),
-                learning_objectives=[line.strip() for line in learning_objectives.splitlines() if line.strip()],
-                scenario_constraints=scenario_constraints.strip(),
-                completion_requirements=completion_requirements.strip(),
-                question_count=question_count,
+    module_builder_steps = [
+        {"title": "Module title", "field": "title", "required": True},
+        {"title": "Category", "field": "category", "required": True},
+        {"title": "Difficulty", "field": "difficulty", "required": True},
+        {"title": "Role being simulated", "field": "role_focus", "required": True},
+        {"title": "What should this module test?", "field": "test_focus", "required": True},
+        {"title": "Description", "field": "description", "required": True},
+        {"title": "Learning objectives", "field": "learning_objectives", "required": True},
+        {"title": "Scenario context / constraints", "field": "scenario_constraints", "required": True},
+        {"title": "Ordered content sections", "field": "content_sections", "required": True},
+        {"title": "Completion requirements", "field": "completion_requirements", "required": True},
+        {"title": "Assessment settings", "field": "assessment_settings", "required": True},
+        {"title": "Review and submit", "field": "review", "required": True},
+    ]
+
+    current_step = int(st.session_state[module_builder_step_key])
+    total_steps = len(module_builder_steps)
+    step_config = module_builder_steps[current_step]
+    _render_wizard_progress(current_step, total_steps, step_config["title"])
+
+    # Wizard: render exactly one step at a time and persist each input in session state.
+    step_valid = True
+    required_message = ""
+    if step_config["field"] == "title":
+        module_form["title"] = st.text_input("Title", value=module_form["title"], key="module_builder_title")
+        step_valid = _is_present(module_form["title"])
+        required_message = "Title is required."
+    elif step_config["field"] == "category":
+        module_form["category"] = st.text_input("Category", value=module_form["category"], key="module_builder_category")
+        step_valid = _is_present(module_form["category"])
+        required_message = "Category is required."
+    elif step_config["field"] == "difficulty":
+        difficulty_options = ["Beginner", "Intermediate", "Advanced"]
+        current_difficulty = module_form["difficulty"] if module_form["difficulty"] in difficulty_options else "Beginner"
+        module_form["difficulty"] = st.selectbox(
+            "Difficulty",
+            difficulty_options,
+            index=difficulty_options.index(current_difficulty),
+            key="module_builder_difficulty",
+        )
+    elif step_config["field"] == "role_focus":
+        module_form["role_focus"] = st.text_input(
+            "Role being simulated (e.g., Support Tier 1, Team Lead)",
+            value=module_form["role_focus"],
+            key="module_builder_role_focus",
+        )
+        step_valid = _is_present(module_form["role_focus"])
+        required_message = "Role focus is required."
+    elif step_config["field"] == "test_focus":
+        module_form["test_focus"] = st.text_input(
+            "What should this module test?",
+            value=module_form["test_focus"],
+            key="module_builder_test_focus",
+        )
+        step_valid = _is_present(module_form["test_focus"])
+        required_message = "Test focus is required."
+    elif step_config["field"] == "description":
+        module_form["description"] = st.text_area("Description", value=module_form["description"], key="module_builder_description")
+        step_valid = _is_present(module_form["description"])
+        required_message = "Description is required."
+    elif step_config["field"] == "learning_objectives":
+        module_form["learning_objectives"] = st.text_area(
+            "Learning objectives (one per line)",
+            value=module_form["learning_objectives"],
+            key="module_builder_learning_objectives",
+        )
+        step_valid = _is_present(module_form["learning_objectives"])
+        required_message = "Learning objectives are required."
+    elif step_config["field"] == "scenario_constraints":
+        module_form["scenario_constraints"] = st.text_area(
+            "Scenario context / constraints",
+            value=module_form["scenario_constraints"],
+            key="module_builder_scenario_constraints",
+        )
+        step_valid = _is_present(module_form["scenario_constraints"])
+        required_message = "Scenario context is required."
+    elif step_config["field"] == "content_sections":
+        module_form["content_sections"] = st.text_area(
+            "Ordered content sections (one per line)",
+            value=module_form["content_sections"],
+            key="module_builder_content_sections",
+        )
+        step_valid = _is_present(module_form["content_sections"])
+        required_message = "Content sections are required."
+    elif step_config["field"] == "completion_requirements":
+        module_form["completion_requirements"] = st.text_area(
+            "Completion requirements",
+            value=module_form["completion_requirements"],
+            key="module_builder_completion_requirements",
+        )
+        step_valid = _is_present(module_form["completion_requirements"])
+        required_message = "Completion requirements are required."
+    elif step_config["field"] == "assessment_settings":
+        module_form["quiz_required"] = st.checkbox(
+            "Quiz required",
+            value=bool(module_form["quiz_required"]),
+            key="module_builder_quiz_required",
+        )
+        module_form["estimated_minutes"] = int(
+            st.number_input(
+                "Estimated assessment time (minutes)",
+                min_value=1,
+                max_value=240,
+                value=int(module_form["estimated_minutes"]),
+                step=1,
+                key="module_builder_estimated_minutes",
             )
-            preview, warning = generate_module_preview(payload)
-            run_id = execute(
-                """
-                INSERT INTO module_generation_runs (
-                    organization_id, created_by, input_title, input_category, input_difficulty,
-                    input_description, role_focus, test_focus, learning_objectives, input_content_sections,
-                    scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
-                    input_estimated_minutes,
-                    generated_title, generated_description, generated_scenario_overview,
-                    generation_status, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
-                """,
-                (
-                    org_id,
-                    current_user["user_id"],
-                    payload.title,
-                    payload.category,
-                    payload.difficulty,
-                    payload.description,
-                    payload.role_focus,
-                    payload.test_focus,
-                    "\n".join(payload.learning_objectives),
-                    _parse_lines(content_sections),
-                    payload.scenario_constraints,
-                    payload.completion_requirements,
-                    1 if quiz_required else 0,
-                    payload.question_count,
-                    int(estimated_minutes),
-                    preview.get("title"),
-                    preview.get("description"),
-                    preview.get("scenario_overview"),
-                ),
+        )
+        module_form["question_count"] = int(
+            st.slider(
+                "AI-generated questions",
+                min_value=5,
+                max_value=6,
+                value=int(module_form["question_count"]),
+                key="module_builder_question_count",
             )
-            executemany(
-                """
-                INSERT INTO module_generation_questions (
-                    run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-                """,
-                [
-                    (
-                        run_id,
-                        idx + 1,
-                        item.get("question", ""),
-                        item.get("rationale", ""),
-                        "open_text",
-                        "",
-                    )
-                    for idx, item in enumerate(preview.get("questions", []))
-                ],
-            )
-            if warning:
-                st.warning(warning)
-            st.success("Draft generated. Continue to review and approve below.")
+        )
+    else:
+        st.markdown("##### Review")
+        st.write("Please review your values before saving.")
+        st.json(module_form)
+        missing_required = [
+            "title",
+            "category",
+            "role_focus",
+            "test_focus",
+            "description",
+            "learning_objectives",
+            "scenario_constraints",
+            "content_sections",
+            "completion_requirements",
+        ]
+        missing_labels = [field for field in missing_required if not _is_present(module_form.get(field))]
+        step_valid = not missing_labels
+        if missing_labels:
+            st.error(f"Required fields missing: {', '.join(missing_labels)}")
+
+    if not step_valid and required_message and step_config["field"] != "review":
+        st.error(required_message)
+
+    nav_left, nav_mid, nav_right = st.columns([1, 1, 2])
+    with nav_left:
+        if st.button("Previous", key="module_builder_previous", disabled=current_step == 0):
+            st.session_state[module_builder_step_key] = max(0, current_step - 1)
             st.rerun()
+    with nav_mid:
+        if current_step < total_steps - 2:
+            if st.button("Next", key="module_builder_next", disabled=not step_valid):
+                st.session_state[module_builder_step_key] = current_step + 1
+                st.rerun()
+        elif current_step == total_steps - 2:
+            if st.button("Review", key="module_builder_review", disabled=not step_valid):
+                st.session_state[module_builder_step_key] = current_step + 1
+                st.rerun()
+    with nav_right:
+        if current_step == total_steps - 1:
+            if st.button("Save Module", key="module_builder_save_module", type="primary", disabled=not step_valid):
+                payload = ModuleGenerationInput(
+                    title=module_form["title"].strip(),
+                    category=module_form["category"].strip() or "General",
+                    difficulty=module_form["difficulty"],
+                    description=module_form["description"].strip(),
+                    role_focus=module_form["role_focus"].strip(),
+                    test_focus=module_form["test_focus"].strip(),
+                    learning_objectives=[line.strip() for line in module_form["learning_objectives"].splitlines() if line.strip()],
+                    scenario_constraints=module_form["scenario_constraints"].strip(),
+                    completion_requirements=module_form["completion_requirements"].strip(),
+                    question_count=int(module_form["question_count"]),
+                )
+                try:
+                    preview, warning = generate_module_preview(payload)
+                    run_id = execute(
+                        """
+                        INSERT INTO module_generation_runs (
+                            organization_id, created_by, input_title, input_category, input_difficulty,
+                            input_description, role_focus, test_focus, learning_objectives, input_content_sections,
+                            scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
+                            input_estimated_minutes,
+                            generated_title, generated_description, generated_scenario_overview,
+                            generation_status, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
+                        """,
+                        (
+                            org_id,
+                            current_user["user_id"],
+                            payload.title,
+                            payload.category,
+                            payload.difficulty,
+                            payload.description,
+                            payload.role_focus,
+                            payload.test_focus,
+                            "\n".join(payload.learning_objectives),
+                            _parse_lines(module_form["content_sections"]),
+                            payload.scenario_constraints,
+                            payload.completion_requirements,
+                            1 if module_form["quiz_required"] else 0,
+                            payload.question_count,
+                            int(module_form["estimated_minutes"]),
+                            preview.get("title"),
+                            preview.get("description"),
+                            preview.get("scenario_overview"),
+                        ),
+                    )
+                    executemany(
+                        """
+                        INSERT INTO module_generation_questions (
+                            run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+                        """,
+                        [
+                            (
+                                run_id,
+                                idx + 1,
+                                item.get("question", ""),
+                                item.get("rationale", ""),
+                                "open_text",
+                                "",
+                            )
+                            for idx, item in enumerate(preview.get("questions", []))
+                        ],
+                    )
+                    if warning:
+                        st.warning(warning)
+                    st.success("Draft generated. Continue to review and approve below.")
+                    st.session_state[module_builder_step_key] = 0
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Could not save module draft: {exc}")
 
     st.markdown("#### Step 2: Review and approve generated draft")
     runs_df = to_df(
@@ -1184,43 +1365,151 @@ def render_manage_modules(current_user: dict) -> None:
     module_id = module_map[selected_label]
     module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
 
-    with st.form("edit_module"):
-        edit_title = st.text_input("Title", value=module["title"])
-        edit_description = st.text_area("Description", value=module["description"] or "")
-        edit_estimated_minutes = st.number_input(
-            "Estimated assessment time (minutes)",
-            min_value=1,
-            max_value=240,
-            value=_estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
-            step=1,
+    edit_form_key = f"edit_module_form_{module_id}"
+    edit_step_key = f"edit_module_step_{module_id}"
+    selected_module_tracker = "edit_module_selected_module_id"
+    if st.session_state.get(selected_module_tracker) != module_id:
+        st.session_state[selected_module_tracker] = module_id
+        st.session_state[edit_form_key] = {
+            "title": module["title"] or "",
+            "description": module["description"] or "",
+            "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
+            "learning_objectives": module["learning_objectives"] or "",
+            "content_sections": module["content_sections"] or "",
+            "completion_requirements": module["completion_requirements"] or "",
+            "quiz_required": bool(module["quiz_required"]),
+        }
+        st.session_state[edit_step_key] = 0
+    if edit_form_key not in st.session_state:
+        st.session_state[edit_form_key] = {
+            "title": module["title"] or "",
+            "description": module["description"] or "",
+            "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
+            "learning_objectives": module["learning_objectives"] or "",
+            "content_sections": module["content_sections"] or "",
+            "completion_requirements": module["completion_requirements"] or "",
+            "quiz_required": bool(module["quiz_required"]),
+        }
+    if edit_step_key not in st.session_state:
+        st.session_state[edit_step_key] = 0
+
+    edit_steps = [
+        {"title": "Module title", "field": "title"},
+        {"title": "Description", "field": "description"},
+        {"title": "Learning objectives", "field": "learning_objectives"},
+        {"title": "Ordered content sections", "field": "content_sections"},
+        {"title": "Completion requirements", "field": "completion_requirements"},
+        {"title": "Assessment settings", "field": "assessment"},
+        {"title": "Review and save", "field": "review"},
+    ]
+    edit_form = st.session_state[edit_form_key]
+    edit_step = int(st.session_state[edit_step_key])
+    _render_wizard_progress(edit_step, len(edit_steps), edit_steps[edit_step]["title"])
+
+    edit_step_valid = True
+    edit_required_message = ""
+    if edit_steps[edit_step]["field"] == "title":
+        edit_form["title"] = st.text_input("Title", value=edit_form["title"], key=f"edit_module_title_{module_id}")
+        edit_step_valid = _is_present(edit_form["title"])
+        edit_required_message = "Title is required."
+    elif edit_steps[edit_step]["field"] == "description":
+        edit_form["description"] = st.text_area("Description", value=edit_form["description"], key=f"edit_module_description_{module_id}")
+        edit_step_valid = _is_present(edit_form["description"])
+        edit_required_message = "Description is required."
+    elif edit_steps[edit_step]["field"] == "learning_objectives":
+        edit_form["learning_objectives"] = st.text_area(
+            "Learning objectives",
+            value=edit_form["learning_objectives"],
+            key=f"edit_module_objectives_{module_id}",
         )
-        edit_objectives = st.text_area("Learning objectives", value=module["learning_objectives"] or "")
-        edit_sections = st.text_area("Ordered content sections", value=module["content_sections"] or "")
-        edit_requirements = st.text_area("Completion requirements", value=module["completion_requirements"] or "")
-        edit_quiz_required = st.checkbox("Quiz required", value=bool(module["quiz_required"]))
-        save = st.form_submit_button("Send to database: Save edits")
-        if save:
-            execute(
-                """
-                UPDATE modules
-                SET title = ?, description = ?, learning_objectives = ?, content_sections = ?,
-                    completion_requirements = ?, quiz_required = ?, estimated_time = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE module_id = ? AND organization_id = ?
-                """,
-                (
-                    edit_title,
-                    edit_description,
-                    _parse_lines(edit_objectives),
-                    _parse_lines(edit_sections),
-                    edit_requirements,
-                    1 if edit_quiz_required else 0,
-                    f"{int(edit_estimated_minutes)} min",
-                    module_id,
-                    org_id,
-                ),
+        edit_step_valid = _is_present(edit_form["learning_objectives"])
+        edit_required_message = "Learning objectives are required."
+    elif edit_steps[edit_step]["field"] == "content_sections":
+        edit_form["content_sections"] = st.text_area(
+            "Ordered content sections",
+            value=edit_form["content_sections"],
+            key=f"edit_module_sections_{module_id}",
+        )
+        edit_step_valid = _is_present(edit_form["content_sections"])
+        edit_required_message = "Ordered content sections are required."
+    elif edit_steps[edit_step]["field"] == "completion_requirements":
+        edit_form["completion_requirements"] = st.text_area(
+            "Completion requirements",
+            value=edit_form["completion_requirements"],
+            key=f"edit_module_requirements_{module_id}",
+        )
+        edit_step_valid = _is_present(edit_form["completion_requirements"])
+        edit_required_message = "Completion requirements are required."
+    elif edit_steps[edit_step]["field"] == "assessment":
+        edit_form["estimated_minutes"] = int(
+            st.number_input(
+                "Estimated assessment time (minutes)",
+                min_value=1,
+                max_value=240,
+                value=int(edit_form["estimated_minutes"]),
+                step=1,
+                key=f"edit_module_minutes_{module_id}",
             )
-            st.success("Module updated.")
+        )
+        edit_form["quiz_required"] = st.checkbox(
+            "Quiz required",
+            value=bool(edit_form["quiz_required"]),
+            key=f"edit_module_quiz_required_{module_id}",
+        )
+    else:
+        st.markdown("##### Review")
+        st.json(edit_form)
+        missing_required = ["title", "description", "learning_objectives", "content_sections", "completion_requirements"]
+        missing_labels = [field for field in missing_required if not _is_present(edit_form.get(field))]
+        edit_step_valid = not missing_labels
+        if missing_labels:
+            st.error(f"Required fields missing: {', '.join(missing_labels)}")
+
+    if not edit_step_valid and edit_required_message and edit_steps[edit_step]["field"] != "review":
+        st.error(edit_required_message)
+
+    edit_nav_left, edit_nav_mid, edit_nav_right = st.columns([1, 1, 2])
+    with edit_nav_left:
+        if st.button("Previous", key=f"edit_module_previous_{module_id}", disabled=edit_step == 0):
+            st.session_state[edit_step_key] = max(0, edit_step - 1)
             st.rerun()
+    with edit_nav_mid:
+        if edit_step < len(edit_steps) - 2:
+            if st.button("Next", key=f"edit_module_next_{module_id}", disabled=not edit_step_valid):
+                st.session_state[edit_step_key] = edit_step + 1
+                st.rerun()
+        elif edit_step == len(edit_steps) - 2:
+            if st.button("Review", key=f"edit_module_review_{module_id}", disabled=not edit_step_valid):
+                st.session_state[edit_step_key] = edit_step + 1
+                st.rerun()
+    with edit_nav_right:
+        if edit_step == len(edit_steps) - 1:
+            if st.button("Save Module", key=f"edit_module_save_{module_id}", type="primary", disabled=not edit_step_valid):
+                try:
+                    execute(
+                        """
+                        UPDATE modules
+                        SET title = ?, description = ?, learning_objectives = ?, content_sections = ?,
+                            completion_requirements = ?, quiz_required = ?, estimated_time = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE module_id = ? AND organization_id = ?
+                        """,
+                        (
+                            edit_form["title"],
+                            edit_form["description"],
+                            _parse_lines(edit_form["learning_objectives"]),
+                            _parse_lines(edit_form["content_sections"]),
+                            edit_form["completion_requirements"],
+                            1 if edit_form["quiz_required"] else 0,
+                            f"{int(edit_form['estimated_minutes'])} min",
+                            module_id,
+                            org_id,
+                        ),
+                    )
+                    st.success("Module updated.")
+                    st.session_state[edit_step_key] = 0
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"Failed to save module: {exc}")
 
     st.markdown("##### Assessment questions")
     module_questions = fetch_all(
