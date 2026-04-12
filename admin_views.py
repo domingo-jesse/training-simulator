@@ -1781,6 +1781,21 @@ def _qa_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def sanitize_for_storage(obj):
+    if isinstance(obj, dict):
+        return {
+            k: sanitize_for_storage(v)
+            for k, v in obj.items()
+            if not callable(v)
+        }
+    elif isinstance(obj, list):
+        return [sanitize_for_storage(v) for v in obj]
+    elif callable(obj):
+        return None
+    else:
+        return obj
+
+
 def _qa_sanitize_text(value: str) -> str:
     text = str(value or "")
     replacements = [
@@ -2486,8 +2501,9 @@ def _qa_execute_batch(definitions: list[dict], current_user: dict, environment: 
     records = []
     for definition in definitions:
         record = _qa_execute_test(definition, current_user, environment)
-        st.session_state["qa_test_results_v2"][definition["id"]] = record
-        records.append(record)
+        sanitized_record = sanitize_for_storage(record)
+        st.session_state["qa_test_results_v2"][definition["id"]] = sanitized_record
+        records.append(sanitized_record)
     ended = datetime.now(timezone.utc)
 
     passed = sum(1 for r in records if r["status"] == "pass")
@@ -2507,7 +2523,7 @@ def _qa_execute_batch(definitions: list[dict], current_user: dict, environment: 
         "summary_snapshot": f"pass={passed}, fail={failed}, warning={warnings}",
         "records": records,
     }
-    return records, history
+    return records, sanitize_for_storage(history)
 
 
 def _qa_results_dataframe(definitions: list[dict], environment: str) -> pd.DataFrame:
@@ -2564,7 +2580,7 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
                 run_mode = "full" if mode == "all" else mode
                 targets = _qa_filter_definitions(definitions, run_mode=run_mode, failed_only=failed_only)
                 records, history = _qa_execute_batch(targets, current_user, environment, mode, current_user.get("email", "admin"))
-                st.session_state["qa_run_history"] = [history, *st.session_state.get("qa_run_history", [])][:50]
+                st.session_state["qa_run_history"] = [sanitize_for_storage(history), *st.session_state.get("qa_run_history", [])][:50]
                 st.success(f"Executed {len(records)} tests ({mode}).")
 
     with run_cols[5]:
@@ -2572,7 +2588,7 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
         if st.button("Run Single Test", use_container_width=True):
             definition = next(d for d in definitions if d["id"] == selected)
             record = _qa_execute_test(definition, current_user, environment)
-            st.session_state["qa_test_results_v2"][selected] = record
+            st.session_state["qa_test_results_v2"][selected] = sanitize_for_storage(record)
             history = {
                 "run_id": uuid4().hex[:12],
                 "timestamp": _qa_now_iso(),
@@ -2587,16 +2603,17 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
                 "summary_snapshot": f"{record['status']} · {record['name']}",
                 "records": [record],
             }
-            st.session_state["qa_run_history"] = [history, *st.session_state.get("qa_run_history", [])][:50]
+            st.session_state["qa_run_history"] = [sanitize_for_storage(history), *st.session_state.get("qa_run_history", [])][:50]
 
 
 def _qa_resolve_run_records(results_df: pd.DataFrame, history: list[dict], selection: str, selected_run_id: str | None) -> tuple[list[dict], dict]:
     if selection == "latest_run" and history:
-        selected = history[0]
+        selected = sanitize_for_storage(history[0])
         return list(selected.get("records", [])), selected
     if selection == "history_run" and selected_run_id:
         selected = next((run for run in history if run.get("run_id") == selected_run_id), None)
         if selected and selected.get("records"):
+            selected = sanitize_for_storage(selected)
             return list(selected.get("records", [])), selected
     records = results_df.to_dict(orient="records")
     return records, {
@@ -2701,30 +2718,35 @@ def _qa_apply_table_filters(results_df: pd.DataFrame) -> pd.DataFrame:
     return filtered
 
 
-def _qa_render_results_table(filtered_df: pd.DataFrame, current_user: dict, environment: str) -> None:
+def _qa_render_results_table(filtered_df: pd.DataFrame, current_user: dict, environment: str, table_scope: str) -> None:
     display = filtered_df[["name", "category", "severity", "status", "last_run_at", "duration_ms", "environment"]].copy()
     st.dataframe(display, use_container_width=True, hide_index=True)
 
     st.markdown("#### Expanded Test Details")
-    for _, row in filtered_df.iterrows():
+    for index, row in filtered_df.iterrows():
         with st.expander(f"{row['name']} · {row['status'].upper()} · {row['category']}"):
             st.write(f"**Description:** {row['description']}")
             st.write(f"**Expected Result:** {row['expected_result']}")
             st.write(f"**Actual Result:** {row['actual_result'] or 'Not run'}")
             st.write(f"**Error Message:** {row['error_message'] or 'None'}")
-            if st.button(f"Rerun {row['id']}", key=f"rerun_{row['id']}"):
+            scoped_index = f"{table_scope}_{index}"
+            rerun_key = f"rerun_{row['id']}_{scoped_index}_{environment}"
+            if st.button(f"Rerun {row['id']}", key=rerun_key):
                 updated = _qa_execute_test(row.to_dict(), current_user, environment)
-                st.session_state["qa_test_results_v2"][row["id"]] = updated
+                st.session_state["qa_test_results_v2"][row["id"]] = sanitize_for_storage(updated)
                 st.rerun()
 
 
 def _qa_render_history() -> None:
-    history = st.session_state.get("qa_run_history", [])
+    history = sanitize_for_storage(st.session_state.get("qa_run_history", []))
     if not history:
         st.info("No test run history yet. Run a test pack to populate history.")
         return
     st.caption("Session-based run history (safe default). Future enhancement: persistent audit storage.")
-    st.dataframe(pd.DataFrame(history), use_container_width=True, hide_index=True)
+    history_df = pd.DataFrame(history)
+    if "records" in history_df.columns:
+        history_df = history_df.drop(columns=["records"])
+    st.dataframe(history_df, use_container_width=True, hide_index=True)
 
 
 def render_admin_quality_hub(current_user: dict) -> None:
@@ -2749,18 +2771,18 @@ def render_admin_quality_hub(current_user: dict) -> None:
         st.dataframe(filtered_df[["id", "name", "category", "severity", "status", "environment"]], use_container_width=True, hide_index=True)
 
     with tab_results:
-        _qa_render_results_table(filtered_df, current_user, environment)
+        _qa_render_results_table(filtered_df, current_user, environment, table_scope="results")
 
     with tab_history:
         _qa_render_history()
-        _qa_render_export_section(results_df, st.session_state.get("qa_run_history", []), environment)
+        _qa_render_export_section(results_df, sanitize_for_storage(st.session_state.get("qa_run_history", [])), environment)
 
     with tab_failed:
         failed_df = results_df[results_df["status"] == "fail"]
         if failed_df.empty:
             st.success("No failed tests in current session.")
         else:
-            _qa_render_results_table(failed_df, current_user, environment)
+            _qa_render_results_table(failed_df, current_user, environment, table_scope="failed")
 
     with tab_categories:
         category_summary = (
