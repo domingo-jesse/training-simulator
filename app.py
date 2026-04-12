@@ -863,31 +863,31 @@ def render_main_app() -> None:
             "Debug Logs",
         ]
         qa_pages = ["QA Test Center"]
-        pages = operations_pages + qa_pages
-        def _ensure_valid_admin_page(valid_pages: list[str]) -> None:
-            if "admin_page" not in st.session_state or st.session_state.get("admin_page") not in valid_pages:
-                st.session_state["admin_page"] = valid_pages[0]
+        all_pages = operations_pages + qa_pages
 
         requested_page = st.session_state.get("page")
-        if requested_page in pages and st.session_state.get("admin_page") != requested_page:
+        if requested_page in operations_pages:
+            st.session_state["admin_nav_group"] = "Operations"
             st.session_state["admin_page"] = requested_page
-        current_group = st.session_state.get("admin_nav_group", "Operations")
-        if current_group == "Operations" and st.session_state.get("admin_page") in qa_pages:
-            st.session_state["admin_page"] = operations_pages[0]
-        if current_group == "Quality Assurance" and st.session_state.get("admin_page") in operations_pages:
-            st.session_state["admin_page"] = qa_pages[0]
-        _ensure_valid_admin_page(pages)
-        st.session_state["page"] = None
-        st.sidebar.radio(
-            "Admin Navigation",
-            options=pages,
-            key="admin_page",
-        )
+        elif requested_page in qa_pages:
+            st.session_state["admin_nav_group"] = "Quality Assurance"
+            st.session_state["admin_page"] = requested_page
+
         st.radio(
             "Admin Workspace",
             options=["Operations", "Quality Assurance"],
             horizontal=True,
             key="admin_nav_group",
+        )
+        current_group = st.session_state.get("admin_nav_group", "Operations")
+        visible_pages = operations_pages if current_group == "Operations" else qa_pages
+        if st.session_state.get("admin_page") not in visible_pages:
+            st.session_state["admin_page"] = visible_pages[0]
+        st.session_state["page"] = None
+        st.sidebar.radio(
+            "Admin Navigation",
+            options=visible_pages,
+            key="admin_page",
         )
         current_page = st.session_state.get("admin_page", "Dashboard")
         user_logger.info("Admin page load.", page=current_page)
