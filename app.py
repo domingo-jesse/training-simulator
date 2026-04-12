@@ -504,9 +504,14 @@ def render_auth_shell(content_renderer) -> None:
             .stApp {
                 background: radial-gradient(circle at top right, #edf2ff, var(--bg) 35%);
             }
+            .main .block-container {
+                max-width: 860px;
+                padding-top: 1.8rem;
+                padding-bottom: 2.2rem;
+            }
             .auth-wrap {
-                max-width: 980px;
-                margin: 2rem auto;
+                max-width: 860px;
+                margin: 0 auto 1rem auto;
                 background: var(--card);
                 border: 1px solid var(--line);
                 border-radius: 18px;
@@ -515,13 +520,13 @@ def render_auth_shell(content_renderer) -> None:
             }
             .auth-title { font-size: 2rem; font-weight: 700; color: var(--text); margin-bottom: .2rem; }
             .auth-subtitle { color: var(--muted); margin-bottom: .3rem; }
-            .auth-help { color: var(--muted); font-size: .95rem; margin-bottom: 1rem; }
+            .auth-help { color: var(--muted); font-size: .95rem; margin-bottom: 0; }
             .divider {
                 display: flex;
                 align-items: center;
                 color: #7a8294;
                 font-size: .86rem;
-                margin: .3rem 0 .8rem;
+                margin: .6rem 0 .9rem;
             }
             .divider::before, .divider::after {
                 content: "";
@@ -530,6 +535,12 @@ def render_auth_shell(content_renderer) -> None:
             }
             .divider::before { margin-right: .55rem; }
             .divider::after { margin-left: .55rem; }
+            [data-testid="stTabs"] {
+                background: #ffffff;
+                border: 1px solid var(--line);
+                border-radius: 14px;
+                padding: 0.65rem 0.85rem 0.85rem;
+            }
             .role-badge {
                 display: inline-block;
                 background: #e9f0ff;
@@ -909,9 +920,9 @@ def main() -> None:
     app_logger.info("App startup.", session_id=st.session_state["session_id"])
     init_state()
     _ensure_platform_data()
-    inject_styles()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
+        inject_styles()
         render_main_app()
         return
 
