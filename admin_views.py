@@ -311,10 +311,10 @@ def render_learner_management(current_user: dict) -> None:
         _render_learner_tab(filtered, "Inactive Learners", False)
 
 
-def render_assignment_management(current_user: dict) -> None:
+def _render_assignment_tool(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.subheader("Assignment Management")
+    st.subheader("Assignment Tool")
 
     learners = fetch_all(
         """
@@ -447,6 +447,15 @@ def render_assignment_management(current_user: dict) -> None:
             except Exception:
                 view_logger.exception("Failed assigning training.", scenario_id=module_id)
                 st.error("Could not assign training.")
+
+
+def render_assignment_management(current_user: dict) -> None:
+    st.subheader("Assignments")
+    current_tab, tool_tab = st.tabs(["Current Assignments", "Assignment Tool"])
+    with current_tab:
+        render_current_assignments(current_user)
+    with tool_tab:
+        _render_assignment_tool(current_user)
 
 
 def render_current_assignments(current_user: dict) -> None:
