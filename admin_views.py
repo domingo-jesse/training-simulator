@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from uuid import uuid4
 
 import pandas as pd
 import psycopg2
@@ -114,6 +115,114 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
         (org_id, org_id),
     )
     return to_df(rows)
+
+
+def _sync_assignment_tracking_records(
+    *,
+    organization_id: int,
+    module_id: int,
+    learner_id: int,
+    assigned_by_user_id: int,
+) -> None:
+    ids = fetch_one(
+        """
+        SELECT
+            learner.id AS learner_external_id,
+            module.id AS module_external_id,
+            assigner.id AS assigner_external_id
+        FROM users learner
+        JOIN modules module ON module.module_id = ?
+        LEFT JOIN users assigner ON assigner.user_id = ?
+        WHERE learner.user_id = ?
+          AND learner.organization_id = ?
+        """,
+        (module_id, assigned_by_user_id, learner_id, organization_id),
+    )
+    if not ids or not ids.get("learner_external_id") or not ids.get("module_external_id"):
+        return
+
+    execute(
+        """
+        INSERT INTO module_assignments (
+            id,
+            user_id,
+            module_id,
+            organization_id,
+            assigned_at,
+            assigned_by,
+            created_at
+        )
+        VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, module_id) DO UPDATE SET
+            organization_id = excluded.organization_id,
+            assigned_at = CURRENT_TIMESTAMP,
+            assigned_by = excluded.assigned_by
+        """,
+        (
+            uuid4().hex,
+            ids["learner_external_id"],
+            ids["module_external_id"],
+            organization_id,
+            ids.get("assigner_external_id"),
+        ),
+    )
+    execute(
+        """
+        INSERT INTO module_progress (
+            id,
+            user_id,
+            module_id,
+            organization_id,
+            progress_percent,
+            started_at,
+            last_activity_at,
+            created_at,
+            updated_at
+        )
+        VALUES (?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, module_id) DO UPDATE SET
+            organization_id = excluded.organization_id,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            uuid4().hex,
+            ids["learner_external_id"],
+            ids["module_external_id"],
+            organization_id,
+        ),
+    )
+
+
+def _cleanup_assignment_tracking_records(
+    *,
+    organization_id: int,
+    module_id: int,
+    learner_id: int,
+) -> None:
+    has_other_active = fetch_one(
+        """
+        SELECT assignment_id
+        FROM assignments
+        WHERE organization_id = ?
+          AND module_id = ?
+          AND learner_id = ?
+          AND is_active = TRUE
+        LIMIT 1
+        """,
+        (organization_id, module_id, learner_id),
+    )
+    if has_other_active:
+        return
+
+    execute(
+        """
+        DELETE FROM module_assignments
+        WHERE organization_id = ?
+          AND user_id = (SELECT id FROM users WHERE user_id = ?)
+          AND module_id = (SELECT id FROM modules WHERE module_id = ?)
+        """,
+        (organization_id, learner_id, module_id),
+    )
 
 
 def render_admin_dashboard(current_user: dict) -> None:
@@ -489,6 +598,12 @@ def _render_assignment_tool(current_user: dict) -> None:
                         """,
                         (org_id, module_id, learner_id, current_user["user_id"], due_date_value, True),
                     )
+                    _sync_assignment_tracking_records(
+                        organization_id=org_id,
+                        module_id=module_id,
+                        learner_id=learner_id,
+                        assigned_by_user_id=current_user["user_id"],
+                    )
                 view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(valid_ids))
                 if skipped_count:
                     st.warning(f"Skipped {skipped_count} learner(s) who are no longer active.")
@@ -595,7 +710,21 @@ def render_current_assignments(current_user: dict) -> None:
     with c1:
         if st.button("Send to database: Remove assignment"):
             try:
+                assignment_row = fetch_one(
+                    """
+                    SELECT module_id, learner_id
+                    FROM assignments
+                    WHERE assignment_id = ? AND organization_id = ?
+                    """,
+                    (selected_assignment_id, org_id),
+                )
                 execute("UPDATE assignments SET is_active = 0 WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
+                if assignment_row:
+                    _cleanup_assignment_tracking_records(
+                        organization_id=org_id,
+                        module_id=int(assignment_row["module_id"]),
+                        learner_id=int(assignment_row["learner_id"]),
+                    )
                 view_logger.info("Button click.", action="remove_assignment", assignment_id=selected_assignment_id)
                 st.success("Assignment removed.")
                 st.rerun()
