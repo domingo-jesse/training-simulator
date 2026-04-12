@@ -183,15 +183,26 @@ def _executescript(conn, script: str) -> None:
 
 
 def init_db() -> None:
+    db_logger.info("Running init_db (should only happen once)")
     db_logger.info(
         "Initializing database schema.",
         backend="postgres",
     )
     with get_conn() as conn:
-        if RUNTIME_USE_POSTGRES:
-            _executescript(
-                conn,
-                """
+        lock_acquired = False
+        try:
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT pg_advisory_lock(123456);
+                        """
+                    )
+                lock_acquired = True
+            if RUNTIME_USE_POSTGRES:
+                _executescript(
+                    conn,
+                    """
                 CREATE TABLE IF NOT EXISTS organizations (
                     organization_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     name TEXT UNIQUE NOT NULL
@@ -450,11 +461,11 @@ def init_db() -> None:
                     FOREIGN KEY(source_run_id) REFERENCES module_generation_runs(run_id) ON DELETE SET NULL
                 );
                 """,
-            )
-        else:
-            _executescript(
-                conn,
-                """
+                )
+            else:
+                _executescript(
+                    conn,
+                    """
             CREATE TABLE IF NOT EXISTS organizations (
                 organization_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT UNIQUE NOT NULL
@@ -712,255 +723,255 @@ def init_db() -> None:
                 FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
                 FOREIGN KEY(source_run_id) REFERENCES module_generation_runs(run_id) ON DELETE SET NULL
             );
-            """
-            )
+                """
+                )
 
-        # Backward-compatible migrations
-        _ensure_column(conn, "users", "email", "TEXT")
-        _ensure_column(conn, "users", "google_subject", "TEXT")
-        _ensure_column(conn, "users", "organization_id", "INTEGER")
-        _ensure_column(conn, "users", "is_active", "INTEGER DEFAULT 1")
-        _ensure_column(conn, "users", "id", "TEXT")
-        _ensure_column(conn, "users", "username", "TEXT")
-        _ensure_column(conn, "users", "password_hash", "TEXT")
-        _ensure_column(conn, "users", "auth_provider", "TEXT DEFAULT 'local_password'")
-        if RUNTIME_USE_POSTGRES:
-            text_migration_columns = [
-                ("learner_profiles", "user_id"),
-                ("module_assignments", "user_id"),
-                ("module_progress", "user_id"),
-                ("users", "id"),
-            ]
-            with conn.cursor() as cur:
-                if _postgres_columns_need_text_migration(conn, text_migration_columns):
-                    cur.execute("DROP VIEW IF EXISTS learner_dashboard_summary")
+            # Backward-compatible migrations
+            _ensure_column(conn, "users", "email", "TEXT")
+            _ensure_column(conn, "users", "google_subject", "TEXT")
+            _ensure_column(conn, "users", "organization_id", "INTEGER")
+            _ensure_column(conn, "users", "is_active", "INTEGER DEFAULT 1")
+            _ensure_column(conn, "users", "id", "TEXT")
+            _ensure_column(conn, "users", "username", "TEXT")
+            _ensure_column(conn, "users", "password_hash", "TEXT")
+            _ensure_column(conn, "users", "auth_provider", "TEXT DEFAULT 'local_password'")
+            if RUNTIME_USE_POSTGRES:
+                text_migration_columns = [
+                    ("learner_profiles", "user_id"),
+                    ("module_assignments", "user_id"),
+                    ("module_progress", "user_id"),
+                    ("users", "id"),
+                ]
+                with conn.cursor() as cur:
+                    if _postgres_columns_need_text_migration(conn, text_migration_columns):
+                        cur.execute("DROP VIEW IF EXISTS learner_dashboard_summary")
+                        cur.execute(
+                            """
+                            ALTER TABLE learner_profiles
+                            ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                            """
+                        )
+                        cur.execute(
+                            """
+                            ALTER TABLE module_assignments
+                            ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                            """
+                        )
+                        cur.execute(
+                            """
+                            ALTER TABLE module_progress
+                            ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                            """
+                        )
+                        cur.execute(
+                            """
+                            ALTER TABLE users
+                            ALTER COLUMN id TYPE TEXT USING id::TEXT
+                            """
+                        )
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+            else:
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
+
+            _ensure_column(conn, "modules", "organization_id", "INTEGER")
+            _ensure_column(conn, "modules", "status", "TEXT DEFAULT 'published'")
+            _ensure_column(conn, "modules", "learning_objectives", "TEXT")
+            _ensure_column(conn, "modules", "content_sections", "TEXT")
+            _ensure_column(conn, "modules", "completion_requirements", "TEXT")
+            _ensure_column(conn, "modules", "quiz_required", "INTEGER DEFAULT 0")
+            _ensure_column(conn, "modules", "created_by", "INTEGER")
+            _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
+            _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
+            _ensure_column(conn, "modules", "id", "TEXT")
+            _ensure_column(conn, "learner_profiles", "organization_id", "INTEGER")
+            _ensure_column(conn, "module_assignments", "organization_id", "INTEGER")
+            _ensure_column(conn, "module_progress", "organization_id", "INTEGER")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
                     cur.execute(
                         """
-                        ALTER TABLE learner_profiles
-                        ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                        UPDATE learner_profiles lp
+                        SET organization_id = u.organization_id
+                        FROM users u
+                        WHERE lp.user_id = u.id
+                          AND lp.organization_id IS NULL
                         """
                     )
                     cur.execute(
                         """
-                        ALTER TABLE module_assignments
-                        ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                        UPDATE module_assignments ma
+                        SET organization_id = u.organization_id
+                        FROM users u
+                        WHERE ma.user_id = u.id
+                          AND ma.organization_id IS NULL
                         """
                     )
                     cur.execute(
                         """
-                        ALTER TABLE module_progress
-                        ALTER COLUMN user_id TYPE TEXT USING user_id::TEXT
+                        UPDATE module_progress mp
+                        SET organization_id = u.organization_id
+                        FROM users u
+                        WHERE mp.user_id = u.id
+                          AND mp.organization_id IS NULL
                         """
+                    )
+            else:
+                conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
+                conn.execute(
+                    """
+                    UPDATE learner_profiles
+                    SET organization_id = (
+                        SELECT u.organization_id
+                        FROM users u
+                        WHERE u.id = learner_profiles.user_id
+                    )
+                    WHERE organization_id IS NULL
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE module_assignments
+                    SET organization_id = (
+                        SELECT u.organization_id
+                        FROM users u
+                        WHERE u.id = module_assignments.user_id
+                    )
+                    WHERE organization_id IS NULL
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE module_progress
+                    SET organization_id = (
+                        SELECT u.organization_id
+                        FROM users u
+                        WHERE u.id = module_progress.user_id
+                    )
+                    WHERE organization_id IS NULL
+                    """
+                )
+
+            _ensure_column(conn, "attempts", "organization_id", "INTEGER")
+            _ensure_column(conn, "attempts", "started_at", "TIMESTAMPTZ")
+            _ensure_column(conn, "attempts", "submitted_at", "TIMESTAMPTZ")
+            _ensure_column(conn, "attempts", "elapsed_seconds", "INTEGER")
+            _ensure_column(conn, "attempts", "time_limit_seconds", "INTEGER")
+            _ensure_column(conn, "attempts", "time_remaining_seconds", "INTEGER")
+            _ensure_column(conn, "attempts", "attempt_state", "TEXT DEFAULT 'submitted'")
+            _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
+            _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
+            _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
+            _ensure_column(conn, "attempts", "timed_out", "INTEGER DEFAULT 0")
+            _ensure_column(conn, "attempts", "question_responses", "TEXT")
+            _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
+            _ensure_column(conn, "submission_scores", "understanding_rationale", "TEXT")
+            _ensure_column(conn, "submission_scores", "investigation_rationale", "TEXT")
+            _ensure_column(conn, "submission_scores", "solution_rationale", "TEXT")
+            _ensure_column(conn, "submission_scores", "communication_rationale", "TEXT")
+            _ensure_column(conn, "submission_scores", "scoring_provider", "TEXT")
+            _ensure_column(conn, "submission_scores", "scoring_model_name", "TEXT")
+            _ensure_column(conn, "submission_scores", "scoring_prompt_template_id", "TEXT")
+            _ensure_column(conn, "submission_scores", "scoring_temperature", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "scoring_config_json", "TEXT")
+            _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
+            _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
+            _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
+            _ensure_column(conn, "module_generation_runs", "input_estimated_minutes", "INTEGER")
+            _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
+            _ensure_column(conn, "module_generation_questions", "question_type", "TEXT DEFAULT 'open_text'")
+            _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")
+            _ensure_column(conn, "module_questions", "question_type", "TEXT DEFAULT 'open_text'")
+            _ensure_column(conn, "module_questions", "options_text", "TEXT")
+
+            if RUNTIME_USE_POSTGRES:
+                _executescript(
+                    conn,
+                    """
+                    CREATE TABLE IF NOT EXISTS submission_regrade_history (
+                        regrade_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                        attempt_id BIGINT NOT NULL,
+                        old_total_score DOUBLE PRECISION,
+                        new_total_score DOUBLE PRECISION,
+                        old_category_scores_json TEXT,
+                        new_category_scores_json TEXT,
+                        reason TEXT,
+                        changed_by_type TEXT NOT NULL DEFAULT 'admin',
+                        changed_by_user_id BIGINT,
+                        changed_at TIMESTAMPTZ DEFAULT NOW(),
+                        FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                        FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
+                    )
+                    """,
+                )
+            else:
+                _executescript(
+                    conn,
+                    """
+                    CREATE TABLE IF NOT EXISTS submission_regrade_history (
+                        regrade_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        attempt_id INTEGER NOT NULL,
+                        old_total_score REAL,
+                        new_total_score REAL,
+                        old_category_scores_json TEXT,
+                        new_category_scores_json TEXT,
+                        reason TEXT,
+                        changed_by_type TEXT NOT NULL DEFAULT 'admin',
+                        changed_by_user_id INTEGER,
+                        changed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                        FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
+                    )
+                    """,
+                )
+
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score)")
+                    cur.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_submission_regrade_history_attempt_id ON submission_regrade_history(attempt_id)"
                     )
                     cur.execute(
                         """
-                        ALTER TABLE users
-                        ALTER COLUMN id TYPE TEXT USING id::TEXT
+                        CREATE OR REPLACE VIEW learner_dashboard_summary AS
+                        SELECT
+                            u.id AS user_id,
+                            lp.full_name AS name,
+                            lp.team AS team,
+                            lp.status AS status,
+                            COUNT(DISTINCT ma.module_id) AS assigned_modules,
+                            COUNT(DISTINCT CASE WHEN mp.completed_at IS NOT NULL THEN mp.module_id END) AS completed_modules,
+                            MAX(COALESCE(lp.last_activity, mp.last_activity_at)) AS last_activity
+                        FROM users u
+                        JOIN learner_profiles lp
+                            ON lp.user_id = u.id
+                        LEFT JOIN module_assignments ma
+                            ON ma.user_id = u.id
+                        LEFT JOIN module_progress mp
+                            ON mp.user_id = u.id
+                        GROUP BY
+                            u.id,
+                            lp.full_name,
+                            lp.team,
+                            lp.status,
+                            lp.last_activity
                         """
                     )
-        if RUNTIME_USE_POSTGRES:
-            with conn.cursor() as cur:
-                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
-                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
-        else:
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_external_id ON users(id)")
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
-
-        _ensure_column(conn, "modules", "organization_id", "INTEGER")
-        _ensure_column(conn, "modules", "status", "TEXT DEFAULT 'published'")
-        _ensure_column(conn, "modules", "learning_objectives", "TEXT")
-        _ensure_column(conn, "modules", "content_sections", "TEXT")
-        _ensure_column(conn, "modules", "completion_requirements", "TEXT")
-        _ensure_column(conn, "modules", "quiz_required", "INTEGER DEFAULT 0")
-        _ensure_column(conn, "modules", "created_by", "INTEGER")
-        _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
-        _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
-        _ensure_column(conn, "modules", "id", "TEXT")
-        _ensure_column(conn, "learner_profiles", "organization_id", "INTEGER")
-        _ensure_column(conn, "module_assignments", "organization_id", "INTEGER")
-        _ensure_column(conn, "module_progress", "organization_id", "INTEGER")
-        if RUNTIME_USE_POSTGRES:
-            with conn.cursor() as cur:
-                cur.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
-                cur.execute(
+            else:
+                conn.executescript(
                     """
-                    UPDATE learner_profiles lp
-                    SET organization_id = u.organization_id
-                    FROM users u
-                    WHERE lp.user_id = u.id
-                      AND lp.organization_id IS NULL
-                    """
-                )
-                cur.execute(
-                    """
-                    UPDATE module_assignments ma
-                    SET organization_id = u.organization_id
-                    FROM users u
-                    WHERE ma.user_id = u.id
-                      AND ma.organization_id IS NULL
-                    """
-                )
-                cur.execute(
-                    """
-                    UPDATE module_progress mp
-                    SET organization_id = u.organization_id
-                    FROM users u
-                    WHERE mp.user_id = u.id
-                      AND mp.organization_id IS NULL
-                    """
-                )
-        else:
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_modules_external_id ON modules(id)")
-            conn.execute(
-                """
-                UPDATE learner_profiles
-                SET organization_id = (
-                    SELECT u.organization_id
-                    FROM users u
-                    WHERE u.id = learner_profiles.user_id
-                )
-                WHERE organization_id IS NULL
-                """
-            )
-            conn.execute(
-                """
-                UPDATE module_assignments
-                SET organization_id = (
-                    SELECT u.organization_id
-                    FROM users u
-                    WHERE u.id = module_assignments.user_id
-                )
-                WHERE organization_id IS NULL
-                """
-            )
-            conn.execute(
-                """
-                UPDATE module_progress
-                SET organization_id = (
-                    SELECT u.organization_id
-                    FROM users u
-                    WHERE u.id = module_progress.user_id
-                )
-                WHERE organization_id IS NULL
-                """
-            )
-
-        _ensure_column(conn, "attempts", "organization_id", "INTEGER")
-        _ensure_column(conn, "attempts", "started_at", "TIMESTAMPTZ")
-        _ensure_column(conn, "attempts", "submitted_at", "TIMESTAMPTZ")
-        _ensure_column(conn, "attempts", "elapsed_seconds", "INTEGER")
-        _ensure_column(conn, "attempts", "time_limit_seconds", "INTEGER")
-        _ensure_column(conn, "attempts", "time_remaining_seconds", "INTEGER")
-        _ensure_column(conn, "attempts", "attempt_state", "TEXT DEFAULT 'submitted'")
-        _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
-        _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
-        _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
-        _ensure_column(conn, "attempts", "timed_out", "INTEGER DEFAULT 0")
-        _ensure_column(conn, "attempts", "question_responses", "TEXT")
-        _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
-        _ensure_column(conn, "submission_scores", "understanding_rationale", "TEXT")
-        _ensure_column(conn, "submission_scores", "investigation_rationale", "TEXT")
-        _ensure_column(conn, "submission_scores", "solution_rationale", "TEXT")
-        _ensure_column(conn, "submission_scores", "communication_rationale", "TEXT")
-        _ensure_column(conn, "submission_scores", "scoring_provider", "TEXT")
-        _ensure_column(conn, "submission_scores", "scoring_model_name", "TEXT")
-        _ensure_column(conn, "submission_scores", "scoring_prompt_template_id", "TEXT")
-        _ensure_column(conn, "submission_scores", "scoring_temperature", "DOUBLE PRECISION")
-        _ensure_column(conn, "submission_scores", "scoring_config_json", "TEXT")
-        _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
-        _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
-        _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
-        _ensure_column(conn, "module_generation_runs", "input_estimated_minutes", "INTEGER")
-        _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
-        _ensure_column(conn, "module_generation_questions", "question_type", "TEXT DEFAULT 'open_text'")
-        _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")
-        _ensure_column(conn, "module_questions", "question_type", "TEXT DEFAULT 'open_text'")
-        _ensure_column(conn, "module_questions", "options_text", "TEXT")
-
-        if RUNTIME_USE_POSTGRES:
-            _executescript(
-                conn,
-                """
-                CREATE TABLE IF NOT EXISTS submission_regrade_history (
-                    regrade_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                    attempt_id BIGINT NOT NULL,
-                    old_total_score DOUBLE PRECISION,
-                    new_total_score DOUBLE PRECISION,
-                    old_category_scores_json TEXT,
-                    new_category_scores_json TEXT,
-                    reason TEXT,
-                    changed_by_type TEXT NOT NULL DEFAULT 'admin',
-                    changed_by_user_id BIGINT,
-                    changed_at TIMESTAMPTZ DEFAULT NOW(),
-                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
-                    FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
-                )
-                """,
-            )
-        else:
-            _executescript(
-                conn,
-                """
-                CREATE TABLE IF NOT EXISTS submission_regrade_history (
-                    regrade_id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    attempt_id INTEGER NOT NULL,
-                    old_total_score REAL,
-                    new_total_score REAL,
-                    old_category_scores_json TEXT,
-                    new_category_scores_json TEXT,
-                    reason TEXT,
-                    changed_by_type TEXT NOT NULL DEFAULT 'admin',
-                    changed_by_user_id INTEGER,
-                    changed_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
-                    FOREIGN KEY(changed_by_user_id) REFERENCES users(user_id)
-                )
-                """,
-            )
-
-        if RUNTIME_USE_POSTGRES:
-            with conn.cursor() as cur:
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_assignments_module_id ON module_assignments(module_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_user_id ON module_progress(user_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_module_id ON module_progress(module_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id)")
-                cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score)")
-                cur.execute(
-                    "CREATE INDEX IF NOT EXISTS idx_submission_regrade_history_attempt_id ON submission_regrade_history(attempt_id)"
-                )
-                cur.execute(
-                    """
-                    CREATE OR REPLACE VIEW learner_dashboard_summary AS
-                    SELECT
-                        u.id AS user_id,
-                        lp.full_name AS name,
-                        lp.team AS team,
-                        lp.status AS status,
-                        COUNT(DISTINCT ma.module_id) AS assigned_modules,
-                        COUNT(DISTINCT CASE WHEN mp.completed_at IS NOT NULL THEN mp.module_id END) AS completed_modules,
-                        MAX(COALESCE(lp.last_activity, mp.last_activity_at)) AS last_activity
-                    FROM users u
-                    JOIN learner_profiles lp
-                        ON lp.user_id = u.id
-                    LEFT JOIN module_assignments ma
-                        ON ma.user_id = u.id
-                    LEFT JOIN module_progress mp
-                        ON mp.user_id = u.id
-                    GROUP BY
-                        u.id,
-                        lp.full_name,
-                        lp.team,
-                        lp.status,
-                        lp.last_activity
-                    """
-                )
-        else:
-            conn.executescript(
-                """
                 CREATE INDEX IF NOT EXISTS idx_learner_profiles_user_id ON learner_profiles(user_id);
                 CREATE INDEX IF NOT EXISTS idx_learner_profiles_status ON learner_profiles(status);
                 CREATE INDEX IF NOT EXISTS idx_module_assignments_user_id ON module_assignments(user_id);
@@ -1021,8 +1032,16 @@ def init_db() -> None:
                     lp.team,
                     lp.status,
                     lp.last_activity;
-                """
-            )
+                    """
+                )
+        finally:
+            if lock_acquired and RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT pg_advisory_unlock(123456);
+                        """
+                    )
     db_logger.info("Database schema initialization complete.")
 
 

@@ -96,6 +96,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+if "db_initialized" not in st.session_state:
+    st.session_state.db_initialized = False
+
 def hash_password(password: str) -> str:
     """Demo-only hashing helper.
 
@@ -118,6 +121,7 @@ def init_state() -> None:
         "show_password": False,
         "page": None,
         "bootstrapped": False,
+        "db_initialized": False,
         "bootstrap_error": None,
         "admin_page": "Dashboard",
         "admin_nav_group": "Operations",
@@ -138,7 +142,9 @@ def _ensure_platform_data() -> bool:
     app_logger.info("Bootstrapping platform data.")
     try:
         with st.spinner("Preparing platform data..."):
-            init_db()
+            if not st.session_state.db_initialized:
+                init_db()
+                st.session_state.db_initialized = True
             clear_seed_data()
         st.session_state["bootstrapped"] = True
         st.session_state["bootstrap_error"] = None
