@@ -17,6 +17,7 @@ from admin_views import (
     render_admin_log_viewer,
     render_module_builder,
     render_progress_tracking,
+    render_admin_quality_hub,
 )
 from data_seed import clear_seed_data
 from db import execute, fetch_all, fetch_one, get_database_debug_info, init_db
@@ -117,6 +118,7 @@ def init_state() -> None:
         "bootstrapped": False,
         "bootstrap_error": None,
         "admin_page": "Dashboard",
+        "admin_nav_group": "Operations",
         "learner_page": "Home",
     }
     for key, value in defaults.items():
@@ -850,7 +852,7 @@ def render_main_app() -> None:
     render_topbar(user)
     st.markdown("---")
     if user["role"] == "admin":
-        pages = [
+        operations_pages = [
             "Dashboard",
             "Assignment Management",
             "Submission Grading",
@@ -860,6 +862,8 @@ def render_main_app() -> None:
             "Database Tables",
             "Debug Logs",
         ]
+        qa_pages = ["QA Test Center"]
+        pages = operations_pages + qa_pages
         requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("admin_page") != requested_page:
             st.session_state["admin_page"] = requested_page
@@ -869,6 +873,16 @@ def render_main_app() -> None:
             options=pages,
             key="admin_page",
         )
+        st.radio(
+            "Admin Workspace",
+            options=["Operations", "Quality Assurance"],
+            horizontal=True,
+            key="admin_nav_group",
+        )
+        if st.session_state.get("admin_nav_group") == "Operations" and st.session_state.get("admin_page") in qa_pages:
+            st.session_state["admin_page"] = operations_pages[0]
+        if st.session_state.get("admin_nav_group") == "Quality Assurance" and st.session_state.get("admin_page") in operations_pages:
+            st.session_state["admin_page"] = qa_pages[0]
         current_page = st.session_state["admin_page"]
         user_logger.info("Admin page load.", page=current_page)
         if current_page == "Dashboard":
@@ -887,6 +901,8 @@ def render_main_app() -> None:
             render_database_tables_view()
         elif current_page == "Debug Logs":
             render_admin_log_viewer()
+        elif current_page == "QA Test Center":
+            render_admin_quality_hub(user)
     else:
         pages = ["Home", "Assigned Modules", "Module Workspace", "Results", "My Progress"]
         requested_page = st.session_state.get("page")
