@@ -62,6 +62,7 @@ EXPECTED_PLATFORM_TABLES = (
     "organizations",
     "users",
     "modules",
+    "module_questions",
     "investigation_actions",
     "attempts",
     "action_logs",
@@ -69,6 +70,8 @@ EXPECTED_PLATFORM_TABLES = (
     "learner_profiles",
     "module_assignments",
     "module_progress",
+    "module_generation_runs",
+    "module_generation_questions",
 )
 
 
