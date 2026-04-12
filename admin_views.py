@@ -47,7 +47,9 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
             a.assigned_at,
             a.is_active,
             u.name AS learner_name,
+            u.team,
             u.is_active AS learner_active,
+            o.name AS organization_name,
             m.title AS module_title,
             CASE
                 WHEN x.last_attempt_at IS NOT NULL THEN 'Completed'
@@ -60,6 +62,7 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
         FROM assignments a
         JOIN users u ON u.user_id = a.learner_id
         JOIN modules m ON m.module_id = a.module_id
+        LEFT JOIN organizations o ON o.organization_id = a.organization_id
         LEFT JOIN (
             SELECT
                 a2.assignment_id,
@@ -373,6 +376,27 @@ def render_assignment_management(current_user: dict) -> None:
         ]
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
+        st.dataframe(
+            filtered_active_learners[["name", "team", "organization_name"]],
+            hide_index=True,
+            use_container_width=True,
+        )
+
+        select_col, clear_col = st.columns(2)
+        with select_col:
+            st.button(
+                "Select all filtered learners",
+                key="assignment_select_all_filtered",
+                on_click=_select_all_filtered,
+                args=(learner_multiselect_key, learner_options),
+            )
+        with clear_col:
+            st.button(
+                "Clear learner selection",
+                key="assignment_clear_filtered",
+                on_click=_clear_filtered_selection,
+                args=(learner_multiselect_key,),
+            )
 
         selected_module = st.selectbox("Module", list(module_map.keys()))
         selected_learners = st.multiselect("Learners", learner_options, key=learner_multiselect_key)
@@ -424,22 +448,64 @@ def render_assignment_management(current_user: dict) -> None:
                 view_logger.exception("Failed assigning training.", scenario_id=module_id)
                 st.error("Could not assign training.")
 
+
+def render_current_assignments(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
+    st.subheader("Current Assignments")
+
     assignments_df = _assignments_with_status(org_id)
     if assignments_df.empty:
         st.info("No assignments yet.")
         return
 
-    st.markdown("#### Current assignments")
+    assignments_df["team"] = assignments_df["team"].fillna("")
+    assignments_df["organization_name"] = assignments_df["organization_name"].fillna("Unassigned")
+
+    f1, f2, f3, f4, f5 = st.columns(5)
+    with f1:
+        q = st.text_input("Search learner or module", key="current_assignments_search")
+    with f2:
+        team_options = sorted([team for team in assignments_df["team"].unique().tolist() if team])
+        team_filter = st.selectbox("Team/Department", ["All"] + team_options, key="current_assignments_team")
+    with f3:
+        org_options = sorted(assignments_df["organization_name"].unique().tolist())
+        org_filter = st.selectbox("Organization", ["All"] + org_options, key="current_assignments_org")
+    with f4:
+        status_options = sorted(assignments_df["status"].unique().tolist())
+        status_filter = st.selectbox("Status", ["All"] + status_options, key="current_assignments_status")
+    with f5:
+        module_options = sorted(assignments_df["module_title"].unique().tolist())
+        module_filter = st.selectbox("Module", ["All"] + module_options, key="current_assignments_module")
+
+    filtered_assignments = apply_learner_filters(
+        assignments_df,
+        search_text=q,
+        team_filter=team_filter,
+        org_filter=org_filter,
+    )
+    if status_filter != "All":
+        filtered_assignments = filtered_assignments[filtered_assignments["status"] == status_filter]
+    if module_filter != "All":
+        filtered_assignments = filtered_assignments[filtered_assignments["module_title"] == module_filter]
+
+    st.caption(f"{len(filtered_assignments)} assignment(s) match current filters")
     st.dataframe(
-        assignments_df[["assignment_id", "learner_name", "module_title", "due_date", "status", "last_attempt_at"]],
+        filtered_assignments[
+            ["assignment_id", "learner_name", "team", "organization_name", "module_title", "due_date", "status", "last_attempt_at"]
+        ],
         hide_index=True,
         use_container_width=True,
     )
 
     assignment_map = {
         f"#{r['assignment_id']} • {r['learner_name']} • {r['module_title']} ({r['status']})": int(r["assignment_id"])
-        for _, r in assignments_df.iterrows()
+        for _, r in filtered_assignments.iterrows()
     }
+    if not assignment_map:
+        st.info("No assignments available for remove/reassign actions with current filters.")
+        return
+
     selected_assignment_label = st.selectbox("Select assignment", list(assignment_map.keys()))
     selected_assignment_id = assignment_map[selected_assignment_label]
 
