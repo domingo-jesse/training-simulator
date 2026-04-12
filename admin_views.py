@@ -1172,12 +1172,26 @@ def _qa_assert_query_has_rows(name: str, query: str, params: tuple = ()) -> dict
             "name": name,
             "passed": False,
             "detail": f"Exception: {type(exc).__name__}: {exc}",
+            "root_cause": "Query execution failed. Check database connectivity, table existence, and schema migrations.",
+            "recommended_action": "Inspect the stack trace in app logs, validate DB credentials, then run migrations/seed scripts.",
             "category": "Data Integrity",
         }
+    passed = len(rows) > 0
+    detail = f"Rows returned: {len(rows)}"
+    root_cause = "Healthy query with at least one row."
+    recommended_action = "No action needed."
+    if not passed:
+        root_cause = "Query ran successfully but returned zero rows."
+        recommended_action = (
+            "This usually means the table is empty for the current environment. "
+            "Seed test data or verify your QA fixtures are loaded."
+        )
     return {
         "name": name,
-        "passed": len(rows) > 0,
-        "detail": f"Rows returned: {len(rows)}",
+        "passed": passed,
+        "detail": detail,
+        "root_cause": root_cause,
+        "recommended_action": recommended_action,
         "category": "Data Integrity",
     }
 
@@ -1191,10 +1205,13 @@ def _qa_assert_scalar(
 ) -> dict:
     row = fetch_one(query, params)
     value = int(row["count"]) if row and row.get("count") is not None else 0
+    passed = value >= minimum
     return {
         "name": name,
-        "passed": value >= minimum,
+        "passed": passed,
         "detail": f"Count={value} (expected >= {minimum})",
+        "root_cause": "Threshold met." if passed else "Required minimum threshold not met for this environment.",
+        "recommended_action": "No action needed." if passed else "Create or activate additional records required by this check.",
         "category": category,
     }
 
@@ -1228,6 +1245,8 @@ def _qa_assignment_lifecycle_test(current_user: dict) -> dict:
             "name": "Assignment lifecycle (create → update → deactivate)",
             "passed": False,
             "detail": "Missing active learner or published module in organization.",
+            "root_cause": "Workflow prerequisites were not present.",
+            "recommended_action": "Create at least one active learner and one published module before running this QA test.",
             "category": "Workflow",
         }
 
@@ -1268,6 +1287,8 @@ def _qa_assignment_lifecycle_test(current_user: dict) -> dict:
             "name": "Assignment lifecycle (create → update → deactivate)",
             "passed": passed,
             "detail": f"assignment_id={assignment_id}, initial_due={created['due_date'] if created else None}, updated_due={updated_due_date}",
+            "root_cause": "Lifecycle operations completed." if passed else "One or more lifecycle assertions failed.",
+            "recommended_action": "No action needed." if passed else "Verify INSERT/UPDATE permissions and assignment table constraints.",
             "category": "Workflow",
         }
     except Exception as exc:
@@ -1275,6 +1296,8 @@ def _qa_assignment_lifecycle_test(current_user: dict) -> dict:
             "name": "Assignment lifecycle (create → update → deactivate)",
             "passed": False,
             "detail": f"Exception: {type(exc).__name__}: {exc}",
+            "root_cause": "Assignment lifecycle workflow raised an exception.",
+            "recommended_action": "Inspect app/server logs for stack trace and validate assignments table schema.",
             "category": "Workflow",
         }
     finally:
@@ -1333,6 +1356,8 @@ def _run_admin_qa_suite(current_user: dict) -> list[dict]:
                 WHERE a.organization_id = ? AND a.is_active = TRUE AND u.user_id IS NULL
             """, (org_id,))["count"]) == 0,
             "detail": "Assignments all map to learners",
+            "root_cause": "No orphan learner references detected.",
+            "recommended_action": "No action needed.",
             "category": "Data Integrity",
         },
         {
@@ -1344,12 +1369,16 @@ def _run_admin_qa_suite(current_user: dict) -> list[dict]:
                 WHERE a.organization_id = ? AND a.is_active = TRUE AND m.module_id IS NULL
             """, (org_id,))["count"]) == 0,
             "detail": "Assignments all map to modules",
+            "root_cause": "No orphan module references detected.",
+            "recommended_action": "No action needed.",
             "category": "Data Integrity",
         },
         {
             "name": "Assignment status query executes",
             "passed": not _assignments_with_status(org_id).empty,
             "detail": "_assignments_with_status returned records",
+            "root_cause": "Status query returned at least one record.",
+            "recommended_action": "No action needed.",
             "category": "Workflow",
         },
         _qa_assignment_lifecycle_test(current_user),
@@ -1386,6 +1415,11 @@ def render_admin_quality_hub(current_user: dict) -> None:
             st.caption("No QA run yet in this session. Click **Run full QA suite**.")
         else:
             results_df = pd.DataFrame(results)
+            for col in ["root_cause", "recommended_action"]:
+                if col not in results_df.columns:
+                    results_df[col] = ""
+            results_df["root_cause"] = results_df["root_cause"].fillna("")
+            results_df["recommended_action"] = results_df["recommended_action"].fillna("")
             results_df["status"] = results_df["passed"].map({True: "PASS", False: "FAIL"})
             pass_count = int(results_df["passed"].sum())
             fail_count = int((~results_df["passed"]).sum())
@@ -1403,6 +1437,12 @@ def render_admin_quality_hub(current_user: dict) -> None:
             if not failed.empty:
                 st.error("Some checks failed. Review details before shipping updates.")
                 st.table(failed[["name", "detail"]])
+                with st.expander("Failure logs (root cause + recommended action)", expanded=True):
+                    st.dataframe(
+                        failed[["category", "name", "detail", "root_cause", "recommended_action"]],
+                        hide_index=True,
+                        use_container_width=True,
+                    )
             else:
                 st.success("All QA checks passed for this run.")
 
