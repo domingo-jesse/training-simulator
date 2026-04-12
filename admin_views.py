@@ -16,7 +16,7 @@ from log_viewer import (
     read_full_file_for_download,
     read_log_lines,
 )
-from utils import metric_row, to_df
+from utils import filter_active_learners, filter_inactive_learners, metric_row, to_df
 
 admin_logger = get_logger(module="admin_views")
 
@@ -68,7 +68,7 @@ def _assignments_with_status(org_id: int) -> pd.DataFrame:
               AND a2.is_active = TRUE
             GROUP BY a2.assignment_id
         ) x ON x.assignment_id = a.assignment_id
-        WHERE a.organization_id = ? AND a.is_active = TRUE
+        WHERE a.organization_id = ? AND a.is_active = TRUE AND u.is_active = TRUE
         ORDER BY a.assigned_at DESC
         """,
         (org_id, org_id),
@@ -218,7 +218,7 @@ def render_learner_management(current_user: dict) -> None:
         filtered = filtered[~filtered["is_active"]]
 
     def _render_learner_tab(tab_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
-        scoped = tab_df[tab_df["is_active"] == show_active].copy()
+        scoped = filter_active_learners(tab_df) if show_active else filter_inactive_learners(tab_df)
         st.caption(f"{len(scoped)} learner(s) in {tab_name.lower()}.")
         st.dataframe(
             scoped[
@@ -322,7 +322,10 @@ def render_assignment_management(current_user: dict) -> None:
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Assignment Management")
 
-    learners = fetch_all("SELECT user_id, name, is_active FROM users WHERE role='learner' AND organization_id=? ORDER BY name", (org_id,))
+    learners = fetch_all(
+        "SELECT user_id, name, is_active FROM users WHERE role='learner' AND organization_id=? AND is_active = TRUE ORDER BY name",
+        (org_id,),
+    )
     modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? ORDER BY title", (org_id,))
     if not learners:
         st.info("No learners available yet. Add or activate learners first.")
@@ -334,10 +337,16 @@ def render_assignment_management(current_user: dict) -> None:
     with st.container(border=True):
         st.markdown("#### Assign module")
         module_map = {f"{m['title']} ({m['status']})": int(m["module_id"]) for m in modules}
-        learner_map = {f"{l['name']} ({'Active' if l['is_active'] else 'Inactive'})": int(l["user_id"]) for l in learners}
+        learner_map = {l["name"]: int(l["user_id"]) for l in learners}
+        learner_options = list(learner_map.keys())
+        learner_multiselect_key = "assign_training_learners"
+
+        if learner_multiselect_key not in st.session_state:
+            st.session_state[learner_multiselect_key] = []
+        st.session_state[learner_multiselect_key] = [x for x in st.session_state[learner_multiselect_key] if x in learner_options]
 
         selected_module = st.selectbox("Module", list(module_map.keys()))
-        selected_learners = st.multiselect("Learners", list(learner_map.keys()))
+        selected_learners = st.multiselect("Learners", learner_options, key=learner_multiselect_key)
         enable_due_date = st.checkbox("Set due date", value=False)
         due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
 
@@ -348,8 +357,28 @@ def render_assignment_management(current_user: dict) -> None:
                 st.warning("Select at least one learner before assigning.")
                 return
             try:
+                selected_ids = [learner_map[learner_label] for learner_label in selected_learners]
+                active_rows = fetch_all(
+                    """
+                    SELECT user_id
+                    FROM users
+                    WHERE role = 'learner'
+                      AND organization_id = ?
+                      AND is_active = TRUE
+                      AND user_id = ANY(?)
+                    """,
+                    (org_id, selected_ids),
+                )
+                active_ids = {int(row["user_id"]) for row in active_rows}
+                valid_ids = [learner_id for learner_id in selected_ids if learner_id in active_ids]
+                skipped_count = len(selected_ids) - len(valid_ids)
+                if not valid_ids:
+                    st.warning("No active learners were selected. Refresh and try again.")
+                    return
                 for learner_label in selected_learners:
                     learner_id = learner_map[learner_label]
+                    if learner_id not in active_ids:
+                        continue
                     execute(
                         """
                         INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
@@ -357,8 +386,10 @@ def render_assignment_management(current_user: dict) -> None:
                         """,
                         (org_id, module_id, learner_id, current_user["user_id"], due_date_value, True),
                     )
-                view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(selected_learners))
-                st.success(f"Assigned module to {len(selected_learners)} learner(s).")
+                view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(valid_ids))
+                if skipped_count:
+                    st.warning(f"Skipped {skipped_count} learner(s) who are no longer active.")
+                st.success(f"Assigned module to {len(valid_ids)} learner(s).")
                 st.rerun()
             except Exception:
                 view_logger.exception("Failed assigning training.", scenario_id=module_id)
@@ -433,6 +464,7 @@ def render_grading_center(current_user: dict) -> None:
             JOIN users u ON u.user_id = a.user_id
             JOIN modules m ON m.module_id = a.module_id
             WHERE a.organization_id = ?
+              AND u.is_active = TRUE
             ORDER BY a.created_at DESC
             """,
             (org_id,),

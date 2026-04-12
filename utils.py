@@ -61,3 +61,32 @@ def parse_json_list(value: str):
         return json.loads(value)
     except json.JSONDecodeError:
         return [value]
+
+
+def _normalize_status(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def is_active_status(value: Any) -> bool:
+    normalized = _normalize_status(value)
+    return normalized in {"active", "true", "1"}
+
+
+def filter_active_learners(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+    if "is_active" in df.columns:
+        return df[df["is_active"].apply(is_active_status)].copy()
+    if "status" in df.columns:
+        return df[df["status"].apply(is_active_status)].copy()
+    return df.copy()
+
+
+def filter_inactive_learners(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return df.copy()
+    if "is_active" in df.columns:
+        return df[~df["is_active"].apply(is_active_status)].copy()
+    if "status" in df.columns:
+        return df[~df["status"].apply(is_active_status)].copy()
+    return df.iloc[0:0].copy()
