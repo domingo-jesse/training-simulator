@@ -343,6 +343,57 @@ def init_db() -> None:
                     FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
                     FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
                 );
+
+                CREATE TABLE IF NOT EXISTS module_generation_runs (
+                    run_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    organization_id BIGINT NOT NULL,
+                    created_by BIGINT,
+                    input_title TEXT,
+                    input_category TEXT,
+                    input_difficulty TEXT,
+                    input_description TEXT,
+                    role_focus TEXT,
+                    test_focus TEXT,
+                    learning_objectives TEXT,
+                    input_content_sections TEXT,
+                    scenario_constraints TEXT,
+                    completion_requirements TEXT,
+                    input_quiz_required INTEGER DEFAULT 0,
+                    requested_question_count INTEGER DEFAULT 5,
+                    generated_title TEXT,
+                    generated_description TEXT,
+                    generated_scenario_overview TEXT,
+                    generation_status TEXT DEFAULT 'draft',
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                    FOREIGN KEY(created_by) REFERENCES users(user_id)
+                );
+
+                CREATE TABLE IF NOT EXISTS module_generation_questions (
+                    generated_question_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    run_id BIGINT NOT NULL,
+                    question_order INTEGER NOT NULL,
+                    question_text TEXT NOT NULL,
+                    rationale TEXT,
+                    approval_status TEXT DEFAULT 'pending',
+                    admin_feedback TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(run_id) REFERENCES module_generation_runs(run_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS module_questions (
+                    question_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    module_id BIGINT NOT NULL,
+                    question_order INTEGER NOT NULL,
+                    question_text TEXT NOT NULL,
+                    rationale TEXT,
+                    source_run_id BIGINT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
+                    FOREIGN KEY(source_run_id) REFERENCES module_generation_runs(run_id) ON DELETE SET NULL
+                );
                 """,
             )
         else:
@@ -500,6 +551,57 @@ def init_db() -> None:
                 FOREIGN KEY(module_id) REFERENCES modules(id) ON DELETE CASCADE,
                 FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
             );
+
+            CREATE TABLE IF NOT EXISTS module_generation_runs (
+                run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                organization_id INTEGER NOT NULL,
+                created_by INTEGER,
+                input_title TEXT,
+                input_category TEXT,
+                input_difficulty TEXT,
+                input_description TEXT,
+                role_focus TEXT,
+                test_focus TEXT,
+                learning_objectives TEXT,
+                input_content_sections TEXT,
+                scenario_constraints TEXT,
+                completion_requirements TEXT,
+                input_quiz_required INTEGER DEFAULT 0,
+                requested_question_count INTEGER DEFAULT 5,
+                generated_title TEXT,
+                generated_description TEXT,
+                generated_scenario_overview TEXT,
+                generation_status TEXT DEFAULT 'draft',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                FOREIGN KEY(created_by) REFERENCES users(user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS module_generation_questions (
+                generated_question_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id INTEGER NOT NULL,
+                question_order INTEGER NOT NULL,
+                question_text TEXT NOT NULL,
+                rationale TEXT,
+                approval_status TEXT DEFAULT 'pending',
+                admin_feedback TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(run_id) REFERENCES module_generation_runs(run_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS module_questions (
+                question_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                module_id INTEGER NOT NULL,
+                question_order INTEGER NOT NULL,
+                question_text TEXT NOT NULL,
+                rationale TEXT,
+                source_run_id INTEGER,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
+                FOREIGN KEY(source_run_id) REFERENCES module_generation_runs(run_id) ON DELETE SET NULL
+            );
             """
             )
 
@@ -634,6 +736,10 @@ def init_db() -> None:
             )
 
         _ensure_column(conn, "attempts", "organization_id", "INTEGER")
+        _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
+        _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
+        _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
+        _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
 
         if RUNTIME_USE_POSTGRES:
             with conn.cursor() as cur:
