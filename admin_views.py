@@ -718,7 +718,7 @@ def render_current_assignments(current_user: dict) -> None:
                     """,
                     (selected_assignment_id, org_id),
                 )
-                execute("UPDATE assignments SET is_active = 0 WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
+                execute("UPDATE assignments SET is_active = FALSE WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
                 if assignment_row:
                     _cleanup_assignment_tracking_records(
                         organization_id=org_id,
