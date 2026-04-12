@@ -136,22 +136,63 @@ def render_module_library(user: Dict) -> None:
         st.info("No modules are assigned yet. Your admin can assign training from the admin dashboard.")
         return
 
-    for i in range(0, len(assignments), 2):
-        cols = st.columns(2)
-        for col, module in zip(cols, assignments[i : i + 2]):
-            with col:
-                with st.container(border=True):
-                    st.markdown(f"### {module['title']}")
-                    st.caption(
-                        f"{module['category']} • {module['difficulty']} • {module['estimated_time']} • Status: {module['status']}"
-                    )
-                    if module["due_date"]:
-                        st.caption(f"Due: {module['due_date']}")
-                    st.write(_compact_text(module["description"]))
-                    if module["status"] == "Completed":
+    @st.dialog("Ready to start this module?")
+    def _start_module_warning_dialog(module: Dict) -> None:
+        st.warning("You have one graded attempt for this assignment. Make sure you're ready before starting.")
+        st.write(f"Module: **{module['title']}**")
+        c1, c2 = st.columns(2)
+        if c1.button("Cancel", key=f"cancel_start_{module['assignment_id']}_{module['module_id']}"):
+            st.session_state.pending_start_module = None
+            st.rerun()
+        if c2.button("Yes, start now", key=f"confirm_start_{module['assignment_id']}_{module['module_id']}", type="primary"):
+            view_logger.info("Start module confirmed.", action="start_module_confirmed", scenario_id=module["module_id"])
+            st.session_state.active_module_id = module["module_id"]
+            st.session_state.pending_start_module = None
+            st.rerun()
+
+    pending_start = st.session_state.get("pending_start_module")
+    if pending_start:
+        _start_module_warning_dialog(pending_start)
+
+    assigned_modules = [module for module in assignments if module["status"] != "Completed"]
+    completed_modules = [module for module in assignments if module["status"] == "Completed"]
+    tab_assigned, tab_completed = st.tabs(["Assigned", "Completed"])
+
+    with tab_assigned:
+        if not assigned_modules:
+            st.caption("No active assigned modules right now.")
+        for i in range(0, len(assigned_modules), 2):
+            cols = st.columns(2)
+            for col, module in zip(cols, assigned_modules[i : i + 2]):
+                with col:
+                    with st.container(border=True):
+                        st.markdown(f"### {module['title']}")
+                        st.caption(
+                            f"{module['category']} • {module['difficulty']} • {module['estimated_time']} • Status: {module['status']}"
+                        )
+                        if module["due_date"]:
+                            st.caption(f"Due: {module['due_date']}")
+                        st.write(_compact_text(module["description"]))
+                        if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
+                            view_logger.info("Button click.", action="start_module_clicked", scenario_id=module["module_id"])
+                            st.session_state.pending_start_module = dict(module)
+                            st.rerun()
+
+    with tab_completed:
+        if not completed_modules:
+            st.caption("No completed modules yet.")
+        for i in range(0, len(completed_modules), 2):
+            cols = st.columns(2)
+            for col, module in zip(cols, completed_modules[i : i + 2]):
+                with col:
+                    with st.container(border=True):
+                        st.markdown(f"### {module['title']}")
+                        st.caption(
+                            f"{module['category']} • {module['difficulty']} • Completed at: {module['last_attempt_at']}"
+                        )
                         st.success(f"Completed • Best score: {module['best_score']}%")
                         if st.button(
-                            "View score",
+                            "View completed module",
                             key=f"view_{module['assignment_id']}_{module['module_id']}",
                             type="secondary",
                         ):
@@ -173,30 +214,10 @@ def render_module_library(user: Dict) -> None:
                                 st.session_state.latest_attempt_id = int(attempt["attempt_id"])
                                 st.session_state.page = "Results"
                                 st.rerun()
-                    else:
-                        if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
-                            view_logger.info("Button click.", action="start_module", scenario_id=module["module_id"])
-                            st.session_state.active_module_id = module["module_id"]
-                            st.session_state.page = "Scenario"
-                            st.rerun()
 
-    completed_modules = [module for module in assignments if module["status"] == "Completed"]
-    st.markdown("### Completed modules")
-    if not completed_modules:
-        st.caption("No completed modules yet.")
-    else:
-        st.dataframe(
-            [
-                {
-                    "Module": module["title"],
-                    "Completed at": module["last_attempt_at"],
-                    "Score": f"{module['best_score']}%",
-                }
-                for module in completed_modules
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
+    if st.session_state.get("active_module_id"):
+        st.markdown("---")
+        render_scenario_page(user)
 
 
 def render_scenario_page(user: Dict) -> None:
