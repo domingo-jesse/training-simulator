@@ -14,19 +14,19 @@ def inject_styles() -> None:
         .main .block-container {padding-top: 1.8rem; padding-bottom: 2.2rem; max-width: 1200px;}
         .stApp,
         [data-testid="stAppViewContainer"] {
-            background: linear-gradient(135deg, #0f172a, #1e3a8a, #2563eb);
-            color: #e2e8f0;
+            background: linear-gradient(145deg, #f8fafc, #f1f5f9 55%, #ffffff);
+            color: #0f172a;
         }
         [data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, #1e293b, #0f172a);
-            border-right: 1px solid rgba(255, 255, 255, 0.08);
+            background: linear-gradient(180deg, #ffffff, #f8fafc);
+            border-right: 1px solid rgba(15, 23, 42, 0.08);
         }
         .stApp [data-testid="stMarkdownContainer"],
         .stApp label,
         .stApp p,
         .stApp .st-emotion-cache-10trblm,
         .stApp .st-emotion-cache-16idsys {
-            color: #e2e8f0;
+            color: #0f172a;
         }
 
         .panel,
@@ -34,14 +34,14 @@ def inject_styles() -> None:
         [data-testid="stVerticalBlockBorderWrapper"],
         [data-testid="stDataFrame"],
         .stTabs [data-baseweb="tab-panel"] {
-            background: rgba(255, 255, 255, 0.05);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.88);
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(15, 23, 42, 0.08);
             border-radius: 12px;
             padding: 16px;
         }
-        .subtle {color: #cbd5e1; font-size: 0.92rem;}
-        .title-chip {display:inline-block;padding:0.25rem 0.6rem;border-radius:999px;background:rgba(96,165,250,0.2);color:#dbeafe;font-size:0.78rem;}
+        .subtle {color: #475569; font-size: 0.92rem;}
+        .title-chip {display:inline-block;padding:0.25rem 0.6rem;border-radius:999px;background:rgba(59,130,246,0.14);color:#1d4ed8;font-size:0.78rem;}
         .login-shell {
             max-width: 420px;
             margin: 0 auto 1rem auto;
@@ -65,7 +65,7 @@ def inject_styles() -> None:
 
         .stApp h2, .stApp h3 {
             font-size: 1.35rem;
-            background: linear-gradient(90deg, #60a5fa, #a78bfa);
+            background: linear-gradient(90deg, #1d4ed8, #4338ca);
             -webkit-background-clip: text;
             background-clip: text;
             color: transparent;
@@ -89,20 +89,20 @@ def inject_styles() -> None:
         [data-testid="stTextArea"] textarea,
         [data-testid="stDateInput"] input,
         [data-baseweb="select"] > div {
-            background: rgba(255, 255, 255, 0.05) !important;
-            border: 1px solid rgba(255, 255, 255, 0.1) !important;
+            background: #ffffff !important;
+            border: 1px solid rgba(15, 23, 42, 0.16) !important;
             border-radius: 8px !important;
-            color: #ffffff !important;
+            color: #0f172a !important;
         }
         [data-baseweb="select"] span {
-            color: #ffffff !important;
+            color: #0f172a !important;
         }
 
         [data-testid="stDataFrame"] [role="columnheader"] {
-            background: rgba(255, 255, 255, 0.08) !important;
+            background: rgba(148, 163, 184, 0.16) !important;
         }
         [data-testid="stDataFrame"] [role="row"]:hover {
-            background: rgba(255, 255, 255, 0.05) !important;
+            background: rgba(59, 130, 246, 0.08) !important;
         }
         .login-card [data-testid="stTextInput"] input {
             border-radius: 8px;
