@@ -864,9 +864,19 @@ def render_main_app() -> None:
         ]
         qa_pages = ["QA Test Center"]
         pages = operations_pages + qa_pages
+        def _ensure_valid_admin_page(valid_pages: list[str]) -> None:
+            if "admin_page" not in st.session_state or st.session_state.get("admin_page") not in valid_pages:
+                st.session_state["admin_page"] = valid_pages[0]
+
         requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("admin_page") != requested_page:
             st.session_state["admin_page"] = requested_page
+        current_group = st.session_state.get("admin_nav_group", "Operations")
+        if current_group == "Operations" and st.session_state.get("admin_page") in qa_pages:
+            st.session_state["admin_page"] = operations_pages[0]
+        if current_group == "Quality Assurance" and st.session_state.get("admin_page") in operations_pages:
+            st.session_state["admin_page"] = qa_pages[0]
+        _ensure_valid_admin_page(pages)
         st.session_state["page"] = None
         st.sidebar.radio(
             "Admin Navigation",
@@ -879,10 +889,6 @@ def render_main_app() -> None:
             horizontal=True,
             key="admin_nav_group",
         )
-        if st.session_state.get("admin_nav_group") == "Operations" and st.session_state.get("admin_page") in qa_pages:
-            st.session_state["admin_page"] = operations_pages[0]
-        if st.session_state.get("admin_nav_group") == "Quality Assurance" and st.session_state.get("admin_page") in operations_pages:
-            st.session_state["admin_page"] = qa_pages[0]
         current_page = st.session_state.get("admin_page", "Dashboard")
         user_logger.info("Admin page load.", page=current_page)
         if current_page == "Dashboard":

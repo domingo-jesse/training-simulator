@@ -1165,7 +1165,15 @@ def render_module_builder(current_user: dict) -> None:
 
 
 def _qa_assert_query_has_rows(name: str, query: str, params: tuple = ()) -> dict:
-    rows = fetch_all(query, params)
+    try:
+        rows = fetch_all(query, params)
+    except Exception as exc:
+        return {
+            "name": name,
+            "passed": False,
+            "detail": f"Exception: {type(exc).__name__}: {exc}",
+            "category": "Data Integrity",
+        }
     return {
         "name": name,
         "passed": len(rows) > 0,
@@ -1294,7 +1302,7 @@ def _run_admin_qa_suite(current_user: dict) -> list[dict]:
         _qa_assert_query_has_rows("module_assignments table reachable", "SELECT id FROM module_assignments LIMIT 1"),
         _qa_assert_query_has_rows("module_progress table reachable", "SELECT id FROM module_progress LIMIT 1"),
         _qa_assert_query_has_rows("module_generation_runs table reachable", "SELECT run_id FROM module_generation_runs LIMIT 1"),
-        _qa_assert_query_has_rows("module_generation_questions table reachable", "SELECT generation_question_id FROM module_generation_questions LIMIT 1"),
+        _qa_assert_query_has_rows("module_generation_questions table reachable", "SELECT generated_question_id FROM module_generation_questions LIMIT 1"),
         _qa_assert_scalar(
             "Active learners exist",
             "SELECT COUNT(*) AS count FROM users WHERE role='learner' AND is_active=TRUE AND organization_id = ?",
