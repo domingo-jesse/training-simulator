@@ -21,6 +21,14 @@ from utils import metric_row, to_df
 admin_logger = get_logger(module="admin_views")
 
 
+def _select_all_filtered(multiselect_key: str, option_labels: list[str]) -> None:
+    st.session_state[multiselect_key] = list(option_labels)
+
+
+def _clear_filtered_selection(multiselect_key: str) -> None:
+    st.session_state[multiselect_key] = []
+
+
 def _assignments_with_status(org_id: int) -> pd.DataFrame:
     rows = fetch_all(
         """
@@ -233,10 +241,25 @@ def render_learner_management(current_user: dict) -> None:
         learner_options = {f"{r['name']} ({r['team'] or 'No team'})": int(r["user_id"]) for _, r in scoped.iterrows()}
         option_labels = list(learner_options.keys())
 
-        existing_selection = st.session_state.get(multiselect_key, [])
-        valid_selection = [label for label in existing_selection if label in option_labels]
-        if existing_selection != valid_selection:
-            st.session_state[multiselect_key] = valid_selection
+        if multiselect_key not in st.session_state:
+            st.session_state[multiselect_key] = []
+        st.session_state[multiselect_key] = [x for x in st.session_state[multiselect_key] if x in option_labels]
+
+        c1, c2, c3 = st.columns([1, 1, 2])
+        with c1:
+            st.button(
+                "Select All Filtered",
+                key=f"select_all_filtered_{tab_key}",
+                on_click=_select_all_filtered,
+                args=(multiselect_key, option_labels),
+            )
+        with c2:
+            st.button(
+                "Clear Selection",
+                key=f"clear_selection_{tab_key}",
+                on_click=_clear_filtered_selection,
+                args=(multiselect_key,),
+            )
 
         selected_learners = st.multiselect(
             "Select learners",
@@ -255,15 +278,6 @@ def render_learner_management(current_user: dict) -> None:
             new_status = True
             action_type = "primary"
 
-        c1, c2, c3 = st.columns([1, 1, 2])
-        with c1:
-            if st.button("Select All Filtered", key=f"select_all_filtered_{tab_key}"):
-                st.session_state[multiselect_key] = option_labels
-                st.rerun()
-        with c2:
-            if st.button("Clear Selection", key=f"clear_selection_{tab_key}"):
-                st.session_state[multiselect_key] = []
-                st.rerun()
         with c3:
             run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}")
 
