@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from uuid import uuid4
 
 import pandas as pd
 import psycopg2
 import streamlit as st
 
-from db import execute, executemany, fetch_all, fetch_one, fetch_table_rows, list_public_tables
+from db import execute, executemany, fetch_all, fetch_one, fetch_table_rows, list_public_tables, get_database_debug_info
 from logger import get_logger
 from log_viewer import (
     LOG_LEVEL_OPTIONS,
@@ -1161,6 +1161,269 @@ def render_module_builder(current_user: dict) -> None:
             )
             st.success("Module duplicated as draft.")
             st.rerun()
+
+
+
+def _qa_assert_query_has_rows(name: str, query: str, params: tuple = ()) -> dict:
+    rows = fetch_all(query, params)
+    return {
+        "name": name,
+        "passed": len(rows) > 0,
+        "detail": f"Rows returned: {len(rows)}",
+        "category": "Data Integrity",
+    }
+
+
+def _qa_assert_scalar(
+    name: str,
+    query: str,
+    params: tuple = (),
+    minimum: int = 0,
+    category: str = "Data Integrity",
+) -> dict:
+    row = fetch_one(query, params)
+    value = int(row["count"]) if row and row.get("count") is not None else 0
+    return {
+        "name": name,
+        "passed": value >= minimum,
+        "detail": f"Count={value} (expected >= {minimum})",
+        "category": category,
+    }
+
+
+def _qa_assignment_lifecycle_test(current_user: dict) -> dict:
+    org_id = current_user["organization_id"]
+    admin_id = current_user["user_id"]
+
+    learner = fetch_one(
+        """
+        SELECT user_id
+        FROM users
+        WHERE organization_id = ? AND role = 'learner' AND is_active = TRUE
+        ORDER BY user_id
+        LIMIT 1
+        """,
+        (org_id,),
+    )
+    module = fetch_one(
+        """
+        SELECT module_id
+        FROM modules
+        WHERE organization_id = ? AND status = 'published'
+        ORDER BY module_id
+        LIMIT 1
+        """,
+        (org_id,),
+    )
+    if not learner or not module:
+        return {
+            "name": "Assignment lifecycle (create → update → deactivate)",
+            "passed": False,
+            "detail": "Missing active learner or published module in organization.",
+            "category": "Workflow",
+        }
+
+    assignment_id = None
+    try:
+        due_date = (date.today() + timedelta(days=14)).isoformat()
+        assignment_id = execute(
+            """
+            INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
+            VALUES (?, ?, ?, ?, ?, TRUE)
+            """,
+            (org_id, int(module["module_id"]), int(learner["user_id"]), admin_id, due_date),
+        )
+        created = fetch_one(
+            "SELECT due_date, is_active FROM assignments WHERE assignment_id = ?",
+            (assignment_id,),
+        )
+        updated_due_date = (date.today() + timedelta(days=21)).isoformat()
+        execute(
+            "UPDATE assignments SET due_date = ? WHERE assignment_id = ?",
+            (updated_due_date, assignment_id),
+        )
+        updated = fetch_one(
+            "SELECT due_date FROM assignments WHERE assignment_id = ?",
+            (assignment_id,),
+        )
+        execute(
+            "UPDATE assignments SET is_active = FALSE WHERE assignment_id = ?",
+            (assignment_id,),
+        )
+        deactivated = fetch_one(
+            "SELECT is_active FROM assignments WHERE assignment_id = ?",
+            (assignment_id,),
+        )
+
+        passed = bool(created) and created["is_active"] and str(updated["due_date"]) == updated_due_date and not bool(deactivated["is_active"])
+        return {
+            "name": "Assignment lifecycle (create → update → deactivate)",
+            "passed": passed,
+            "detail": f"assignment_id={assignment_id}, initial_due={created['due_date'] if created else None}, updated_due={updated_due_date}",
+            "category": "Workflow",
+        }
+    except Exception as exc:
+        return {
+            "name": "Assignment lifecycle (create → update → deactivate)",
+            "passed": False,
+            "detail": f"Exception: {type(exc).__name__}: {exc}",
+            "category": "Workflow",
+        }
+    finally:
+        if assignment_id:
+            execute("DELETE FROM assignments WHERE assignment_id = ?", (assignment_id,))
+
+
+def _run_admin_qa_suite(current_user: dict) -> list[dict]:
+    org_id = current_user["organization_id"]
+    db_info = get_database_debug_info()
+    connectivity_ok = bool(db_info.get("host") and db_info.get("database") and db_info.get("postgres_configured"))
+
+    tests: list[dict] = [
+        {"name": "Database URL is configured", "passed": db_info.get("database_url_set", False), "detail": f"backend={db_info.get('backend')}", "category": "Connectivity"},
+        {"name": "Database connection metadata available", "passed": connectivity_ok, "detail": f"host={db_info.get('host')} db={db_info.get('database')}", "category": "Connectivity"},
+        _qa_assert_query_has_rows("organizations table reachable", "SELECT organization_id FROM organizations LIMIT 1"),
+        _qa_assert_query_has_rows("users table reachable", "SELECT user_id FROM users LIMIT 1"),
+        _qa_assert_query_has_rows("modules table reachable", "SELECT module_id FROM modules LIMIT 1"),
+        _qa_assert_query_has_rows("module_questions table reachable", "SELECT question_id FROM module_questions LIMIT 1"),
+        _qa_assert_query_has_rows("investigation_actions table reachable", "SELECT action_id FROM investigation_actions LIMIT 1"),
+        _qa_assert_query_has_rows("attempts table reachable", "SELECT attempt_id FROM attempts LIMIT 1"),
+        _qa_assert_query_has_rows("action_logs table reachable", "SELECT log_id FROM action_logs LIMIT 1"),
+        _qa_assert_query_has_rows("assignments table reachable", "SELECT assignment_id FROM assignments LIMIT 1"),
+        _qa_assert_query_has_rows("learner_profiles table reachable", "SELECT id FROM learner_profiles LIMIT 1"),
+        _qa_assert_query_has_rows("module_assignments table reachable", "SELECT id FROM module_assignments LIMIT 1"),
+        _qa_assert_query_has_rows("module_progress table reachable", "SELECT id FROM module_progress LIMIT 1"),
+        _qa_assert_query_has_rows("module_generation_runs table reachable", "SELECT run_id FROM module_generation_runs LIMIT 1"),
+        _qa_assert_query_has_rows("module_generation_questions table reachable", "SELECT generation_question_id FROM module_generation_questions LIMIT 1"),
+        _qa_assert_scalar(
+            "Active learners exist",
+            "SELECT COUNT(*) AS count FROM users WHERE role='learner' AND is_active=TRUE AND organization_id = ?",
+            (org_id,),
+            minimum=1,
+            category="Readiness",
+        ),
+        _qa_assert_scalar(
+            "Published modules exist",
+            "SELECT COUNT(*) AS count FROM modules WHERE status='published' AND organization_id = ?",
+            (org_id,),
+            minimum=1,
+            category="Readiness",
+        ),
+        _qa_assert_scalar(
+            "Active assignments exist",
+            "SELECT COUNT(*) AS count FROM assignments WHERE is_active=TRUE AND organization_id = ?",
+            (org_id,),
+            minimum=1,
+            category="Readiness",
+        ),
+        {
+            "name": "No orphan assignments (learner)",
+            "passed": int(fetch_one("""
+                SELECT COUNT(*) AS count
+                FROM assignments a
+                LEFT JOIN users u ON u.user_id = a.learner_id
+                WHERE a.organization_id = ? AND a.is_active = TRUE AND u.user_id IS NULL
+            """, (org_id,))["count"]) == 0,
+            "detail": "Assignments all map to learners",
+            "category": "Data Integrity",
+        },
+        {
+            "name": "No orphan assignments (module)",
+            "passed": int(fetch_one("""
+                SELECT COUNT(*) AS count
+                FROM assignments a
+                LEFT JOIN modules m ON m.module_id = a.module_id
+                WHERE a.organization_id = ? AND a.is_active = TRUE AND m.module_id IS NULL
+            """, (org_id,))["count"]) == 0,
+            "detail": "Assignments all map to modules",
+            "category": "Data Integrity",
+        },
+        {
+            "name": "Assignment status query executes",
+            "passed": not _assignments_with_status(org_id).empty,
+            "detail": "_assignments_with_status returned records",
+            "category": "Workflow",
+        },
+        _qa_assignment_lifecycle_test(current_user),
+    ]
+
+    return tests
+
+
+def render_admin_quality_hub(current_user: dict) -> None:
+    st.subheader("QA Test Center")
+    st.caption("Admin-only automated regression checks for connectivity, assignments, and data integrity.")
+
+    tab_overview, tab_results, tab_catalog = st.tabs(["Overview", "Run Tests", "Test Catalog"])
+
+    with tab_overview:
+        st.info("Use this suite before/after each update to catch regressions quickly.")
+        st.markdown(
+            """
+            **What this validates automatically**
+            - Database connectivity and table availability
+            - Assignment workflow (create/update/deactivate)
+            - Key data integrity checks (no orphan assignments)
+            - Readiness checks for learners/modules/assignments
+            """
+        )
+
+    with tab_results:
+        if st.button("Run full QA suite", type="primary", use_container_width=True):
+            st.session_state["qa_suite_results"] = _run_admin_qa_suite(current_user)
+            st.session_state["qa_last_run"] = date.today().isoformat()
+
+        results = st.session_state.get("qa_suite_results", [])
+        if not results:
+            st.caption("No QA run yet in this session. Click **Run full QA suite**.")
+        else:
+            results_df = pd.DataFrame(results)
+            results_df["status"] = results_df["passed"].map({True: "PASS", False: "FAIL"})
+            pass_count = int(results_df["passed"].sum())
+            fail_count = int((~results_df["passed"]).sum())
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Total tests", len(results_df))
+            c2.metric("Passed", pass_count)
+            c3.metric("Failed", fail_count)
+            st.dataframe(
+                results_df[["status", "category", "name", "detail"]],
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            failed = results_df[results_df["passed"] == False]
+            if not failed.empty:
+                st.error("Some checks failed. Review details before shipping updates.")
+                st.table(failed[["name", "detail"]])
+            else:
+                st.success("All QA checks passed for this run.")
+
+    with tab_catalog:
+        catalog = [
+            "1. Database URL is configured",
+            "2. Database metadata is available",
+            "3. organizations table reachable",
+            "4. users table reachable",
+            "5. modules table reachable",
+            "6. module_questions table reachable",
+            "7. investigation_actions table reachable",
+            "8. attempts table reachable",
+            "9. action_logs table reachable",
+            "10. assignments table reachable",
+            "11. learner_profiles table reachable",
+            "12. module_assignments table reachable",
+            "13. module_progress table reachable",
+            "14. module_generation_runs table reachable",
+            "15. module_generation_questions table reachable",
+            "16. Active learners exist",
+            "17. Published modules exist",
+            "18. Active assignments exist",
+            "19. No orphan assignments (learner)",
+            "20. No orphan assignments (module)",
+            "21. Assignment status query executes",
+            "22. Assignment lifecycle (create → update → deactivate)",
+        ]
+        st.markdown("\n".join([f"- {item}" for item in catalog]))
 
 
 def render_database_tables_view() -> None:
