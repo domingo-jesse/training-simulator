@@ -11,6 +11,7 @@ import streamlit as st
 from admin_views import (
     render_admin_dashboard,
     render_assignment_management,
+    render_current_assignments,
     render_database_tables_view,
     render_grading_center,
     render_learner_management,
@@ -844,7 +845,8 @@ def render_main_app() -> None:
     if user["role"] == "admin":
         pages = [
             "Dashboard",
-            "Assignments",
+            "Assignment Management",
+            "Current Assignments",
             "Submission Grading",
             "Progress Tracking",
             "Learner Management",
@@ -865,8 +867,10 @@ def render_main_app() -> None:
         user_logger.info("Admin page load.", page=current_page)
         if current_page == "Dashboard":
             render_admin_dashboard(user)
-        elif current_page == "Assignments":
+        elif current_page == "Assignment Management":
             render_assignment_management(user)
+        elif current_page == "Current Assignments":
+            render_current_assignments(user)
         elif current_page == "Submission Grading":
             render_grading_center(user)
         elif current_page == "Progress Tracking":
