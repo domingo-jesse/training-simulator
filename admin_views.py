@@ -876,436 +876,435 @@ def render_module_builder(current_user: dict) -> None:
     st.subheader("Module Builder")
     st.caption("Build from admin input → AI draft preview → approve/deny scenario + questions → publish.")
 
-    ai_tab, manual_tab = st.tabs(["AI Module Builder", "Standard Module Builder"])
+    st.markdown("#### Step 1: Enter module goals")
+    with st.form("generate_module_preview"):
+        title = st.text_input("Title")
+        category = st.text_input("Category", value="General")
+        difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"])
+        role_focus = st.text_input("Role being simulated (e.g., Support Tier 1, Team Lead)")
+        test_focus = st.text_input("What should this module test?")
+        description = st.text_area("Description")
+        learning_objectives = st.text_area("Learning objectives (one per line)")
+        scenario_constraints = st.text_area("Scenario context / constraints")
+        content_sections = st.text_area("Ordered content sections (one per line)")
+        completion_requirements = st.text_area("Completion requirements")
+        quiz_required = st.checkbox("Quiz required", value=True)
+        estimated_minutes = st.number_input("Estimated assessment time (minutes)", min_value=1, max_value=240, value=20, step=1)
+        question_count = st.slider("AI-generated questions", min_value=5, max_value=6, value=5)
 
-    with ai_tab:
-        st.markdown("#### Step 1: Enter module goals")
-        with st.form("generate_module_preview"):
-            title = st.text_input("Title")
-            category = st.text_input("Category", value="General")
-            difficulty = st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"])
-            role_focus = st.text_input("Role being simulated (e.g., Support Tier 1, Team Lead)")
-            test_focus = st.text_input("What should this module test?")
-            description = st.text_area("Description")
-            learning_objectives = st.text_area("Learning objectives (one per line)")
-            scenario_constraints = st.text_area("Scenario context / constraints")
-            content_sections = st.text_area("Ordered content sections (one per line)")
-            completion_requirements = st.text_area("Completion requirements")
-            quiz_required = st.checkbox("Quiz required", value=True)
-            estimated_minutes = st.number_input("Estimated assessment time (minutes)", min_value=1, max_value=240, value=20, step=1)
-            question_count = st.slider("AI-generated questions", min_value=5, max_value=6, value=5)
-
-            generate_preview = st.form_submit_button("OpenAI: Generate module preview", type="primary")
-            if generate_preview:
-                payload = ModuleGenerationInput(
-                    title=title.strip(),
-                    category=category.strip() or "General",
-                    difficulty=difficulty,
-                    description=description.strip(),
-                    role_focus=role_focus.strip(),
-                    test_focus=test_focus.strip(),
-                    learning_objectives=[line.strip() for line in learning_objectives.splitlines() if line.strip()],
-                    scenario_constraints=scenario_constraints.strip(),
-                    completion_requirements=completion_requirements.strip(),
-                    question_count=question_count,
-                )
-                preview, warning = generate_module_preview(payload)
-                run_id = execute(
-                    """
-                    INSERT INTO module_generation_runs (
-                        organization_id, created_by, input_title, input_category, input_difficulty,
-                        input_description, role_focus, test_focus, learning_objectives, input_content_sections,
-                        scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
-                        input_estimated_minutes,
-                        generated_title, generated_description, generated_scenario_overview,
-                        generation_status, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
-                    """,
-                    (
-                        org_id,
-                        current_user["user_id"],
-                        payload.title,
-                        payload.category,
-                        payload.difficulty,
-                        payload.description,
-                        payload.role_focus,
-                        payload.test_focus,
-                        "\n".join(payload.learning_objectives),
-                        _parse_lines(content_sections),
-                        payload.scenario_constraints,
-                        payload.completion_requirements,
-                        1 if quiz_required else 0,
-                        payload.question_count,
-                        int(estimated_minutes),
-                        preview.get("title"),
-                        preview.get("description"),
-                        preview.get("scenario_overview"),
-                    ),
-                )
-                executemany(
-                    """
-                    INSERT INTO module_generation_questions (
-                        run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-                    """,
-                    [
-                        (
-                            run_id,
-                            idx + 1,
-                            item.get("question", ""),
-                            item.get("rationale", ""),
-                            "open_text",
-                            "",
-                        )
-                        for idx, item in enumerate(preview.get("questions", []))
-                    ],
-                )
-                if warning:
-                    st.warning(warning)
-                st.success("Draft generated. Continue to review and approve below.")
-                st.rerun()
-
-        st.markdown("#### Step 2: Review and approve generated draft")
-        runs_df = to_df(
-            fetch_all(
-                """
-                SELECT * FROM module_generation_runs
-                WHERE organization_id = ?
-                ORDER BY updated_at DESC
-                """,
-                (org_id,),
+        generate_preview = st.form_submit_button("OpenAI: Generate module preview", type="primary")
+        if generate_preview:
+            payload = ModuleGenerationInput(
+                title=title.strip(),
+                category=category.strip() or "General",
+                difficulty=difficulty,
+                description=description.strip(),
+                role_focus=role_focus.strip(),
+                test_focus=test_focus.strip(),
+                learning_objectives=[line.strip() for line in learning_objectives.splitlines() if line.strip()],
+                scenario_constraints=scenario_constraints.strip(),
+                completion_requirements=completion_requirements.strip(),
+                question_count=question_count,
             )
+            preview, warning = generate_module_preview(payload)
+            run_id = execute(
+                """
+                INSERT INTO module_generation_runs (
+                    organization_id, created_by, input_title, input_category, input_difficulty,
+                    input_description, role_focus, test_focus, learning_objectives, input_content_sections,
+                    scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
+                    input_estimated_minutes,
+                    generated_title, generated_description, generated_scenario_overview,
+                    generation_status, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
+                """,
+                (
+                    org_id,
+                    current_user["user_id"],
+                    payload.title,
+                    payload.category,
+                    payload.difficulty,
+                    payload.description,
+                    payload.role_focus,
+                    payload.test_focus,
+                    "\n".join(payload.learning_objectives),
+                    _parse_lines(content_sections),
+                    payload.scenario_constraints,
+                    payload.completion_requirements,
+                    1 if quiz_required else 0,
+                    payload.question_count,
+                    int(estimated_minutes),
+                    preview.get("title"),
+                    preview.get("description"),
+                    preview.get("scenario_overview"),
+                ),
+            )
+            executemany(
+                """
+                INSERT INTO module_generation_questions (
+                    run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+                """,
+                [
+                    (
+                        run_id,
+                        idx + 1,
+                        item.get("question", ""),
+                        item.get("rationale", ""),
+                        "open_text",
+                        "",
+                    )
+                    for idx, item in enumerate(preview.get("questions", []))
+                ],
+            )
+            if warning:
+                st.warning(warning)
+            st.success("Draft generated. Continue to review and approve below.")
+            st.rerun()
+
+    st.markdown("#### Step 2: Review and approve generated draft")
+    runs_df = to_df(
+        fetch_all(
+            """
+            SELECT * FROM module_generation_runs
+            WHERE organization_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (org_id,),
         )
-        if runs_df.empty:
-            st.info("No AI drafts yet. Submit goals above to generate one.")
-        else:
-            run_map = {
-                f"Run #{int(row['run_id'])} • {row.get('generated_title') or row.get('input_title') or 'Untitled'} [{row['generation_status']}]":
-                int(row["run_id"])
-                for _, row in runs_df.iterrows()
-            }
-            selected_run_label = st.selectbox("Choose generated draft", list(run_map.keys()))
-            run_id = run_map[selected_run_label]
-            run = fetch_one("SELECT * FROM module_generation_runs WHERE run_id = ? AND organization_id = ?", (run_id, org_id))
-            generated_questions = fetch_all(
-                """
-                SELECT * FROM module_generation_questions
-                WHERE run_id = ?
-                ORDER BY question_order
-                """,
-                (run_id,),
+    )
+    if runs_df.empty:
+        st.info("No AI drafts yet. Submit goals above to generate one.")
+    else:
+        run_map = {
+            f"Run #{int(row['run_id'])} • {row.get('generated_title') or row.get('input_title') or 'Untitled'} [{row['generation_status']}]":
+            int(row["run_id"])
+            for _, row in runs_df.iterrows()
+        }
+        selected_run_label = st.selectbox("Choose generated draft", list(run_map.keys()))
+        run_id = run_map[selected_run_label]
+        run = fetch_one("SELECT * FROM module_generation_runs WHERE run_id = ? AND organization_id = ?", (run_id, org_id))
+        generated_questions = fetch_all(
+            """
+            SELECT * FROM module_generation_questions
+            WHERE run_id = ?
+            ORDER BY question_order
+            """,
+            (run_id,),
+        )
+
+        with st.container(border=True):
+            st.markdown("##### Scenario preview")
+            st.write(run.get("generated_scenario_overview") or "No scenario generated.")
+            scenario_status = st.selectbox(
+                "Scenario decision",
+                ["approved", "denied", "pending"],
+                index=["approved", "denied", "pending"].index(run.get("generation_status", "draft") if run.get("generation_status") in {"approved", "denied", "pending"} else "pending"),
+                key=f"scenario_status_{run_id}",
             )
-
-            with st.container(border=True):
-                st.markdown("##### Scenario preview")
-                st.write(run.get("generated_scenario_overview") or "No scenario generated.")
-                scenario_status = st.selectbox(
-                    "Scenario decision",
-                    ["approved", "denied", "pending"],
-                    index=["approved", "denied", "pending"].index(run.get("generation_status", "draft") if run.get("generation_status") in {"approved", "denied", "pending"} else "pending"),
-                    key=f"scenario_status_{run_id}",
-                )
-                scenario_feedback = st.text_area(
-                    "Scenario feedback",
-                    value=run.get("test_focus") or "",
-                    key=f"scenario_feedback_{run_id}",
-                )
-                if st.button("Save scenario decision", key=f"save_scenario_decision_{run_id}"):
-                    execute(
-                        """
-                        UPDATE module_generation_runs
-                        SET generation_status = ?, test_focus = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE run_id = ? AND organization_id = ?
-                        """,
-                        (scenario_status, scenario_feedback, run_id, org_id),
-                    )
-                    st.success("Scenario decision saved.")
-                    st.rerun()
-
-            st.markdown("##### Generated questions")
-            for q in generated_questions:
-                with st.container(border=True):
-                    st.markdown(f"**Q{q['question_order']}.** {q['question_text']}")
-                    st.caption(f"Type: {'Multiple choice' if q.get('question_type') == 'multiple_choice' else 'Open text'}")
-                    if q.get("question_type") == "multiple_choice" and q.get("options_text"):
-                        st.write("Options:")
-                        for option in [line.strip() for line in str(q.get("options_text", "")).splitlines() if line.strip()]:
-                            st.write(f"- {option}")
-                    if q.get("rationale"):
-                        st.caption(f"Rationale: {q['rationale']}")
-                    col_a, col_b, col_c = st.columns(3)
-                    with col_a:
-                        q_status = st.selectbox(
-                            f"Decision for Q{q['question_order']}",
-                            ["pending", "approved", "denied"],
-                            index=["pending", "approved", "denied"].index(q.get("approval_status") or "pending"),
-                            key=f"qstatus_{q['generated_question_id']}",
-                        )
-                    with col_b:
-                        q_feedback = st.text_input(
-                            f"Feedback for Q{q['question_order']}",
-                            value=q.get("admin_feedback") or "",
-                            key=f"qfeedback_{q['generated_question_id']}",
-                        )
-                    with col_c:
-                        q_type = st.selectbox(
-                            f"Type for Q{q['question_order']}",
-                            ["open_text", "multiple_choice"],
-                            index=0 if (q.get("question_type") or "open_text") == "open_text" else 1,
-                            key=f"qtype_{q['generated_question_id']}",
-                        )
-                    q_options = st.text_area(
-                        f"Choices for Q{q['question_order']} (one per line)",
-                        value=q.get("options_text") or "",
-                        disabled=q_type != "multiple_choice",
-                        key=f"qoptions_{q['generated_question_id']}",
-                    )
-                    if st.button(f"Save Q{q['question_order']} decision", key=f"save_q_{q['generated_question_id']}"):
-                        execute(
-                            """
-                            UPDATE module_generation_questions
-                            SET approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
-                            WHERE generated_question_id = ?
-                            """,
-                            (
-                                q_status,
-                                q_feedback,
-                                q_type,
-                                _parse_lines(q_options) if q_type == "multiple_choice" else "",
-                                q["generated_question_id"],
-                            ),
-                        )
-                        st.success(f"Saved Q{q['question_order']} decision.")
-                        st.rerun()
-                    if st.button(f"Delete Q{q['question_order']}", key=f"delete_q_{q['generated_question_id']}"):
-                        execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
-                        st.success(f"Deleted Q{q['question_order']}.")
-                        st.rerun()
-
-            with st.form(f"add_question_form_{run_id}"):
-                st.markdown("##### Add custom question")
-                new_question_text = st.text_area("Question text", key=f"new_question_text_{run_id}")
-                new_question_type = st.selectbox("Question type", ["open_text", "multiple_choice"], key=f"new_question_type_{run_id}")
-                new_question_options = st.text_area(
-                    "Multiple choice options (one per line)",
-                    key=f"new_question_options_{run_id}",
-                    disabled=new_question_type != "multiple_choice",
-                )
-                add_question = st.form_submit_button("Add question")
-                if add_question:
-                    max_order_row = fetch_one(
-                        "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_generation_questions WHERE run_id = ?",
-                        (run_id,),
-                    )
-                    next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
-                    execute(
-                        """
-                        INSERT INTO module_generation_questions (
-                            run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, 'approved', CURRENT_TIMESTAMP)
-                        """,
-                        (
-                            run_id,
-                            next_order,
-                            new_question_text.strip(),
-                            "Admin added",
-                            new_question_type,
-                            _parse_lines(new_question_options) if new_question_type == "multiple_choice" else "",
-                        ),
-                    )
-                    st.success("Question added.")
-                    st.rerun()
-
-            approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
-            can_finalize = bool(approved_questions) and run.get("generation_status") == "approved"
-            if st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}"):
-                module_id = execute(
-                    """
-                    INSERT INTO modules (
-                        title, category, difficulty, description, estimated_time,
-                        scenario_context, organization_id, status, learning_objectives, content_sections,
-                        completion_requirements, quiz_required, created_by, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    """,
-                    (
-                        run.get("generated_title") or run.get("input_title") or "AI Draft Module",
-                        run.get("input_category") or "General",
-                        run.get("input_difficulty") or "Beginner",
-                        run.get("generated_description") or run.get("input_description") or "",
-                        f"{int(run.get('input_estimated_minutes') or 20)} min",
-                        run.get("generated_scenario_overview") or "",
-                        org_id,
-                        run.get("learning_objectives") or "",
-                        run.get("input_content_sections") or "",
-                        run.get("completion_requirements") or "",
-                        1 if run.get("input_quiz_required") else 0,
-                        current_user["user_id"],
-                    ),
-                )
-                executemany(
-                    """
-                    INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        (
-                            module_id,
-                            idx + 1,
-                            q["question_text"],
-                            q.get("rationale") or q.get("admin_feedback") or "",
-                            q.get("question_type") or "open_text",
-                            q.get("options_text") or "",
-                            run_id,
-                        )
-                        for idx, q in enumerate(approved_questions)
-                    ],
-                )
+            scenario_feedback = st.text_area(
+                "Scenario feedback",
+                value=run.get("test_focus") or "",
+                key=f"scenario_feedback_{run_id}",
+            )
+            if st.button("Save scenario decision", key=f"save_scenario_decision_{run_id}"):
                 execute(
                     """
                     UPDATE module_generation_runs
-                    SET generation_status = 'built', updated_at = CURRENT_TIMESTAMP
+                    SET generation_status = ?, test_focus = ?, updated_at = CURRENT_TIMESTAMP
                     WHERE run_id = ? AND organization_id = ?
                     """,
-                    (run_id, org_id),
+                    (scenario_status, scenario_feedback, run_id, org_id),
                 )
-                st.success("Approved draft converted into a module.")
+                st.success("Scenario decision saved.")
                 st.rerun()
 
-
-    with manual_tab:
-        modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ? ORDER BY updated_at DESC", (org_id,)))
-        if modules_df.empty:
-            st.info("No modules yet.")
-            return
-
-        st.markdown("#### Manage modules")
-        st.dataframe(modules_df[["module_id", "title", "status", "difficulty", "updated_at"]], hide_index=True, use_container_width=True)
-        module_map = {f"#{int(r['module_id'])} • {r['title']} ({r['status']})": int(r["module_id"]) for _, r in modules_df.iterrows()}
-        selected_label = st.selectbox("Select module", list(module_map.keys()))
-        module_id = module_map[selected_label]
-        module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
-
-        with st.form("edit_module"):
-            edit_title = st.text_input("Title", value=module["title"])
-            edit_description = st.text_area("Description", value=module["description"] or "")
-            edit_estimated_minutes = st.number_input(
-                "Estimated assessment time (minutes)",
-                min_value=1,
-                max_value=240,
-                value=_estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
-                step=1,
-            )
-            edit_objectives = st.text_area("Learning objectives", value=module["learning_objectives"] or "")
-            edit_sections = st.text_area("Ordered content sections", value=module["content_sections"] or "")
-            edit_requirements = st.text_area("Completion requirements", value=module["completion_requirements"] or "")
-            edit_quiz_required = st.checkbox("Quiz required", value=bool(module["quiz_required"]))
-            save = st.form_submit_button("Send to database: Save edits")
-            if save:
-                execute(
-                    """
-                    UPDATE modules
-                    SET title = ?, description = ?, learning_objectives = ?, content_sections = ?,
-                        completion_requirements = ?, quiz_required = ?, estimated_time = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE module_id = ? AND organization_id = ?
-                    """,
-                    (
-                        edit_title,
-                        edit_description,
-                        _parse_lines(edit_objectives),
-                        _parse_lines(edit_sections),
-                        edit_requirements,
-                        1 if edit_quiz_required else 0,
-                        f"{int(edit_estimated_minutes)} min",
-                        module_id,
-                        org_id,
-                    ),
-                )
-                st.success("Module updated.")
-                st.rerun()
-
-        st.markdown("##### Assessment questions")
-        module_questions = fetch_all(
-            "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
-            (module_id,),
-        )
-        for question in module_questions:
+        st.markdown("##### Generated questions")
+        for q in generated_questions:
             with st.container(border=True):
-                st.markdown(f"**Q{question['question_order']}.** {question['question_text']}")
-                st.caption(f"Type: {'Multiple choice' if question.get('question_type') == 'multiple_choice' else 'Open text'}")
-                if question.get("question_type") == "multiple_choice" and question.get("options_text"):
-                    for option in [line.strip() for line in str(question.get("options_text", "")).splitlines() if line.strip()]:
+                st.markdown(f"**Q{q['question_order']}.** {q['question_text']}")
+                st.caption(f"Type: {'Multiple choice' if q.get('question_type') == 'multiple_choice' else 'Open text'}")
+                if q.get("question_type") == "multiple_choice" and q.get("options_text"):
+                    st.write("Options:")
+                    for option in [line.strip() for line in str(q.get("options_text", "")).splitlines() if line.strip()]:
                         st.write(f"- {option}")
-                if st.button(f"Delete question {question['question_order']}", key=f"delete_module_q_{question['question_id']}"):
-                    execute("DELETE FROM module_questions WHERE question_id = ?", (question["question_id"],))
-                    st.success("Question deleted.")
+                if q.get("rationale"):
+                    st.caption(f"Rationale: {q['rationale']}")
+                col_a, col_b, col_c = st.columns(3)
+                with col_a:
+                    q_status = st.selectbox(
+                        f"Decision for Q{q['question_order']}",
+                        ["pending", "approved", "denied"],
+                        index=["pending", "approved", "denied"].index(q.get("approval_status") or "pending"),
+                        key=f"qstatus_{q['generated_question_id']}",
+                    )
+                with col_b:
+                    q_feedback = st.text_input(
+                        f"Feedback for Q{q['question_order']}",
+                        value=q.get("admin_feedback") or "",
+                        key=f"qfeedback_{q['generated_question_id']}",
+                    )
+                with col_c:
+                    q_type = st.selectbox(
+                        f"Type for Q{q['question_order']}",
+                        ["open_text", "multiple_choice"],
+                        index=0 if (q.get("question_type") or "open_text") == "open_text" else 1,
+                        key=f"qtype_{q['generated_question_id']}",
+                    )
+                q_options = st.text_area(
+                    f"Choices for Q{q['question_order']} (one per line)",
+                    value=q.get("options_text") or "",
+                    disabled=q_type != "multiple_choice",
+                    key=f"qoptions_{q['generated_question_id']}",
+                )
+                if st.button(f"Save Q{q['question_order']} decision", key=f"save_q_{q['generated_question_id']}"):
+                    execute(
+                        """
+                        UPDATE module_generation_questions
+                        SET approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE generated_question_id = ?
+                        """,
+                        (
+                            q_status,
+                            q_feedback,
+                            q_type,
+                            _parse_lines(q_options) if q_type == "multiple_choice" else "",
+                            q["generated_question_id"],
+                        ),
+                    )
+                    st.success(f"Saved Q{q['question_order']} decision.")
+                    st.rerun()
+                if st.button(f"Delete Q{q['question_order']}", key=f"delete_q_{q['generated_question_id']}"):
+                    execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
+                    st.success(f"Deleted Q{q['question_order']}.")
                     st.rerun()
 
-        with st.form(f"add_module_question_{module_id}"):
-            st.markdown("Add question")
-            add_question_text = st.text_area("Question", key=f"add_question_text_{module_id}")
-            add_question_type = st.selectbox("Type", ["open_text", "multiple_choice"], key=f"add_question_type_{module_id}")
-            add_question_options = st.text_area(
+        with st.form(f"add_question_form_{run_id}"):
+            st.markdown("##### Add custom question")
+            new_question_text = st.text_area("Question text", key=f"new_question_text_{run_id}")
+            new_question_type = st.selectbox("Question type", ["open_text", "multiple_choice"], key=f"new_question_type_{run_id}")
+            new_question_options = st.text_area(
                 "Multiple choice options (one per line)",
-                key=f"add_question_options_{module_id}",
-                disabled=add_question_type != "multiple_choice",
+                key=f"new_question_options_{run_id}",
+                disabled=new_question_type != "multiple_choice",
             )
-            add_question_submit = st.form_submit_button("Add module question")
-            if add_question_submit:
+            add_question = st.form_submit_button("Add question")
+            if add_question:
                 max_order_row = fetch_one(
-                    "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_questions WHERE module_id = ?",
-                    (module_id,),
+                    "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_generation_questions WHERE run_id = ?",
+                    (run_id,),
                 )
                 next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
                 execute(
                     """
-                    INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO module_generation_questions (
+                        run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'approved', CURRENT_TIMESTAMP)
                     """,
                     (
-                        module_id,
+                        run_id,
                         next_order,
-                        add_question_text.strip(),
+                        new_question_text.strip(),
                         "Admin added",
-                        add_question_type,
-                        _parse_lines(add_question_options) if add_question_type == "multiple_choice" else "",
-                        None,
+                        new_question_type,
+                        _parse_lines(new_question_options) if new_question_type == "multiple_choice" else "",
                     ),
                 )
                 st.success("Question added.")
                 st.rerun()
 
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            if st.button("Send to database: Publish", disabled=module["status"] == "published"):
-                execute("UPDATE modules SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
-                st.success("Module published.")
-                st.rerun()
-        with c2:
-            if st.button("Send to database: Archive", disabled=module["status"] == "archived"):
-                execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
-                st.success("Module archived.")
-                st.rerun()
-        with c3:
-            if st.button("Send to database: Duplicate"):
-                execute(
-                    """
-                    INSERT INTO modules (
-                        title, category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
-                        hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
-                        expected_customer_response, lesson_takeaway, organization_id, status, learning_objectives,
-                        content_sections, completion_requirements, quiz_required, created_by, updated_at
+        approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
+        can_finalize = bool(approved_questions) and run.get("generation_status") == "approved"
+        if st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}"):
+            module_id = execute(
+                """
+                INSERT INTO modules (
+                    title, category, difficulty, description, estimated_time,
+                    scenario_context, organization_id, status, learning_objectives, content_sections,
+                    completion_requirements, quiz_required, created_by, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (
+                    run.get("generated_title") or run.get("input_title") or "AI Draft Module",
+                    run.get("input_category") or "General",
+                    run.get("input_difficulty") or "Beginner",
+                    run.get("generated_description") or run.get("input_description") or "",
+                    f"{int(run.get('input_estimated_minutes') or 20)} min",
+                    run.get("generated_scenario_overview") or "",
+                    org_id,
+                    run.get("learning_objectives") or "",
+                    run.get("input_content_sections") or "",
+                    run.get("completion_requirements") or "",
+                    1 if run.get("input_quiz_required") else 0,
+                    current_user["user_id"],
+                ),
+            )
+            executemany(
+                """
+                INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        module_id,
+                        idx + 1,
+                        q["question_text"],
+                        q.get("rationale") or q.get("admin_feedback") or "",
+                        q.get("question_type") or "open_text",
+                        q.get("options_text") or "",
+                        run_id,
                     )
-                    SELECT title || ' (Copy)', category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
-                           hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
-                           expected_customer_response, lesson_takeaway, organization_id, 'draft', learning_objectives,
-                           content_sections, completion_requirements, quiz_required, ?, CURRENT_TIMESTAMP
-                    FROM modules
-                    WHERE module_id = ? AND organization_id = ?
-                    """,
-                    (current_user["user_id"], module_id, org_id),
-                )
-                st.success("Module duplicated as draft.")
+                    for idx, q in enumerate(approved_questions)
+                ],
+            )
+            execute(
+                """
+                UPDATE module_generation_runs
+                SET generation_status = 'built', updated_at = CURRENT_TIMESTAMP
+                WHERE run_id = ? AND organization_id = ?
+                """,
+                (run_id, org_id),
+            )
+            st.success("Approved draft converted into a module.")
+            st.rerun()
+
+
+def render_manage_modules(current_user: dict) -> None:
+    org_id = current_user["organization_id"]
+    st.subheader("Manage Modules")
+
+    modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ? ORDER BY updated_at DESC", (org_id,)))
+    if modules_df.empty:
+        st.info("No modules yet.")
+        return
+
+    st.dataframe(modules_df[["module_id", "title", "status", "difficulty", "updated_at"]], hide_index=True, use_container_width=True)
+    module_map = {f"#{int(r['module_id'])} • {r['title']} ({r['status']})": int(r["module_id"]) for _, r in modules_df.iterrows()}
+    selected_label = st.selectbox("Select module", list(module_map.keys()))
+    module_id = module_map[selected_label]
+    module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+
+    with st.form("edit_module"):
+        edit_title = st.text_input("Title", value=module["title"])
+        edit_description = st.text_area("Description", value=module["description"] or "")
+        edit_estimated_minutes = st.number_input(
+            "Estimated assessment time (minutes)",
+            min_value=1,
+            max_value=240,
+            value=_estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
+            step=1,
+        )
+        edit_objectives = st.text_area("Learning objectives", value=module["learning_objectives"] or "")
+        edit_sections = st.text_area("Ordered content sections", value=module["content_sections"] or "")
+        edit_requirements = st.text_area("Completion requirements", value=module["completion_requirements"] or "")
+        edit_quiz_required = st.checkbox("Quiz required", value=bool(module["quiz_required"]))
+        save = st.form_submit_button("Send to database: Save edits")
+        if save:
+            execute(
+                """
+                UPDATE modules
+                SET title = ?, description = ?, learning_objectives = ?, content_sections = ?,
+                    completion_requirements = ?, quiz_required = ?, estimated_time = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE module_id = ? AND organization_id = ?
+                """,
+                (
+                    edit_title,
+                    edit_description,
+                    _parse_lines(edit_objectives),
+                    _parse_lines(edit_sections),
+                    edit_requirements,
+                    1 if edit_quiz_required else 0,
+                    f"{int(edit_estimated_minutes)} min",
+                    module_id,
+                    org_id,
+                ),
+            )
+            st.success("Module updated.")
+            st.rerun()
+
+    st.markdown("##### Assessment questions")
+    module_questions = fetch_all(
+        "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
+        (module_id,),
+    )
+    for question in module_questions:
+        with st.container(border=True):
+            st.markdown(f"**Q{question['question_order']}.** {question['question_text']}")
+            st.caption(f"Type: {'Multiple choice' if question.get('question_type') == 'multiple_choice' else 'Open text'}")
+            if question.get("question_type") == "multiple_choice" and question.get("options_text"):
+                for option in [line.strip() for line in str(question.get("options_text", "")).splitlines() if line.strip()]:
+                    st.write(f"- {option}")
+            if st.button(f"Delete question {question['question_order']}", key=f"delete_module_q_{question['question_id']}"):
+                execute("DELETE FROM module_questions WHERE question_id = ?", (question["question_id"],))
+                st.success("Question deleted.")
                 st.rerun()
+
+    with st.form(f"add_module_question_{module_id}"):
+        st.markdown("Add question")
+        add_question_text = st.text_area("Question", key=f"add_question_text_{module_id}")
+        add_question_type = st.selectbox("Type", ["open_text", "multiple_choice"], key=f"add_question_type_{module_id}")
+        add_question_options = st.text_area(
+            "Multiple choice options (one per line)",
+            key=f"add_question_options_{module_id}",
+            disabled=add_question_type != "multiple_choice",
+        )
+        add_question_submit = st.form_submit_button("Add module question")
+        if add_question_submit:
+            max_order_row = fetch_one(
+                "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_questions WHERE module_id = ?",
+                (module_id,),
+            )
+            next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
+            execute(
+                """
+                INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    module_id,
+                    next_order,
+                    add_question_text.strip(),
+                    "Admin added",
+                    add_question_type,
+                    _parse_lines(add_question_options) if add_question_type == "multiple_choice" else "",
+                    None,
+                ),
+            )
+            st.success("Question added.")
+            st.rerun()
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Send to database: Publish", disabled=module["status"] == "published"):
+            execute("UPDATE modules SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+            st.success("Module published.")
+            st.rerun()
+    with c2:
+        if st.button("Send to database: Archive", disabled=module["status"] == "archived"):
+            execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+            st.success("Module archived.")
+            st.rerun()
+    with c3:
+        if st.button("Send to database: Duplicate"):
+            execute(
+                """
+                INSERT INTO modules (
+                    title, category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
+                    hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
+                    expected_customer_response, lesson_takeaway, organization_id, status, learning_objectives,
+                    content_sections, completion_requirements, quiz_required, created_by, updated_at
+                )
+                SELECT title || ' (Copy)', category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
+                       hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
+                       expected_customer_response, lesson_takeaway, organization_id, 'draft', learning_objectives,
+                       content_sections, completion_requirements, quiz_required, ?, CURRENT_TIMESTAMP
+                FROM modules
+                WHERE module_id = ? AND organization_id = ?
+                """,
+                (current_user["user_id"], module_id, org_id),
+            )
+            st.success("Module duplicated as draft.")
+            st.rerun()
 
 
 
