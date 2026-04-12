@@ -36,6 +36,35 @@ def _clear_filtered_selection(multiselect_key: str) -> None:
     st.session_state[multiselect_key] = []
 
 
+def _merge_row_selection_into_multiselect(
+    *,
+    table_event,
+    table_df: pd.DataFrame,
+    multiselect_key: str,
+    option_labels: list[str],
+) -> None:
+    selected_rows = []
+    if table_event:
+        selected_rows = table_event.selection.get("rows", [])
+    if not selected_rows:
+        return
+
+    labels_from_rows: list[str] = []
+    for row_idx in selected_rows:
+        if 0 <= row_idx < len(table_df):
+            labels_from_rows.append(build_learner_option_label(table_df.iloc[row_idx]))
+
+    if not labels_from_rows:
+        return
+
+    existing = st.session_state.get(multiselect_key, [])
+    merged = []
+    for label in [*existing, *labels_from_rows]:
+        if label in option_labels and label not in merged:
+            merged.append(label)
+    st.session_state[multiselect_key] = merged
+
+
 def _assignments_with_status(org_id: int) -> pd.DataFrame:
     rows = fetch_all(
         """
@@ -214,21 +243,17 @@ def render_learner_management(current_user: dict) -> None:
     def _render_learner_tab(tab_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
         scoped = filter_active_learners(tab_df) if show_active else filter_inactive_learners(tab_df)
         st.caption(f"{len(scoped)} learner(s) in {tab_name.lower()}.")
-        st.dataframe(
-            scoped[
-                [
-                    "name",
-                    "team",
-                    "organization_name",
-                    "status",
-                    "assigned_modules",
-                    "completed_modules",
-                    "last_activity",
-                ]
-            ],
-            hide_index=True,
-            use_container_width=True,
-        )
+        learner_table_df = scoped[
+            [
+                "name",
+                "team",
+                "organization_name",
+                "status",
+                "assigned_modules",
+                "completed_modules",
+                "last_activity",
+            ]
+        ].reset_index(drop=True)
 
         tab_key = tab_name.lower().replace(" ", "_")
         multiselect_key = f"learner_bulk_select_{tab_key}"
@@ -238,6 +263,21 @@ def render_learner_management(current_user: dict) -> None:
         if multiselect_key not in st.session_state:
             st.session_state[multiselect_key] = []
         st.session_state[multiselect_key] = [x for x in st.session_state[multiselect_key] if x in option_labels]
+
+        learner_table_event = st.dataframe(
+            learner_table_df,
+            hide_index=True,
+            use_container_width=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+            key=f"learner_table_{tab_key}",
+        )
+        _merge_row_selection_into_multiselect(
+            table_event=learner_table_event,
+            table_df=scoped.reset_index(drop=True),
+            multiselect_key=multiselect_key,
+            option_labels=option_labels,
+        )
 
         c1, c2, c3 = st.columns([1, 1, 2])
         with c1:
@@ -376,10 +416,19 @@ def _render_assignment_tool(current_user: dict) -> None:
         ]
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        st.dataframe(
-            filtered_active_learners[["name", "team", "organization_name"]],
+        learner_table_event = st.dataframe(
+            filtered_active_learners[["name", "team", "organization_name"]].reset_index(drop=True),
             hide_index=True,
             use_container_width=True,
+            on_select="rerun",
+            selection_mode="multi-row",
+            key="assignment_tool_learners_table",
+        )
+        _merge_row_selection_into_multiselect(
+            table_event=learner_table_event,
+            table_df=filtered_active_learners.reset_index(drop=True),
+            multiselect_key=learner_multiselect_key,
+            option_labels=learner_options,
         )
 
         select_col, clear_col = st.columns(2)
@@ -499,23 +548,46 @@ def render_current_assignments(current_user: dict) -> None:
         filtered_assignments = filtered_assignments[filtered_assignments["module_title"] == module_filter]
 
     st.caption(f"{len(filtered_assignments)} assignment(s) match current filters")
-    st.dataframe(
-        filtered_assignments[
-            ["assignment_id", "learner_name", "team", "organization_name", "module_title", "due_date", "status", "last_attempt_at"]
-        ],
+    assignment_table_df = filtered_assignments[
+        ["assignment_id", "learner_name", "team", "organization_name", "module_title", "due_date", "status", "last_attempt_at"]
+    ].reset_index(drop=True)
+    assignment_table_event = st.dataframe(
+        assignment_table_df,
         hide_index=True,
         use_container_width=True,
+        on_select="rerun",
+        selection_mode="single-row",
+        key="current_assignments_table",
     )
 
+    assignment_records = filtered_assignments.reset_index(drop=True)
     assignment_map = {
         f"#{r['assignment_id']} • {r['learner_name']} • {r['module_title']} ({r['status']})": int(r["assignment_id"])
-        for _, r in filtered_assignments.iterrows()
+        for _, r in assignment_records.iterrows()
     }
     if not assignment_map:
         st.info("No assignments available for remove/reassign actions with current filters.")
         return
 
-    selected_assignment_label = st.selectbox("Select assignment", list(assignment_map.keys()))
+    selected_from_table = None
+    selected_rows = assignment_table_event.selection.get("rows", []) if assignment_table_event else []
+    if selected_rows:
+        selected_idx = selected_rows[0]
+        if 0 <= selected_idx < len(assignment_records):
+            selected_row = assignment_records.iloc[selected_idx]
+            selected_from_table = (
+                f"#{selected_row['assignment_id']} • {selected_row['learner_name']} • "
+                f"{selected_row['module_title']} ({selected_row['status']})"
+            )
+            st.caption(f"Selected from table: Assignment #{int(selected_row['assignment_id'])}")
+
+    assignment_labels = list(assignment_map.keys())
+    default_label = selected_from_table if selected_from_table in assignment_map else assignment_labels[0]
+    selected_assignment_label = st.selectbox(
+        "Select assignment",
+        assignment_labels,
+        index=assignment_labels.index(default_label),
+    )
     selected_assignment_id = assignment_map[selected_assignment_label]
 
     c1, c2 = st.columns(2)
