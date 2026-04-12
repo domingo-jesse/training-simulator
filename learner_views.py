@@ -328,6 +328,8 @@ def render_scenario_page(user: Dict) -> None:
             "customer_response": customer_response,
             "escalation_choice": escalation_choice,
             "notes": notes,
+            "actions_used": list(st.session_state[used_actions_key]),
+            "actions_used_count": len(st.session_state[used_actions_key]),
         }
         try:
             evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
