@@ -126,27 +126,50 @@ def render_learner_management(current_user: dict) -> None:
 
     rows = fetch_all(
         """
+        WITH assignment_counts AS (
+            SELECT
+                learner_id,
+                COUNT(DISTINCT assignment_id) AS assigned_modules
+            FROM assignments
+            WHERE organization_id = ?
+              AND is_active IS TRUE
+            GROUP BY learner_id
+        ),
+        progress_counts AS (
+            SELECT
+                user_id,
+                COUNT(
+                    DISTINCT CASE
+                        WHEN completed_at IS NOT NULL OR progress_percent >= 100 THEN module_id
+                        ELSE NULL
+                    END
+                ) AS completed_modules,
+                MAX(COALESCE(last_activity_at, updated_at, completed_at, started_at)) AS progress_last_activity
+            FROM module_progress
+            WHERE organization_id = ?
+            GROUP BY user_id
+        )
         SELECT
             u.user_id,
+            u.id AS user_uuid,
             u.name,
             u.team,
             u.is_active,
-            COUNT(DISTINCT a.assignment_id) AS assigned_modules,
-            COUNT(DISTINCT CASE WHEN x.last_attempt_at IS NOT NULL THEN a.module_id END) AS completed_modules,
-            MAX(x.last_attempt_at) AS last_activity
+            u.organization_id,
+            o.name AS organization_name,
+            COALESCE(ac.assigned_modules, 0) AS assigned_modules,
+            COALESCE(pc.completed_modules, 0) AS completed_modules,
+            COALESCE(lp.last_activity, pc.progress_last_activity) AS last_activity
         FROM users u
-        LEFT JOIN assignments a ON a.learner_id = u.user_id AND a.is_active = TRUE
-        LEFT JOIN (
-            SELECT user_id, module_id, MAX(created_at) AS last_attempt_at
-            FROM attempts
-            WHERE organization_id = ?
-            GROUP BY user_id, module_id
-        ) x ON x.user_id = u.user_id AND x.module_id = a.module_id
-        WHERE u.role = 'learner' AND u.organization_id = ?
-        GROUP BY u.user_id, u.name, u.team, u.is_active
+        LEFT JOIN assignment_counts ac ON ac.learner_id = u.user_id
+        LEFT JOIN learner_profiles lp ON lp.user_id = u.id
+        LEFT JOIN progress_counts pc ON pc.user_id = u.id
+        LEFT JOIN organizations o ON o.organization_id = u.organization_id
+        WHERE u.role = 'learner'
+          AND u.organization_id = ?
         ORDER BY u.name
         """,
-        (org_id, org_id),
+        (org_id, org_id, org_id),
     )
     df = to_df(rows)
 
@@ -154,49 +177,108 @@ def render_learner_management(current_user: dict) -> None:
         st.info("No learners in this organization.")
         return
 
-    q = st.text_input("Search learners")
-    status_filter = st.selectbox("Status", ["All", "Active", "Inactive"])
+    df["team"] = df["team"].fillna("")
+    df["organization_name"] = df["organization_name"].fillna("Unassigned")
+    df["is_active"] = df["is_active"].astype(bool)
+    df["status"] = df["is_active"].map({True: "Active", False: "Inactive"})
+
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        q = st.text_input("Search learners")
+    with c2:
+        team_options = sorted([team for team in df["team"].unique().tolist() if team])
+        team_filter = st.selectbox("Team", ["All"] + team_options)
+    with c3:
+        org_options = sorted(df["organization_name"].unique().tolist())
+        org_filter = st.selectbox("Organization", ["All"] + org_options)
+    with c4:
+        status_filter = st.selectbox("Status filter", ["All", "Active", "Inactive"])
+
     filtered = df.copy()
     if q:
-        filtered = filtered[filtered["name"].str.contains(q, case=False) | filtered["team"].str.contains(q, case=False)]
-    if status_filter != "All":
-        target = 1 if status_filter == "Active" else 0
-        filtered = filtered[filtered["is_active"] == target]
+        filtered = filtered[
+            filtered["name"].str.contains(q, case=False, na=False)
+            | filtered["team"].str.contains(q, case=False, na=False)
+        ]
+    if team_filter != "All":
+        filtered = filtered[filtered["team"] == team_filter]
+    if org_filter != "All":
+        filtered = filtered[filtered["organization_name"] == org_filter]
+    if status_filter == "Active":
+        filtered = filtered[filtered["is_active"]]
+    elif status_filter == "Inactive":
+        filtered = filtered[~filtered["is_active"]]
 
-    filtered["status"] = filtered["is_active"].map({1: "Active", 0: "Inactive"})
-    st.dataframe(
-        filtered[["name", "team", "status", "assigned_modules", "completed_modules", "last_activity"]],
-        hide_index=True,
-        use_container_width=True,
-    )
+    def _render_learner_tab(tab_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
+        scoped = tab_df[tab_df["is_active"] == show_active].copy()
+        st.caption(f"{len(scoped)} learner(s) in {tab_name.lower()}.")
+        st.dataframe(
+            scoped[
+                [
+                    "name",
+                    "team",
+                    "organization_name",
+                    "status",
+                    "assigned_modules",
+                    "completed_modules",
+                    "last_activity",
+                ]
+            ],
+            hide_index=True,
+            use_container_width=True,
+        )
 
-    learner_options = {f"{r['name']} ({'Active' if r['is_active'] else 'Inactive'})": int(r["user_id"]) for _, r in df.iterrows()}
-    selected_label = st.selectbox("Select learner", list(learner_options.keys()))
-    learner_id = learner_options[selected_label]
-    learner = fetch_one("SELECT user_id, name, is_active FROM users WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
+        learner_options = {f"{r['name']} ({r['team'] or 'No team'})": int(r["user_id"]) for _, r in scoped.iterrows()}
+        selected_learners = st.multiselect(
+            "Select learners",
+            options=list(learner_options.keys()),
+            key=f"learner_bulk_select_{tab_name.lower().replace(' ', '_')}",
+        )
+        selected_ids = [learner_options[label] for label in selected_learners]
 
-    c1, c2 = st.columns(2)
-    with c1:
-        if learner["is_active"]:
-            if st.button("Send to database: Deactivate learner", type="secondary"):
-                try:
-                    execute("UPDATE users SET is_active = 0 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
-                    view_logger.info("Button click.", action="deactivate_learner", learner_id=learner_id)
-                    st.success(f"{learner['name']} deactivated.")
-                    st.rerun()
-                except Exception:
-                    view_logger.exception("Failed deactivating learner.", learner_id=learner_id)
-                    st.error("Could not deactivate learner.")
+        if show_active:
+            action_label = "Deactivate selected learners"
+            new_status = False
+            action_type = "secondary"
         else:
-            if st.button("Send to database: Activate learner", type="primary"):
-                try:
-                    execute("UPDATE users SET is_active = 1 WHERE user_id = ? AND organization_id = ?", (learner_id, org_id))
-                    view_logger.info("Button click.", action="activate_learner", learner_id=learner_id)
-                    st.success(f"{learner['name']} activated.")
-                    st.rerun()
-                except Exception:
-                    view_logger.exception("Failed activating learner.", learner_id=learner_id)
-                    st.error("Could not activate learner.")
+            action_label = "Activate selected learners"
+            new_status = True
+            action_type = "primary"
+
+        if st.button(action_label, type=action_type, key=f"bulk_action_{tab_name.lower().replace(' ', '_')}"):
+            if not selected_ids:
+                st.warning("Select at least one learner.")
+                return
+            try:
+                status_sql = "TRUE" if new_status else "FALSE"
+                execute(
+                    f"""
+                    UPDATE users
+                    SET is_active = {status_sql}
+                    WHERE organization_id = ?
+                      AND user_id = ANY(?)
+                    """,
+                    (org_id, selected_ids),
+                )
+                view_logger.info(
+                    "Bulk learner status update.",
+                    action="bulk_status_update",
+                    status=("active" if new_status else "inactive"),
+                    learner_count=len(selected_ids),
+                )
+                st.success(
+                    f"Updated {len(selected_ids)} learner(s) to {'Active' if new_status else 'Inactive'}."
+                )
+                st.rerun()
+            except Exception:
+                view_logger.exception("Failed bulk learner status update.", learner_count=len(selected_ids))
+                st.error("Could not update selected learners.")
+
+    active_tab, inactive_tab = st.tabs(["Active Learners", "Inactive Learners"])
+    with active_tab:
+        _render_learner_tab(filtered, "Active Learners", True)
+    with inactive_tab:
+        _render_learner_tab(filtered, "Inactive Learners", False)
 
 
 def render_assignment_management(current_user: dict) -> None:
