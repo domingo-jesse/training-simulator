@@ -39,26 +39,35 @@ def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) ->
 
     strengths = []
     missed = []
+    category_rationales = {}
 
     if understanding >= 75:
         strengths.append("Good identification of the likely root cause and context.")
+        category_rationales["understanding"] = "Diagnosis clearly tied observed evidence to a plausible root cause."
     else:
         missed.append("Diagnosis was not specific enough to the scenario mechanics.")
+        category_rationales["understanding"] = "Diagnosis did not map strongly enough to concrete scenario mechanics."
 
     if investigation >= 70:
         strengths.append("Used investigation actions effectively before finalizing a response.")
+        category_rationales["investigation"] = "You gathered enough evidence through investigation actions before finalizing."
     else:
         missed.append("Could improve evidence gathering by checking more investigation panels.")
+        category_rationales["investigation"] = "Evidence collection was limited; more investigation actions were needed."
 
     if solution_quality >= 75:
         strengths.append("Proposed actionable next steps with operational follow-through.")
+        category_rationales["solution_quality"] = "Next steps were concrete, validated, and operationally actionable."
     else:
         missed.append("Next steps should include concrete remediation and validation checks.")
+        category_rationales["solution_quality"] = "Proposed remediation lacked enough implementation and validation detail."
 
     if communication >= 75:
         strengths.append("Customer communication is clear and confidence-building.")
+        category_rationales["communication"] = "Response communicated impact and expectations in a confidence-building way."
     else:
         missed.append("Customer response should include impact, timing, and prevention language.")
+        category_rationales["communication"] = "Response needed clearer impact, timeline, and prevention communication."
 
     result = {
         "scoring_version": "heuristic_v1",
@@ -68,6 +77,14 @@ def evaluate_submission(module: Dict, answers: Dict, actions_used: List[str]) ->
             "investigation": investigation,
             "solution_quality": solution_quality,
             "communication": communication,
+        },
+        "category_rationales": category_rationales,
+        "scoring_engine": {
+            "provider": "internal_heuristic",
+            "model_name": "heuristic_rules_v1",
+            "prompt_template_id": "heuristic_template_v1",
+            "temperature": 0.0,
+            "config": {"keyword_weight": 14, "base_score": 45},
         },
         "strengths": strengths,
         "missed_points": missed,

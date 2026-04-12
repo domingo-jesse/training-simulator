@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Dict
 
 import altair as alt
@@ -297,8 +298,10 @@ def render_scenario_page(user: Dict) -> None:
     st.markdown("### Investigation Panel")
     used_actions_key = f"used_actions_{module_id}"
     revealed_key = f"revealed_{module_id}"
+    started_at_key = f"started_at_{module_id}"
     st.session_state.setdefault(used_actions_key, [])
     st.session_state.setdefault(revealed_key, {})
+    st.session_state.setdefault(started_at_key, datetime.now(timezone.utc).isoformat())
 
     cols = st.columns(3)
     for idx, action in enumerate(actions):
@@ -322,12 +325,27 @@ def render_scenario_page(user: Dict) -> None:
     if st.button("Send to database: Submit module", type="primary"):
         scenario_logger = view_logger.bind(scenario_id=module_id)
         scenario_logger.info("Form submitted.", form="submit_module")
+        submitted_at = datetime.now(timezone.utc)
+        started_at_iso = st.session_state.get(started_at_key)
+        started_at = None
+        try:
+            started_at = datetime.fromisoformat(started_at_iso) if started_at_iso else None
+        except (TypeError, ValueError):
+            started_at = None
+        elapsed_seconds = int((submitted_at - started_at).total_seconds()) if started_at else None
         answers = {
             "diagnosis_answer": diagnosis,
             "next_steps_answer": next_steps,
             "customer_response": customer_response,
             "escalation_choice": escalation_choice,
             "notes": notes,
+            "started_at": started_at.isoformat() if started_at else None,
+            "submitted_at": submitted_at.isoformat(),
+            "elapsed_seconds": elapsed_seconds,
+            "attempt_state": "graded",
+            "graded_by_type": "system",
+            "graded_by_user_id": None,
+            "graded_at": submitted_at.isoformat(),
             "actions_used": list(st.session_state[used_actions_key]),
             "actions_used_count": len(st.session_state[used_actions_key]),
         }
@@ -341,6 +359,7 @@ def render_scenario_page(user: Dict) -> None:
             st.session_state.latest_attempt_id = attempt_id
             st.session_state.active_module_id = None
             st.session_state.page = "Results"
+            st.session_state.pop(started_at_key, None)
             st.toast("🎉 Thank you — you've completed this module!")
             st.rerun()
         except Exception:
