@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 from html import escape
+from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
 import pandas as pd
 import streamlit as st
 
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
+_PAGE_CONTAINER_VARIANTS = {"wide", "medium", "narrow"}
 
 
 def inject_styles() -> None:
@@ -26,7 +28,34 @@ def inject_styles() -> None:
             --warning: #b54708;
             --danger: #b42318;
         }
-        .main .block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1320px;}
+        .main .block-container {
+            padding-top: 1rem;
+            padding-bottom: 2rem;
+            padding-left: 0;
+            padding-right: 0;
+            max-width: 100%;
+        }
+        .app-page-shell {
+            width: 100%;
+        }
+        .app-page-container {
+            margin-left: auto;
+            margin-right: auto;
+            padding: 0 28px 32px 28px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .app-page-container-wide {
+            max-width: 1280px;
+        }
+        .app-page-container-medium {
+            max-width: 1080px;
+        }
+        .app-page-container-narrow {
+            max-width: 820px;
+            padding-left: 24px;
+            padding-right: 24px;
+        }
         .stApp,
         [data-testid="stAppViewContainer"] {
             background: var(--bg);
@@ -318,6 +347,24 @@ def inject_styles() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def _normalize_container_variant(variant: str) -> str:
+    normalized = str(variant or "wide").strip().lower()
+    return normalized if normalized in _PAGE_CONTAINER_VARIANTS else "wide"
+
+
+@contextmanager
+def page_container(variant: str = "wide"):
+    normalized = _normalize_container_variant(variant)
+    st.markdown(
+        f"<div class='app-page-shell'><div class='app-page-container app-page-container-{normalized}'>",
+        unsafe_allow_html=True,
+    )
+    try:
+        yield
+    finally:
+        st.markdown("</div></div>", unsafe_allow_html=True)
 
 
 def metric_row(items: Dict[str, Any]) -> None:
