@@ -140,6 +140,12 @@ LEARNER_PAGE_TO_NAV = {
     "settings": "settings",
 }
 NAV_TO_LEARNER_PAGE = {value: key for key, value in LEARNER_PAGE_TO_NAV.items()}
+ADMIN_MAIN_NAV_SLUGS = {
+    slug for slug in ADMIN_PAGE_TO_NAV.values() if slug not in {"profile", "settings"}
+}
+LEARNER_MAIN_NAV_SLUGS = {
+    slug for slug in LEARNER_PAGE_TO_NAV.values() if slug not in {"profile", "settings"}
+}
 
 
 def _normalize_nav_slug(value: Any) -> str:
@@ -180,6 +186,53 @@ def _set_nav_for_page(page_name: str, role: str) -> None:
     _set_nav(slug)
 
 
+def _default_main_nav_for_role(role: str) -> str:
+    return "dashboard" if role == "admin" else "home"
+
+
+def _build_main_page_key(role: str, nav_slug: str) -> str:
+    return f"{role}:{_normalize_nav_slug(nav_slug)}"
+
+
+def _is_valid_main_page_key(page_key: str | None) -> bool:
+    if not page_key or ":" not in str(page_key):
+        return False
+    role, nav_slug = str(page_key).split(":", 1)
+    if role == "admin":
+        return nav_slug in ADMIN_MAIN_NAV_SLUGS
+    if role == "learner":
+        return nav_slug in LEARNER_MAIN_NAV_SLUGS
+    return False
+
+
+def _navigate_to_account_page(page_key: str) -> None:
+    current_page = st.session_state.get("current_page")
+    if _is_valid_main_page_key(current_page):
+        st.session_state["previous_page"] = current_page
+    st.session_state["current_page"] = page_key
+    st.session_state["page"] = page_key.title()
+    _set_nav(page_key)
+    st.rerun()
+
+
+def _navigate_back_to_main_app() -> None:
+    user = st.session_state.get("current_user") or {}
+    role = _normalize_role(user.get("role"))
+    fallback_nav = _default_main_nav_for_role(role)
+    target_key = st.session_state.get("previous_page")
+    if not _is_valid_main_page_key(target_key):
+        target_key = _build_main_page_key(role, fallback_nav)
+    target_role, target_nav = target_key.split(":", 1)
+    st.session_state["current_page"] = target_key
+    st.session_state["page"] = None
+    if target_role == "admin":
+        st.session_state["admin_page"] = NAV_TO_ADMIN_PAGE.get(target_nav, "Dashboard")
+    else:
+        st.session_state["learner_page"] = NAV_TO_LEARNER_PAGE.get(target_nav, "home")
+    _set_nav(target_nav)
+    st.rerun()
+
+
 def init_state() -> None:
     defaults = {
         "auth_authenticated": False,
@@ -206,6 +259,8 @@ def init_state() -> None:
         "profile_feedback": None,
         "profile_form_initialized_for": None,
         "active_assignment_id": None,
+        "current_page": "learner:home",
+        "previous_page": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -1201,11 +1256,9 @@ def render_profile_menu(user: dict[str, Any]) -> None:
                 unsafe_allow_html=True,
             )
             if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
-                st.session_state["page"] = "Profile"
-                _set_nav("profile")
+                _navigate_to_account_page("profile")
             if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
-                st.session_state["page"] = "Settings"
-                _set_nav("settings")
+                _navigate_to_account_page("settings")
             if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
                 logout_user()
         st.markdown("</div>", unsafe_allow_html=True)
@@ -1226,6 +1279,11 @@ def _initialize_profile_form(profile: dict[str, Any]) -> None:
 
 def render_profile_page() -> None:
     profile = load_current_user_profile()
+    back_col, _ = st.columns([1.2, 5], vertical_alignment="center")
+    with back_col:
+        if st.button("← Back to Dashboard", key="profile_back_btn", use_container_width=True):
+            _navigate_back_to_main_app()
+    st.caption("Dashboard / Profile")
     st.markdown("### Profile")
     st.caption("Update your account information and security settings.")
     if not profile:
@@ -1287,6 +1345,11 @@ def render_profile_page() -> None:
 
 
 def render_settings_page() -> None:
+    back_col, _ = st.columns([1.2, 5], vertical_alignment="center")
+    with back_col:
+        if st.button("← Back to Dashboard", key="settings_back_btn", use_container_width=True):
+            _navigate_back_to_main_app()
+    st.caption("Dashboard / Settings")
     st.markdown("### Settings")
     st.caption("Personalization and account preferences.")
     _, content, _ = st.columns([1, 2.2, 1])
@@ -1317,11 +1380,13 @@ def render_main_app() -> None:
         st.session_state["active_assignment_id"] = assignment_from_url
     if requested_page == "Profile" or nav_page == "profile":
         st.session_state["page"] = "Profile"
+        st.session_state["current_page"] = "profile"
         _set_nav("profile")
         render_profile_page()
         return
     if requested_page == "Settings" or nav_page == "settings":
         st.session_state["page"] = "Settings"
+        st.session_state["current_page"] = "settings"
         _set_nav("settings")
         render_settings_page()
         return
@@ -1393,6 +1458,7 @@ def render_main_app() -> None:
         normalized_page = re.sub(r"^[^\w]+", "", current_page).strip()
         if current_page != previous_admin_page or st.session_state.get("nav") != ADMIN_PAGE_TO_NAV.get(normalized_page):
             _set_nav_for_page(normalized_page, "admin")
+        st.session_state["current_page"] = _build_main_page_key("admin", st.session_state.get("nav", "dashboard"))
         user_logger.info("Admin page load.", page=current_page)
         if normalized_page == "Dashboard":
             render_admin_dashboard(user)
@@ -1459,6 +1525,7 @@ def render_main_app() -> None:
         current_page = st.session_state.get("learner_page", "home")
         if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(current_page):
             _set_nav_for_page(current_page, "learner")
+        st.session_state["current_page"] = _build_main_page_key("learner", st.session_state.get("nav", "home"))
         st.caption(f"Debug: learner_page key = `{current_page}`")
         render_branch = current_page
         st.caption(f"Debug: render branch = `{render_branch}`")
