@@ -11,6 +11,7 @@ import psycopg2
 import streamlit as st
 from admin_views import (
     render_admin_dashboard,
+    render_admin_assignment_review,
     render_assignment_management,
     render_database_tables_view,
     render_grading_center,
@@ -76,6 +77,7 @@ EXPECTED_PLATFORM_TABLES = (
     "module_progress",
     "module_generation_runs",
     "module_generation_questions",
+    "assignment_workspace_state",
 )
 
 
@@ -143,6 +145,16 @@ def _read_nav_from_query_params() -> str:
     return _normalize_nav_slug(st.query_params.get("page"))
 
 
+def _read_assignment_id_from_query_params() -> int | None:
+    value = st.query_params.get("assignment_id")
+    if isinstance(value, list):
+        value = value[0] if value else None
+    try:
+        return int(value) if value is not None and str(value).strip() else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _set_nav(slug: str) -> None:
     nav_slug = _normalize_nav_slug(slug)
     st.session_state["nav"] = nav_slug
@@ -182,6 +194,7 @@ def init_state() -> None:
         "quick_connect_result": None,
         "profile_feedback": None,
         "profile_form_initialized_for": None,
+        "active_assignment_id": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -462,6 +475,7 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
     st.session_state["pending_google"] = None
     st.session_state["page"] = None
     st.session_state["active_module_id"] = None
+    st.session_state["active_assignment_id"] = None
     st.session_state["latest_attempt_id"] = None
 
 
@@ -1284,6 +1298,9 @@ def render_main_app() -> None:
     st.markdown("<div class='shell-divider'></div>", unsafe_allow_html=True)
     requested_page = st.session_state.get("page")
     nav_page = st.session_state.get("nav", "dashboard")
+    assignment_from_url = _read_assignment_id_from_query_params()
+    if assignment_from_url is not None:
+        st.session_state["active_assignment_id"] = assignment_from_url
     if requested_page == "Profile" or nav_page == "profile":
         st.session_state["page"] = "Profile"
         _set_nav("profile")
@@ -1296,6 +1313,9 @@ def render_main_app() -> None:
         return
 
     if user["role"] == "admin":
+        if nav_page == "admin-assignment-review":
+            render_admin_assignment_review(user, st.session_state.get("active_assignment_id"))
+            return
         operations_pages = [
             "Dashboard",
             "Assignment Management",
@@ -1380,6 +1400,8 @@ def render_main_app() -> None:
             render_admin_quality_hub(user)
     else:
         pages = ["Home", "Assigned Modules", "Module Workspace", "Results", "My Progress"]
+        if nav_page == "module-workspace" and st.session_state.get("active_assignment_id"):
+            st.session_state["learner_page"] = "Module Workspace"
         nav_requested_page = NAV_TO_LEARNER_PAGE.get(nav_page)
         if nav_requested_page in pages:
             st.session_state["learner_page"] = nav_requested_page
@@ -1423,10 +1445,16 @@ def render_main_app() -> None:
 def main() -> None:
     init_state()
     nav_from_url = _read_nav_from_query_params()
+    assignment_from_url = _read_assignment_id_from_query_params()
     if st.session_state.get("nav") != nav_from_url:
         st.session_state["nav"] = nav_from_url
+    if assignment_from_url is not None:
+        st.session_state["active_assignment_id"] = assignment_from_url
     if st.query_params.get("page") != st.session_state.get("nav"):
         st.query_params["page"] = st.session_state.get("nav")
+    active_assignment_id = st.session_state.get("active_assignment_id")
+    if active_assignment_id is not None and str(st.query_params.get("assignment_id") or "") != str(active_assignment_id):
+        st.query_params["assignment_id"] = str(active_assignment_id)
 
     st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
     app_logger.info("App startup.", session_id=st.session_state.get("session_id"))
