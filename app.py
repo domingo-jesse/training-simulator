@@ -1037,19 +1037,25 @@ def render_create_account_view() -> None:
 
 def render_topbar(user: dict[str, Any]) -> None:
     header = st.container()
-    left, right = header.columns([8, 2], vertical_alignment="center")
+    left, right = header.columns([6, 4], vertical_alignment="center")
     with left:
         st.markdown(
             """
             <div class="app-shell-header">
-                <div class="app-shell-header-title">Training Simulator</div>
-                <div class="app-shell-header-subtitle">Simulation workspace and readiness analytics</div>
+                <div class="app-shell-header-title">Operations Console</div>
+                <div class="app-shell-header-subtitle">Training simulator analytics and workflow management</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
     with right:
-        render_profile_menu(user)
+        search_col, notif_col, profile_col = st.columns([6, 1, 3], vertical_alignment="center")
+        with search_col:
+            st.text_input("Search", placeholder="Search learners, modules, assignments", key="global_search", label_visibility="collapsed")
+        with notif_col:
+            st.button("🔔", key="topbar_notifications")
+        with profile_col:
+            render_profile_menu(user)
 
 
 def _avatar_initials(full_name: str) -> str:
@@ -1317,32 +1323,33 @@ def render_main_app() -> None:
             render_admin_assignment_review(user, st.session_state.get("active_assignment_id"))
             return
         operations_pages = [
-            "Dashboard",
-            "Assignment Management",
-            "Submission Grading",
-            "Progress Tracking",
-            "Learner Management",
-            "Module Builder",
-            "Manage Modules",
-            "Database Tables",
-            "Debug Logs",
+            "📊 Dashboard",
+            "🗂️ Assignment Management",
+            "✅ Submission Grading",
+            "📈 Progress Tracking",
+            "👥 Learner Management",
+            "🧩 Module Builder",
+            "📚 Manage Modules",
+            "🛠️ Database Tables",
+            "📝 Debug Logs",
         ]
-        qa_pages = ["QA Test Center"]
+        qa_pages = ["🧪 QA Test Center"]
+        base_page_lookup = {re.sub(r"^[^\w]+", "", p).strip(): p for p in (operations_pages + qa_pages)}
         all_pages = operations_pages + qa_pages
 
         nav_requested_page = NAV_TO_ADMIN_PAGE.get(nav_page)
-        if nav_requested_page in all_pages:
-            st.session_state["admin_page"] = nav_requested_page
+        if nav_requested_page in base_page_lookup:
+            st.session_state["admin_page"] = base_page_lookup[nav_requested_page]
 
-        if requested_page in operations_pages:
+        if requested_page in operations_pages or requested_page in base_page_lookup:
             st.session_state["admin_nav_group"] = "Operations"
-            st.session_state["admin_page"] = requested_page
+            st.session_state["admin_page"] = base_page_lookup.get(requested_page, requested_page)
         elif requested_page in qa_pages:
             st.session_state["admin_nav_group"] = "Quality Assurance"
             st.session_state["admin_page"] = requested_page
 
-        active_admin_page = st.session_state.get("admin_page", "Dashboard")
-        show_workspace_toggle = active_admin_page in {"Debug Logs", "QA Test Center"}
+        active_admin_page = st.session_state.get("admin_page", "📊 Dashboard")
+        show_workspace_toggle = active_admin_page in {"📝 Debug Logs", "🧪 QA Test Center"}
         if show_workspace_toggle:
             render_horizontal_button_group(
                 "Admin Workspace",
@@ -1374,37 +1381,39 @@ def render_main_app() -> None:
             container=st.sidebar,
             layout="vertical",
         )
-        current_page = st.session_state.get("admin_page", "Dashboard")
-        if current_page != previous_admin_page or st.session_state.get("nav") != ADMIN_PAGE_TO_NAV.get(current_page):
-            _set_nav_for_page(current_page, "admin")
+        current_page = st.session_state.get("admin_page", "📊 Dashboard")
+        normalized_page = re.sub(r"^[^\w]+", "", current_page).strip()
+        if current_page != previous_admin_page or st.session_state.get("nav") != ADMIN_PAGE_TO_NAV.get(normalized_page):
+            _set_nav_for_page(normalized_page, "admin")
         user_logger.info("Admin page load.", page=current_page)
-        if current_page == "Dashboard":
+        if normalized_page == "Dashboard":
             render_admin_dashboard(user)
-        elif current_page == "Assignment Management":
+        elif normalized_page == "Assignment Management":
             render_assignment_management(user)
-        elif current_page == "Submission Grading":
+        elif normalized_page == "Submission Grading":
             render_grading_center(user)
-        elif current_page == "Progress Tracking":
+        elif normalized_page == "Progress Tracking":
             render_progress_tracking(user)
-        elif current_page == "Learner Management":
+        elif normalized_page == "Learner Management":
             render_learner_management(user)
-        elif current_page == "Module Builder":
+        elif normalized_page == "Module Builder":
             render_module_builder(user)
-        elif current_page == "Manage Modules":
+        elif normalized_page == "Manage Modules":
             render_manage_modules(user)
-        elif current_page == "Database Tables":
+        elif normalized_page == "Database Tables":
             render_database_tables_view()
-        elif current_page == "Debug Logs":
+        elif normalized_page == "Debug Logs":
             render_admin_log_viewer()
-        elif current_page == "QA Test Center":
+        elif normalized_page == "QA Test Center":
             render_admin_quality_hub(user)
     else:
-        pages = ["Home", "Assigned Modules", "Module Workspace", "Results", "My Progress"]
+        pages = ["🏠 Home", "📦 Assigned Modules", "🧪 Module Workspace", "📝 Results", "📉 My Progress"]
+        learner_lookup = {re.sub(r"^[^\w]+", "", p).strip(): p for p in pages}
         if nav_page == "module-workspace" and st.session_state.get("active_assignment_id"):
-            st.session_state["learner_page"] = "Module Workspace"
+            st.session_state["learner_page"] = "🧪 Module Workspace"
         nav_requested_page = NAV_TO_LEARNER_PAGE.get(nav_page)
-        if nav_requested_page in pages:
-            st.session_state["learner_page"] = nav_requested_page
+        if nav_requested_page in learner_lookup:
+            st.session_state["learner_page"] = learner_lookup[nav_requested_page]
 
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
@@ -1426,19 +1435,20 @@ def render_main_app() -> None:
             container=st.sidebar,
             layout="vertical",
         )
-        current_page = st.session_state.get("learner_page", "Home")
-        if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(current_page):
-            _set_nav_for_page(current_page, "learner")
+        current_page = st.session_state.get("learner_page", "🏠 Home")
+        normalized_page = re.sub(r"^[^\w]+", "", current_page).strip()
+        if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(normalized_page):
+            _set_nav_for_page(normalized_page, "learner")
         user_logger.info("Learner page load.", page=current_page)
-        if current_page == "Home":
+        if normalized_page == "Home":
             render_learner_home(user)
-        elif current_page == "Assigned Modules":
+        elif normalized_page == "Assigned Modules":
             render_module_library(user)
-        elif current_page == "Module Workspace":
+        elif normalized_page == "Module Workspace":
             render_module_library(user)
-        elif current_page == "Results":
+        elif normalized_page == "Results":
             render_results_page(user)
-        elif current_page == "My Progress":
+        elif normalized_page == "My Progress":
             render_progress_page(user)
 
 
