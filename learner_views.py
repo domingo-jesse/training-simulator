@@ -689,14 +689,19 @@ def render_scenario_page(user: Dict) -> None:
         # Keep interactive learner widgets in a fragment so shell/sidebar do not flicker on each interaction.
         current_step_local = int(st.session_state.get(step_key, 1))
         question_answers_local: dict[str, str] = st.session_state.get(f"question_answers_{assignment_id}", {})
-        validation_error = None
-        is_first_step = current_step_local == 1
-        is_last_step = current_step_local == 5
 
         with st.container(border=True):
             if current_step_local == 1:
                 st.markdown("### Scenario Overview")
                 st.write(_build_scenario_overview(module))
+                c1, c2 = st.columns(2)
+                with c1:
+                    st.button("Back", disabled=True)
+                with c2:
+                    if st.button("Next", type="primary"):
+                        st.session_state[step_key] = 2
+                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                        st.toast("Progress saved.")
             elif current_step_local == 2:
                 st.markdown("### Investigation / Notes")
                 cols = st.columns(3)
@@ -711,86 +716,121 @@ def render_scenario_page(user: Dict) -> None:
                     for name, details in st.session_state[revealed_key].items():
                         with st.expander(name, expanded=True):
                             st.write(details)
-                st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
+                with st.form(key=f"wizard_step2_form_{assignment_id}", clear_on_submit=False):
+                    st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        back_clicked = st.form_submit_button("Back")
+                    with c2:
+                        next_clicked = st.form_submit_button("Next", type="primary")
+
+                if back_clicked:
+                    st.session_state[step_key] = max(1, current_step_local - 1)
+                elif next_clicked:
+                    st.session_state[step_key] = min(5, current_step_local + 1)
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Notes saved.")
             elif current_step_local == 3:
                 st.markdown("### Assessment Questions")
-                for question in assessment_questions:
-                    qid = str(question["question_id"])
-                    question_key = f"assessment_q_{assignment_id}_{qid}"
-                    if question_key not in st.session_state and question_answers_local.get(qid):
-                        st.session_state[question_key] = question_answers_local.get(qid)
-                    if question.get("question_type") == "multiple_choice":
-                        options = _question_options(question.get("options_text"))
-                        answer = st.radio(
-                            f"Q{question['question_order']}. {question['question_text']}",
-                            options=options if options else ["No options configured"],
-                            key=question_key,
-                            index=None,
-                        )
-                    else:
-                        answer = st.text_area(
-                            f"Q{question['question_order']}. {question['question_text']}",
-                            key=question_key,
-                            height=100,
-                        )
-                    question_answers_local[qid] = answer or ""
+                with st.form(key=f"wizard_step3_form_{assignment_id}", clear_on_submit=False):
+                    for question in assessment_questions:
+                        qid = str(question["question_id"])
+                        question_key = f"assessment_q_{assignment_id}_{qid}"
+                        if question_key not in st.session_state and question_answers_local.get(qid):
+                            st.session_state[question_key] = question_answers_local.get(qid)
+                        if question.get("question_type") == "multiple_choice":
+                            options = _question_options(question.get("options_text"))
+                            answer = st.radio(
+                                f"Q{question['question_order']}. {question['question_text']}",
+                                options=options if options else ["No options configured"],
+                                key=question_key,
+                                index=None,
+                            )
+                        else:
+                            answer = st.text_area(
+                                f"Q{question['question_order']}. {question['question_text']}",
+                                key=question_key,
+                                height=100,
+                            )
+                        question_answers_local[qid] = answer or ""
+                    unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
+                    step_validation_error = "Please answer all assessment questions before continuing." if unanswered else None
+                    if step_validation_error:
+                        st.warning(step_validation_error)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        back_clicked = st.form_submit_button("Back")
+                    with c2:
+                        next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
+
+                if back_clicked:
+                    st.session_state[step_key] = max(1, current_step_local - 1)
+                elif next_clicked:
+                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                    st.session_state[step_key] = min(5, current_step_local + 1)
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Progress saved.")
             elif current_step_local == 4:
                 st.markdown("### Final Response / Decision")
-                st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
-                st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
-                st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
-                st.selectbox(
-                    "Escalation decision",
-                    ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-                    key=f"escalation_{assignment_id}",
-                )
+                with st.form(key=f"wizard_step4_form_{assignment_id}", clear_on_submit=False):
+                    st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
+                    st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
+                    st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
+                    st.selectbox(
+                        "Escalation decision",
+                        ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
+                        key=f"escalation_{assignment_id}",
+                    )
+                    step_validation_error = None
+                    if (
+                        not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
+                        or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
+                        or not st.session_state.get(f"customer_{assignment_id}", "").strip()
+                    ):
+                        step_validation_error = "Diagnosis, next steps, and customer response are required before continuing."
+                        st.warning(step_validation_error)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        back_clicked = st.form_submit_button("Back")
+                    with c2:
+                        next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
+
+                if back_clicked:
+                    st.session_state[step_key] = max(1, current_step_local - 1)
+                elif next_clicked:
+                    st.session_state[step_key] = min(5, current_step_local + 1)
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Progress saved.")
             else:
                 st.markdown("### Review and Submit")
                 st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
                 answered = sum(1 for value in question_answers_local.values() if str(value).strip())
                 st.write(f"Answered questions: {answered}/{len(assessment_questions)}")
                 st.write(f"Diagnosis provided: {'Yes' if st.session_state.get(f'diagnosis_{assignment_id}', '').strip() else 'No'}")
-
-        if current_step_local == 3 and assessment_questions:
-            unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
-            if unanswered:
-                validation_error = "Please answer all assessment questions before continuing."
-        if current_step_local == 4:
-            if not st.session_state.get(f"diagnosis_{assignment_id}", "").strip() or not st.session_state.get(f"next_steps_{assignment_id}", "").strip() or not st.session_state.get(f"customer_{assignment_id}", "").strip():
-                validation_error = "Diagnosis, next steps, and customer response are required before continuing."
-        if is_last_step:
-            unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
-            if unanswered:
-                validation_error = "Please answer all assessment questions before submitting."
-            elif (
-                not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
-                or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
-                or not st.session_state.get(f"customer_{assignment_id}", "").strip()
-            ):
-                validation_error = "Diagnosis, next steps, and customer response are required before submitting."
-        if validation_error:
-            st.warning(validation_error)
-
-        st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-
-        c1, c2 = st.columns(2)
-        with c1:
-            if st.button("Back", disabled=is_first_step):
-                st.session_state[step_key] = max(1, current_step_local - 1)
-                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-        with c2:
-            if not is_last_step:
-                if st.button("Next", type="primary", disabled=bool(validation_error)):
-                    st.session_state[step_key] = min(5, current_step_local + 1)
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    if current_step_local == 2:
-                        st.toast("Notes saved.")
-                    else:
-                        st.toast("Progress saved.")
-            else:
-                if st.button("Submit Response", type="primary", disabled=st.session_state.get(timer_key, False) or bool(validation_error)):
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    _submit_module_attempt(timed_out=False)
+                review_validation_error = None
+                unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
+                if unanswered:
+                    review_validation_error = "Please answer all assessment questions before submitting."
+                elif (
+                    not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
+                    or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
+                    or not st.session_state.get(f"customer_{assignment_id}", "").strip()
+                ):
+                    review_validation_error = "Diagnosis, next steps, and customer response are required before submitting."
+                if review_validation_error:
+                    st.warning(review_validation_error)
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Back"):
+                        st.session_state[step_key] = max(1, current_step_local - 1)
+                with c2:
+                    if st.button(
+                        "Submit Response",
+                        type="primary",
+                        disabled=st.session_state.get(timer_key, False) or bool(review_validation_error),
+                    ):
+                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                        _submit_module_attempt(timed_out=False)
 
     _render_assessment_workspace()
 
