@@ -32,7 +32,7 @@ from learner_views import (
     render_results_page,
 )
 from logger import get_logger
-from utils import inject_styles
+from utils import inject_styles, page_container
 
 app_logger = get_logger(module="app")
 
@@ -1382,18 +1382,21 @@ def render_main_app() -> None:
         st.session_state["page"] = "Profile"
         st.session_state["current_page"] = "profile"
         _set_nav("profile")
-        render_profile_page()
+        with page_container("narrow"):
+            render_profile_page()
         return
     if requested_page == "Settings" or nav_page == "settings":
         st.session_state["page"] = "Settings"
         st.session_state["current_page"] = "settings"
         _set_nav("settings")
-        render_settings_page()
+        with page_container("narrow"):
+            render_settings_page()
         return
 
     if user["role"] == "admin":
         if nav_page == "admin-assignment-review":
-            render_admin_assignment_review(user, st.session_state.get("active_assignment_id"))
+            with page_container("medium"):
+                render_admin_assignment_review(user, st.session_state.get("active_assignment_id"))
             return
         operations_pages = [
             "📊 Dashboard",
@@ -1460,26 +1463,39 @@ def render_main_app() -> None:
             _set_nav_for_page(normalized_page, "admin")
         st.session_state["current_page"] = _build_main_page_key("admin", st.session_state.get("nav", "dashboard"))
         user_logger.info("Admin page load.", page=current_page)
-        if normalized_page == "Dashboard":
-            render_admin_dashboard(user)
-        elif normalized_page == "Assignment Management":
-            render_assignment_management(user)
-        elif normalized_page == "Submission Grading":
-            render_grading_center(user)
-        elif normalized_page == "Progress Tracking":
-            render_progress_tracking(user)
-        elif normalized_page == "Learner Management":
-            render_learner_management(user)
-        elif normalized_page == "Module Builder":
-            render_module_builder(user)
-        elif normalized_page == "Manage Modules":
-            render_manage_modules(user)
-        elif normalized_page == "Database Tables":
-            render_database_tables_view()
-        elif normalized_page == "Debug Logs":
-            render_admin_log_viewer()
-        elif normalized_page == "QA Test Center":
-            render_admin_quality_hub(user)
+        admin_container_variant = {
+            "Dashboard": "wide",
+            "Assignment Management": "wide",
+            "Submission Grading": "medium",
+            "Progress Tracking": "wide",
+            "Learner Management": "wide",
+            "Module Builder": "medium",
+            "Manage Modules": "wide",
+            "Database Tables": "wide",
+            "Debug Logs": "wide",
+            "QA Test Center": "wide",
+        }.get(normalized_page, "wide")
+        with page_container(admin_container_variant):
+            if normalized_page == "Dashboard":
+                render_admin_dashboard(user)
+            elif normalized_page == "Assignment Management":
+                render_assignment_management(user)
+            elif normalized_page == "Submission Grading":
+                render_grading_center(user)
+            elif normalized_page == "Progress Tracking":
+                render_progress_tracking(user)
+            elif normalized_page == "Learner Management":
+                render_learner_management(user)
+            elif normalized_page == "Module Builder":
+                render_module_builder(user)
+            elif normalized_page == "Manage Modules":
+                render_manage_modules(user)
+            elif normalized_page == "Database Tables":
+                render_database_tables_view()
+            elif normalized_page == "Debug Logs":
+                render_admin_log_viewer()
+            elif normalized_page == "QA Test Center":
+                render_admin_quality_hub(user)
     else:
         pages = list(LEARNER_NAV_CONFIG.keys())
         if st.session_state.get("learner_page") not in pages:
@@ -1530,20 +1546,28 @@ def render_main_app() -> None:
         render_branch = current_page
         st.caption(f"Debug: render branch = `{render_branch}`")
         user_logger.info("Learner page load.", page=current_page)
-        if current_page == "home":
-            render_learner_home(user)
-        elif current_page == "assigned_modules":
-            render_module_library(user)
-        elif current_page == "module_workspace":
-            render_scenario_page(user)
-        elif current_page == "results":
-            render_results_page(user)
-        elif current_page == "progress":
-            render_progress_page(user)
-        else:
-            st.warning(f"Debug warning: unknown learner_page `{current_page}`; defaulting to assigned_modules.")
-            render_branch = "assigned_modules_fallback"
-            render_module_library(user)
+        learner_container_variant = {
+            "home": "medium",
+            "assigned_modules": "medium",
+            "module_workspace": "medium",
+            "results": "medium",
+            "progress": "medium",
+        }.get(current_page, "medium")
+        with page_container(learner_container_variant):
+            if current_page == "home":
+                render_learner_home(user)
+            elif current_page == "assigned_modules":
+                render_module_library(user)
+            elif current_page == "module_workspace":
+                render_scenario_page(user)
+            elif current_page == "results":
+                render_results_page(user)
+            elif current_page == "progress":
+                render_progress_page(user)
+            else:
+                st.warning(f"Debug warning: unknown learner_page `{current_page}`; defaulting to assigned_modules.")
+                render_branch = "assigned_modules_fallback"
+                render_module_library(user)
         if st.session_state.get("learner_page") == "module_workspace" and render_branch != "module_workspace":
             st.warning("Debug warning: learner_page is `module_workspace`, but Module Workspace branch was not rendered.")
 
