@@ -27,6 +27,7 @@ from db import execute, fetch_all, fetch_one, get_database_debug_info, init_db
 from learner_views import (
     render_learner_home,
     render_module_library,
+    render_scenario_page,
     render_progress_page,
     render_results_page,
 )
@@ -122,14 +123,21 @@ ADMIN_PAGE_TO_NAV = {
 }
 NAV_TO_ADMIN_PAGE = {value: key for key, value in ADMIN_PAGE_TO_NAV.items()}
 
+LEARNER_NAV_CONFIG = {
+    "home": "Home",
+    "assigned_modules": "Assigned Modules",
+    "module_workspace": "Module Workspace",
+    "results": "Results",
+    "progress": "My Progress",
+}
 LEARNER_PAGE_TO_NAV = {
-    "Home": "home",
-    "Assigned Modules": "assigned-modules",
-    "Module Workspace": "module-workspace",
-    "Results": "results",
-    "My Progress": "my-progress",
-    "Profile": "profile",
-    "Settings": "settings",
+    "home": "home",
+    "assigned_modules": "assigned-modules",
+    "module_workspace": "module-workspace",
+    "results": "results",
+    "progress": "my-progress",
+    "profile": "profile",
+    "settings": "settings",
 }
 NAV_TO_LEARNER_PAGE = {value: key for key, value in LEARNER_PAGE_TO_NAV.items()}
 
@@ -190,7 +198,7 @@ def init_state() -> None:
         "bootstrap_error": None,
         "admin_page": "Dashboard",
         "admin_nav_group": "Operations",
-        "learner_page": "Home",
+        "learner_page": "home",
         "ui_event": None,
         "db_test_nonce": 0,
         "db_test_result": None,
@@ -1407,16 +1415,28 @@ def render_main_app() -> None:
         elif normalized_page == "QA Test Center":
             render_admin_quality_hub(user)
     else:
-        pages = ["🏠 Home", "📦 Assigned Modules", "🧪 Module Workspace", "📝 Results", "📉 My Progress"]
-        learner_lookup = {re.sub(r"^[^\w]+", "", p).strip(): p for p in pages}
-        if nav_page == "module-workspace" and st.session_state.get("active_assignment_id"):
-            st.session_state["learner_page"] = "🧪 Module Workspace"
-        nav_requested_page = NAV_TO_LEARNER_PAGE.get(nav_page)
-        if nav_requested_page in learner_lookup:
-            st.session_state["learner_page"] = learner_lookup[nav_requested_page]
+        pages = list(LEARNER_NAV_CONFIG.keys())
+        if st.session_state.get("learner_page") not in pages:
+            st.session_state["learner_page"] = "home"
 
-        if requested_page in pages and st.session_state.get("learner_page") != requested_page:
-            st.session_state["learner_page"] = requested_page
+        nav_requested_page = NAV_TO_LEARNER_PAGE.get(nav_page)
+        if nav_requested_page in LEARNER_NAV_CONFIG and st.session_state.get("learner_page") != nav_requested_page:
+            st.session_state["learner_page"] = nav_requested_page
+
+        legacy_requested_page = {
+            "🏠 Home": "home",
+            "📦 Assigned Modules": "assigned_modules",
+            "🧪 Module Workspace": "module_workspace",
+            "📝 Results": "results",
+            "📉 My Progress": "progress",
+            "Home": "home",
+            "Assigned Modules": "assigned_modules",
+            "Module Workspace": "module_workspace",
+            "Results": "results",
+            "My Progress": "progress",
+        }.get(str(requested_page))
+        if legacy_requested_page and st.session_state.get("learner_page") != legacy_requested_page:
+            st.session_state["learner_page"] = legacy_requested_page
         st.session_state["page"] = None
         st.sidebar.markdown(
             """
@@ -1427,29 +1447,38 @@ def render_main_app() -> None:
             """,
             unsafe_allow_html=True,
         )
-        previous_learner_page = st.session_state.get("learner_page", "Home")
+        previous_learner_page = st.session_state.get("learner_page", "home")
         render_horizontal_button_group(
             "",
             pages,
             "learner_page",
             container=st.sidebar,
+            format_func=lambda k: LEARNER_NAV_CONFIG.get(k, str(k)),
             layout="vertical",
         )
-        current_page = st.session_state.get("learner_page", "🏠 Home")
-        normalized_page = re.sub(r"^[^\w]+", "", current_page).strip()
-        if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(normalized_page):
-            _set_nav_for_page(normalized_page, "learner")
+        current_page = st.session_state.get("learner_page", "home")
+        if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(current_page):
+            _set_nav_for_page(current_page, "learner")
+        st.caption(f"Debug: learner_page key = `{current_page}`")
+        render_branch = current_page
+        st.caption(f"Debug: render branch = `{render_branch}`")
         user_logger.info("Learner page load.", page=current_page)
-        if normalized_page == "Home":
+        if current_page == "home":
             render_learner_home(user)
-        elif normalized_page == "Assigned Modules":
+        elif current_page == "assigned_modules":
             render_module_library(user)
-        elif normalized_page == "Module Workspace":
-            render_module_library(user)
-        elif normalized_page == "Results":
+        elif current_page == "module_workspace":
+            render_scenario_page(user)
+        elif current_page == "results":
             render_results_page(user)
-        elif normalized_page == "My Progress":
+        elif current_page == "progress":
             render_progress_page(user)
+        else:
+            st.warning(f"Debug warning: unknown learner_page `{current_page}`; defaulting to assigned_modules.")
+            render_branch = "assigned_modules_fallback"
+            render_module_library(user)
+        if st.session_state.get("learner_page") == "module_workspace" and render_branch != "module_workspace":
+            st.warning("Debug warning: learner_page is `module_workspace`, but Module Workspace branch was not rendered.")
 
 
 def main() -> None:

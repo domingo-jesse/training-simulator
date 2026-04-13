@@ -179,7 +179,7 @@ def render_learner_home(user: Dict) -> None:
 
 def render_module_library(user: Dict) -> None:
     view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
-    in_workspace_mode = st.session_state.get("learner_page") == "Module Workspace"
+    in_workspace_mode = st.session_state.get("learner_page") == "module_workspace"
     render_page_header("Module Workspace" if in_workspace_mode else "Assigned Modules", "Focused execution flow with clean progress tracking.")
     try:
         assignments = _assigned_modules(user)
@@ -203,8 +203,8 @@ def render_module_library(user: Dict) -> None:
         if c2.button("Yes, start now", key=f"confirm_start_{module['assignment_id']}_{module['module_id']}", type="primary"):
             view_logger.info("Start module confirmed.", action="start_module_confirmed", scenario_id=module["module_id"])
             st.session_state.active_assignment_id = int(module["assignment_id"])
-            st.session_state.learner_page = "Module Workspace"
-            st.query_params["page"] = "module_workspace"
+            st.session_state.learner_page = "module_workspace"
+            st.query_params["page"] = "module-workspace"
             st.query_params["assignment_id"] = str(module["assignment_id"])
             st.session_state.pending_start_module = None
             st.rerun()
@@ -221,7 +221,7 @@ def render_module_library(user: Dict) -> None:
             with c2:
                 if st.button("Exit workspace", use_container_width=True):
                     st.session_state.active_assignment_id = None
-                    st.session_state.learner_page = "Assigned Modules"
+                    st.session_state.learner_page = "assigned_modules"
                     st.query_params["page"] = "assigned-modules"
                     st.query_params.pop("assignment_id", None)
                     st.rerun()
@@ -231,7 +231,8 @@ def render_module_library(user: Dict) -> None:
     elif in_workspace_mode:
         st.info("No active module workspace yet. Start a module from **Assigned Modules**.")
         if st.button("Go to assigned modules", type="primary"):
-            st.session_state.page = "Assigned Modules"
+            st.session_state.learner_page = "assigned_modules"
+            st.query_params["page"] = "assigned-modules"
             st.rerun()
         return
 
@@ -293,7 +294,8 @@ def render_module_library(user: Dict) -> None:
                             )
                             if attempt:
                                 st.session_state.latest_attempt_id = int(attempt["attempt_id"])
-                                st.session_state.page = "Results"
+                                st.session_state.learner_page = "results"
+                                st.query_params["page"] = "results"
                                 st.rerun()
 
 
@@ -481,7 +483,8 @@ def render_scenario_page(user: Dict) -> None:
         if st.button("View completed results", type="secondary"):
             st.session_state.active_assignment_id = None
             st.session_state.latest_attempt_id = int(existing_attempt["attempt_id"])
-            st.session_state.page = "Results"
+            st.session_state.learner_page = "results"
+            st.query_params["page"] = "results"
             st.rerun()
         return
 
@@ -649,7 +652,8 @@ def render_scenario_page(user: Dict) -> None:
 
             st.session_state.latest_attempt_id = attempt_id
             st.session_state.active_assignment_id = None
-            st.session_state.page = "Results"
+            st.session_state.learner_page = "results"
+            st.query_params["page"] = "results"
             st.session_state.pop(started_at_key, None)
             st.session_state[timer_key] = True
             st.session_state[f"submitted_{assignment_id}"] = True
@@ -848,7 +852,8 @@ def render_results_page(user: Dict) -> None:
     if c2.button("Back to assignments"):
         st.session_state.active_assignment_id = None
         st.query_params.pop("assignment_id", None)
-        st.session_state.page = "Assigned Modules"
+        st.session_state.learner_page = "assigned_modules"
+        st.query_params["page"] = "assigned-modules"
         st.rerun()
 
 
