@@ -142,6 +142,7 @@ def render_horizontal_button_group(
     *,
     container=st,
     format_func=None,
+    layout: str = "horizontal",
 ) -> str:
     if not options:
         return ""
@@ -152,17 +153,29 @@ def render_horizontal_button_group(
     if label:
         container.markdown(f"**{label}**")
 
-    columns = container.columns(len(options), gap="small")
-    for index, option in enumerate(options):
-        button_label = format_func(option) if format_func else str(option)
-        button_type = "primary" if st.session_state.get(state_key) == option else "secondary"
-        if columns[index].button(
-            button_label,
-            key=f"{state_key}_btn_{index}",
-            type=button_type,
-            use_container_width=True,
-        ):
-            st.session_state[state_key] = option
+    if layout == "vertical":
+        for index, option in enumerate(options):
+            button_label = format_func(option) if format_func else str(option)
+            button_type = "primary" if st.session_state.get(state_key) == option else "secondary"
+            if container.button(
+                button_label,
+                key=f"{state_key}_btn_{index}",
+                type=button_type,
+                use_container_width=True,
+            ):
+                st.session_state[state_key] = option
+    else:
+        columns = container.columns(len(options), gap="small")
+        for index, option in enumerate(options):
+            button_label = format_func(option) if format_func else str(option)
+            button_type = "primary" if st.session_state.get(state_key) == option else "secondary"
+            if columns[index].button(
+                button_label,
+                key=f"{state_key}_btn_{index}",
+                type=button_type,
+                use_container_width=True,
+            ):
+                st.session_state[state_key] = option
 
     return st.session_state[state_key]
 
@@ -953,10 +966,18 @@ def render_create_account_view() -> None:
 
 
 def render_topbar(user: dict[str, Any]) -> None:
-    left, right = st.columns([4, 2])
+    header = st.container()
+    left, right = header.columns([7, 2], vertical_alignment="center")
     with left:
-        st.title("Training Simulator")
-        st.caption("Simulation workspace and readiness analytics")
+        st.markdown(
+            """
+            <div class="app-shell-header">
+                <div class="app-shell-header-title">Training Simulator</div>
+                <div class="app-shell-header-subtitle">Simulation workspace and readiness analytics</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     with right:
         render_profile_menu(user)
 
@@ -1085,22 +1106,26 @@ def save_user_profile_updates(
 def render_profile_menu(user: dict[str, Any]) -> None:
     initials = _avatar_initials(user.get("full_name", ""))
     display_name = user.get("full_name") or "User"
-    with st.popover(f"{initials} · {display_name}"):
-        st.markdown(f"**{display_name}**")
-        st.caption(user.get("email", ""))
-        st.markdown(
-            f"<span class='role-badge'>{user.get('role', 'learner').title()}</span>",
-            unsafe_allow_html=True,
-        )
-        if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
-            st.session_state["page"] = "Profile"
-            st.rerun()
-        if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
-            st.session_state["page"] = "Settings"
-            st.rerun()
-        if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
-            logout_user()
-            st.rerun()
+    with st.container():
+        st.markdown("<div class='profile-menu-anchor'>", unsafe_allow_html=True)
+        profile_label = f"{initials} · {display_name}"
+        with st.popover(profile_label):
+            st.markdown(f"**{display_name}**")
+            st.caption(user.get("email", ""))
+            st.markdown(
+                f"<span class='role-badge'>{user.get('role', 'learner').title()}</span>",
+                unsafe_allow_html=True,
+            )
+            if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
+                st.session_state["page"] = "Profile"
+                st.rerun()
+            if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
+                st.session_state["page"] = "Settings"
+                st.rerun()
+            if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
+                logout_user()
+                st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _initialize_profile_form(profile: dict[str, Any]) -> None:
@@ -1253,6 +1278,7 @@ def render_main_app() -> None:
             visible_pages,
             "admin_page",
             container=st.sidebar,
+            layout="vertical",
         )
         current_page = st.session_state.get("admin_page", "Dashboard")
         user_logger.info("Admin page load.", page=current_page)
@@ -1286,6 +1312,7 @@ def render_main_app() -> None:
             pages,
             "learner_page",
             container=st.sidebar,
+            layout="vertical",
         )
         current_page = st.session_state.get("learner_page", "Home")
         user_logger.info("Learner page load.", page=current_page)

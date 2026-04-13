@@ -20,6 +20,42 @@ def inject_styles() -> None:
         [data-testid="stSidebar"] > div:first-child {
             background: linear-gradient(180deg, #f6f8fb, #edf1f6);
             border-right: 1px solid rgba(15, 23, 42, 0.08);
+            width: 280px;
+            min-width: 280px;
+            padding-top: 1.1rem;
+        }
+        [data-testid="stSidebar"] .block-container {
+            padding-top: 0.5rem;
+            padding-bottom: 1rem;
+        }
+        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p strong {
+            font-size: 0.95rem;
+            color: #0f172a;
+            letter-spacing: 0.01em;
+        }
+        [data-testid="stSidebar"] .stButton > button {
+            border-radius: 10px;
+            justify-content: flex-start;
+            text-align: left;
+            min-height: 2.45rem;
+            padding: 0.35rem 0.75rem;
+            margin-bottom: 0.25rem;
+            font-weight: 600;
+            font-size: 0.92rem;
+        }
+        [data-testid="stSidebar"] .stButton > button[kind="primary"] {
+            background: rgba(37, 99, 235, 0.14);
+            border: 1px solid rgba(37, 99, 235, 0.45);
+            color: #1d4ed8;
+        }
+        [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
+            background: rgba(255, 255, 255, 0.86);
+            border: 1px solid rgba(15, 23, 42, 0.08);
+            color: #334155;
+        }
+        [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
+            background: rgba(239, 246, 255, 0.92);
+            color: #1d4ed8;
         }
         .stApp [data-testid="stMarkdownContainer"],
         .stApp label,
@@ -72,6 +108,26 @@ def inject_styles() -> None:
         }
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
+        }
+        .app-shell-header {
+            padding: 0.2rem 0 0.55rem 0;
+        }
+        .app-shell-header-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #0f172a;
+            line-height: 1.2;
+        }
+        .app-shell-header-subtitle {
+            margin-top: 0.2rem;
+            color: #475569;
+            font-size: 0.92rem;
+        }
+        .profile-menu-anchor {
+            display: flex;
+            justify-content: flex-end;
+            align-items: flex-start;
+            margin-top: 0.15rem;
         }
 
         .stButton > button {
