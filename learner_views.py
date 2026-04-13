@@ -372,6 +372,45 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
     )
 
 
+def _fetch_assignment_for_workspace(*, assignment_id: int, user: Dict) -> tuple[dict | None, str | None]:
+    assignment = fetch_one(
+        """
+        SELECT assignment_id, assigned_at, module_id
+        FROM assignments
+        WHERE assignment_id = ?
+          AND learner_id = ?
+          AND organization_id = ?
+          AND is_active = TRUE
+        """,
+        (assignment_id, user["user_id"], user["organization_id"]),
+    )
+    if assignment:
+        return assignment, None
+
+    exists_for_org = fetch_one(
+        """
+        SELECT assignment_id
+        FROM assignments
+        WHERE assignment_id = ?
+          AND organization_id = ?
+          AND is_active = TRUE
+        """,
+        (assignment_id, user["organization_id"]),
+    )
+    if exists_for_org:
+        return None, "unauthorized"
+    return None, "not_found"
+
+
+def _render_assignment_access_error(*, reason: str) -> None:
+    if reason == "unauthorized":
+        st.error("Unauthorized: this assignment workspace is not available for your account.")
+    else:
+        st.error("Assignment not found. It may be inactive or unavailable.")
+    st.session_state.active_assignment_id = None
+    st.query_params.pop("assignment_id", None)
+
+
 def render_scenario_page(user: Dict) -> None:
     view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
     assignment_id = st.session_state.get("active_assignment_id")
@@ -379,16 +418,9 @@ def render_scenario_page(user: Dict) -> None:
         st.info("Select a module from Assigned Modules to begin.")
         return
 
-    assignment = fetch_one(
-        """
-        SELECT assignment_id, assigned_at, module_id
-        FROM assignments
-        WHERE learner_id = ? AND assignment_id = ? AND organization_id = ? AND is_active = TRUE
-        """,
-        (user["user_id"], assignment_id, user["organization_id"]),
-    )
+    assignment, access_error = _fetch_assignment_for_workspace(assignment_id=assignment_id, user=user)
     if not assignment:
-        st.error("Assignment not found or you do not have access to it.")
+        _render_assignment_access_error(reason=access_error or "not_found")
         return
 
     module_id = int(assignment["module_id"])
