@@ -709,11 +709,7 @@ def render_scenario_page(user: Dict) -> None:
                     for name, details in st.session_state[revealed_key].items():
                         with st.expander(name, expanded=True):
                             st.write(details)
-                with st.form(f"investigation_form_{assignment_id}", clear_on_submit=False):
-                    st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
-                    if st.form_submit_button("Save notes", use_container_width=True):
-                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                        st.toast("Notes saved.")
+                st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
             elif current_step_local == 3:
                 st.markdown("### Assessment Questions")
                 with st.form(f"assessment_questions_form_{assignment_id}", clear_on_submit=False):
@@ -781,6 +777,10 @@ def render_scenario_page(user: Dict) -> None:
             if st.button("Next", disabled=current_step_local >= 5 or bool(validation_error)):
                 st.session_state[step_key] = min(5, current_step_local + 1)
                 _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                if current_step_local == 2:
+                    st.toast("Notes saved.")
+                else:
+                    st.toast("Progress saved.")
         with c3:
             if st.button("Send to database: Submit module", type="primary", disabled=st.session_state.get(timer_key, False) or current_step_local < 5):
                 _submit_module_attempt(timed_out=False)
