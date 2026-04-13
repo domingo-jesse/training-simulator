@@ -966,12 +966,18 @@ def render_main_app() -> None:
             st.session_state["admin_nav_group"] = "Quality Assurance"
             st.session_state["admin_page"] = requested_page
 
-        st.radio(
-            "Admin Workspace",
-            options=["Operations", "Quality Assurance"],
-            horizontal=True,
-            key="admin_nav_group",
-        )
+        active_admin_page = st.session_state.get("admin_page", "Dashboard")
+        show_workspace_toggle = active_admin_page in {"Debug Logs", "QA Test Center"}
+        if show_workspace_toggle:
+            st.radio(
+                "Admin Workspace",
+                options=["Operations", "Quality Assurance"],
+                horizontal=True,
+                key="admin_nav_group",
+            )
+        else:
+            st.session_state["admin_nav_group"] = "Operations"
+
         current_group = st.session_state.get("admin_nav_group", "Operations")
         visible_pages = operations_pages if current_group == "Operations" else qa_pages
         if st.session_state.get("admin_page") not in visible_pages:
