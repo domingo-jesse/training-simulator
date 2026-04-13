@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from html import escape
+from typing import Any, Dict, Optional
 
 import pandas as pd
 import streamlit as st
+
+_APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 
 
 def inject_styles() -> None:
@@ -434,3 +437,205 @@ def build_learner_option_label(row: pd.Series) -> str:
     name = normalize_text(row.get("name")) or "Unnamed learner"
     team = normalize_text(row.get("team")) or "No team"
     return f"{name} ({team})"
+
+
+def _format_datetime_value(value: Any) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        dt = pd.to_datetime(value)
+        return dt.strftime("%b %d, %Y • %I:%M %p")
+    except Exception:
+        return str(value)
+
+
+def _format_numeric_value(value: Any, decimals: int = 1) -> str:
+    try:
+        return f"{float(value):.{decimals}f}"
+    except Exception:
+        return "—"
+
+
+def _badge_style(value: Any, kind: str = "neutral") -> str:
+    if kind == "score":
+        try:
+            score = float(value)
+        except Exception:
+            return "background:#f3f4f6;color:#374151;"
+        if score >= 85:
+            return "background:#ecfdf5;color:#065f46;"
+        if score >= 70:
+            return "background:#eff6ff;color:#1d4ed8;"
+        if score >= 50:
+            return "background:#fffbeb;color:#92400e;"
+        return "background:#fef2f2;color:#991b1b;"
+    if kind == "status":
+        normalized = str(value).strip().lower()
+        if normalized in {"active", "completed", "success", "passed"}:
+            return "background:#ecfdf5;color:#065f46;"
+        if normalized in {"pending", "in progress", "warning", "not started"}:
+            return "background:#fffbeb;color:#92400e;"
+        if normalized in {"inactive", "failed", "error", "overdue", "fail"}:
+            return "background:#fef2f2;color:#991b1b;"
+    return "background:#f3f4f6;color:#374151;"
+
+
+def _inject_app_table_styles() -> None:
+    if st.session_state.get(_APP_TABLE_STYLE_KEY):
+        return
+    st.session_state[_APP_TABLE_STYLE_KEY] = True
+    st.markdown(
+        """
+        <style>
+        .app-table-headline {margin-bottom: 0.55rem;}
+        .app-table-title {font-size: 1.03rem; font-weight: 650; color: #111827;}
+        .app-table-subtitle {font-size: 0.86rem; color: #6b7280; margin-top: 2px;}
+        .app-table-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 10px 14px;
+            overflow-x: auto;
+            width: 100%;
+        }
+        .app-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+        }
+        .app-table thead th {
+            text-align: left;
+            font-weight: 600;
+            color: #6b7280;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 12px 14px;
+            border-bottom: 1px solid #e5e7eb;
+            white-space: nowrap;
+        }
+        .app-table tbody td {
+            padding: 14px;
+            border-bottom: 1px solid #f1f5f9;
+            color: #111827;
+            vertical-align: middle;
+        }
+        .app-table tbody tr:last-child td { border-bottom: none; }
+        .app-table-primary { font-weight: 600; color: #111827; }
+        .app-table-pill {
+            display: inline-block;
+            padding: 6px 10px;
+            border-radius: 999px;
+            font-weight: 600;
+            font-size: 12px;
+            line-height: 1;
+            white-space: nowrap;
+        }
+        .app-table-empty {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 28px;
+            color: #6b7280;
+        }
+        .app-table-select-wrap { margin-top: 0.55rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_app_table(
+    df: pd.DataFrame,
+    *,
+    column_labels: Optional[dict] = None,
+    datetime_columns: Optional[list] = None,
+    numeric_formats: Optional[dict] = None,
+    badge_columns: Optional[dict] = None,
+    hidden_columns: Optional[list] = None,
+    numeric_align: Optional[dict] = None,
+    max_visible_rows: Optional[int] = None,
+    sort_by: Optional[list[str]] = None,
+    ascending: bool | list[bool] = True,
+    table_title: str = "",
+    table_subtitle: str = "",
+    empty_title: str = "No data available",
+    empty_message: str = "Records will appear here once data is available.",
+) -> pd.DataFrame:
+    _inject_app_table_styles()
+    column_labels = column_labels or {}
+    datetime_columns = datetime_columns or []
+    numeric_formats = numeric_formats or {}
+    badge_columns = badge_columns or {}
+    hidden_columns = hidden_columns or []
+    numeric_align = numeric_align or {}
+
+    if table_title or table_subtitle:
+        st.markdown(
+            f"""
+            <div class="app-table-headline">
+                <div class="app-table-title">{escape(table_title)}</div>
+                <div class="app-table-subtitle">{escape(table_subtitle)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if df is None or df.empty:
+        st.markdown(
+            f"""
+            <div class="app-table-empty">
+                <div style="font-size:16px;font-weight:600;color:#111827;margin-bottom:6px;">{escape(empty_title)}</div>
+                <div>{escape(empty_message)}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        return pd.DataFrame()
+
+    render_df = df.copy()
+    render_df = render_df.drop(columns=[c for c in hidden_columns if c in render_df.columns], errors="ignore")
+    if sort_by:
+        existing_sort = [col for col in sort_by if col in render_df.columns]
+        if existing_sort:
+            render_df = render_df.sort_values(existing_sort, ascending=ascending)
+    if max_visible_rows is not None:
+        render_df = render_df.head(max_visible_rows)
+
+    for col in datetime_columns:
+        if col in render_df.columns:
+            render_df[col] = render_df[col].apply(_format_datetime_value)
+    for col, decimals in numeric_formats.items():
+        if col in render_df.columns and col not in badge_columns:
+            render_df[col] = render_df[col].apply(lambda x: _format_numeric_value(x, decimals))
+
+    html = ['<div class="app-table-card"><table class="app-table"><thead><tr>']
+    for col in render_df.columns:
+        label = column_labels.get(col, col.replace("_", " ").title())
+        alignment = "right" if numeric_align.get(col) == "right" else "left"
+        html.append(f'<th style="text-align:{alignment};">{escape(str(label))}</th>')
+    html.append("</tr></thead><tbody>")
+
+    for _, row in render_df.iterrows():
+        html.append("<tr>")
+        for idx, col in enumerate(render_df.columns):
+            raw_value = row[col]
+            display_value = raw_value if pd.notna(raw_value) and raw_value != "" else "—"
+            alignment = "right" if numeric_align.get(col) == "right" else "left"
+            if col in badge_columns:
+                badge_kind = badge_columns[col]
+                if col in numeric_formats:
+                    display_value = _format_numeric_value(raw_value, numeric_formats[col])
+                style = _badge_style(raw_value, badge_kind)
+                html.append(
+                    f'<td style="text-align:{alignment};"><span class="app-table-pill" style="{style}">{escape(str(display_value))}</span></td>'
+                )
+            else:
+                cell_class = "app-table-primary" if idx == 0 else ""
+                html.append(
+                    f'<td style="text-align:{alignment};"><span class="{cell_class}">{escape(str(display_value))}</span></td>'
+                )
+        html.append("</tr>")
+    html.append("</tbody></table></div>")
+    st.markdown("".join(html), unsafe_allow_html=True)
+    return render_df

@@ -26,6 +26,7 @@ from utils import (
     filter_active_learners,
     filter_inactive_learners,
     metric_row,
+    render_app_table,
     render_kpi_card,
     render_page_header,
     to_df,
@@ -403,19 +404,21 @@ def render_learner_management(current_user: dict) -> None:
             st.session_state[multiselect_key] = []
         st.session_state[multiselect_key] = [x for x in st.session_state[multiselect_key] if x in option_labels]
 
-        learner_table_event = st.dataframe(
+        render_app_table(
             learner_table_df,
-            hide_index=True,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="multi-row",
-            key=f"learner_table_{tab_key}",
-        )
-        _merge_row_selection_into_multiselect(
-            table_event=learner_table_event,
-            table_df=scoped.reset_index(drop=True),
-            multiselect_key=multiselect_key,
-            option_labels=option_labels,
+            column_labels={
+                "name": "Learner",
+                "team": "Team",
+                "organization_name": "Organization",
+                "status": "Status",
+                "assigned_modules": "Assigned",
+                "completed_modules": "Completed",
+                "last_activity": "Last Activity",
+            },
+            datetime_columns=["last_activity"],
+            badge_columns={"status": "status"},
+            empty_title="No learners match current filters",
+            empty_message="Adjust filters to display learners.",
         )
 
         c1, c2, c3 = st.columns([1, 1, 2])
@@ -588,19 +591,11 @@ def _render_assignment_tool(current_user: dict) -> None:
         ]
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        learner_table_event = st.dataframe(
+        render_app_table(
             filtered_active_learners[["name", "team", "organization_name"]].reset_index(drop=True),
-            hide_index=True,
-            use_container_width=True,
-            on_select="rerun",
-            selection_mode="multi-row",
-            key="assignment_tool_learners_table",
-        )
-        _merge_row_selection_into_multiselect(
-            table_event=learner_table_event,
-            table_df=filtered_active_learners.reset_index(drop=True),
-            multiselect_key=learner_multiselect_key,
-            option_labels=learner_options,
+            column_labels={"name": "Learner", "team": "Team", "organization_name": "Organization"},
+            empty_title="No active learners found",
+            empty_message="Update filters to find active learners.",
         )
 
         select_col, clear_col = st.columns(2)
@@ -785,13 +780,22 @@ def render_current_assignments(current_user: dict) -> None:
     assignment_table_df = filtered_assignments[
         ["assignment_id", "learner_name", "team", "organization_name", "module_title", "due_date", "status", "last_attempt_at"]
     ].reset_index(drop=True)
-    assignment_table_event = st.dataframe(
+    render_app_table(
         assignment_table_df,
-        hide_index=True,
-        use_container_width=True,
-        on_select="rerun",
-        selection_mode="single-row",
-        key="current_assignments_table",
+        column_labels={
+            "assignment_id": "Assignment ID",
+            "learner_name": "Learner",
+            "team": "Team",
+            "organization_name": "Organization",
+            "module_title": "Module",
+            "due_date": "Due Date",
+            "status": "Status",
+            "last_attempt_at": "Last Attempt",
+        },
+        datetime_columns=["due_date", "last_attempt_at"],
+        badge_columns={"status": "status"},
+        empty_title="No assignments match current filters",
+        empty_message="Try changing search criteria.",
     )
 
     assignment_records = filtered_assignments.reset_index(drop=True)
@@ -803,20 +807,8 @@ def render_current_assignments(current_user: dict) -> None:
         st.info("No assignments available for remove/reassign actions with current filters.")
         return
 
-    selected_from_table = None
-    selected_rows = assignment_table_event.selection.get("rows", []) if assignment_table_event else []
-    if selected_rows:
-        selected_idx = selected_rows[0]
-        if 0 <= selected_idx < len(assignment_records):
-            selected_row = assignment_records.iloc[selected_idx]
-            selected_from_table = (
-                f"#{selected_row['assignment_id']} • {selected_row['learner_name']} • "
-                f"{selected_row['module_title']} ({selected_row['status']})"
-            )
-            st.caption(f"Selected from table: Assignment #{int(selected_row['assignment_id'])}")
-
     assignment_labels = list(assignment_map.keys())
-    default_label = selected_from_table if selected_from_table in assignment_map else assignment_labels[0]
+    default_label = assignment_labels[0]
     selected_assignment_label = st.selectbox(
         "Select assignment",
         assignment_labels,
@@ -932,7 +924,7 @@ def render_grading_center(current_user: dict) -> None:
         }
     )
 
-    st.dataframe(
+    render_app_table(
         filtered[
             [
                 "created_at",
@@ -945,8 +937,16 @@ def render_grading_center(current_user: dict) -> None:
                 "communication_score",
             ]
         ],
-        hide_index=True,
-        use_container_width=True,
+        datetime_columns=["created_at"],
+        numeric_formats={
+            "total_score": 1,
+            "understanding_score": 1,
+            "investigation_score": 1,
+            "solution_score": 1,
+            "communication_score": 1,
+        },
+        badge_columns={"total_score": "score"},
+        numeric_align={k: "right" for k in ["total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]},
     )
 
 
@@ -1083,10 +1083,10 @@ def render_progress_tracking(current_user: dict) -> None:
 
     status_filter = st.multiselect("Filter status", ["Completed", "In Progress", "Overdue", "Not Started"], default=["Completed", "In Progress", "Overdue", "Not Started"])
     filtered = assignments_df[assignments_df["status"].isin(status_filter)]
-    st.dataframe(
+    render_app_table(
         filtered[["learner_name", "module_title", "status", "due_date", "last_attempt_at"]],
-        hide_index=True,
-        use_container_width=True,
+        datetime_columns=["due_date", "last_attempt_at"],
+        badge_columns={"status": "status"},
     )
 
 
@@ -1728,7 +1728,12 @@ def render_manage_modules(current_user: dict) -> None:
         st.info("No modules yet.")
         return
 
-    st.dataframe(modules_df[["module_id", "title", "status", "difficulty", "updated_at"]], hide_index=True, use_container_width=True)
+    render_app_table(
+        modules_df[["module_id", "title", "status", "difficulty", "updated_at"]],
+        datetime_columns=["updated_at"],
+        badge_columns={"status": "status"},
+        numeric_align={"module_id": "right"},
+    )
     module_map = {f"#{int(r['module_id'])} • {r['title']} ({r['status']})": int(r["module_id"]) for _, r in modules_df.iterrows()}
     selected_label = st.selectbox("Select module", list(module_map.keys()))
     module_id = module_map[selected_label]
@@ -2960,7 +2965,13 @@ def _qa_apply_table_filters(results_df: pd.DataFrame) -> pd.DataFrame:
 
 def _qa_render_results_table(filtered_df: pd.DataFrame, current_user: dict, environment: str, table_scope: str) -> None:
     display = filtered_df[["name", "category", "severity", "status", "last_run_at", "duration_ms", "environment"]].copy()
-    st.dataframe(display, use_container_width=True, hide_index=True)
+    render_app_table(
+        display,
+        datetime_columns=["last_run_at"],
+        numeric_formats={"duration_ms": 0},
+        numeric_align={"duration_ms": "right"},
+        badge_columns={"status": "status"},
+    )
 
     st.markdown("#### Expanded Test Details")
     for index, row in filtered_df.iterrows():
@@ -2986,7 +2997,7 @@ def _qa_render_history() -> None:
     history_df = pd.DataFrame(history)
     if "records" in history_df.columns:
         history_df = history_df.drop(columns=["records"])
-    st.dataframe(history_df, use_container_width=True, hide_index=True)
+    render_app_table(history_df, datetime_columns=["started_at", "finished_at"])
 
 
 def render_admin_quality_hub(current_user: dict) -> None:
@@ -3008,7 +3019,10 @@ def render_admin_quality_hub(current_user: dict) -> None:
     with tab_overview:
         st.markdown("#### QA Overview")
         st.write("Use run modes and filters to validate core and extended workflows without impacting production data.")
-        st.dataframe(filtered_df[["id", "name", "category", "severity", "status", "environment"]], use_container_width=True, hide_index=True)
+        render_app_table(
+            filtered_df[["id", "name", "category", "severity", "status", "environment"]],
+            badge_columns={"status": "status"},
+        )
 
     with tab_results:
         _qa_render_results_table(filtered_df, current_user, environment, table_scope="results")
@@ -3028,7 +3042,7 @@ def render_admin_quality_hub(current_user: dict) -> None:
         category_summary = (
             results_df.groupby(["category", "status"]).size().reset_index(name="count").sort_values(["category", "status"])
         )
-        st.dataframe(category_summary, use_container_width=True, hide_index=True)
+        render_app_table(category_summary, numeric_align={"count": "right"})
 
 
 def render_database_tables_view() -> None:
@@ -3066,7 +3080,7 @@ def render_database_tables_view() -> None:
             st.caption("No rows found.")
             continue
 
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        render_app_table(pd.DataFrame(rows), table_subtitle="Debug database explorer output")
 
 
 def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
