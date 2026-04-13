@@ -11,7 +11,7 @@ import streamlit as st
 from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
 from evaluation import evaluate_submission
 from logger import get_logger
-from utils import metric_row, parse_json_list, render_page_header, to_df
+from utils import metric_row, parse_json_list, render_app_table, render_page_header, to_df
 
 learner_logger = get_logger(module="learner_views")
 WIZARD_STEPS = [
@@ -909,10 +909,18 @@ def render_progress_page(user: Dict) -> None:
                 st.write(f"- {item}")
 
     st.markdown("#### Recent attempts")
-    st.dataframe(
+    render_app_table(
         df[["created_at", "title", "total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]]
         .sort_values("created_at", ascending=False)
         .head(10),
-        use_container_width=True,
-        hide_index=True,
+        datetime_columns=["created_at"],
+        numeric_formats={
+            "total_score": 1,
+            "understanding_score": 1,
+            "investigation_score": 1,
+            "solution_score": 1,
+            "communication_score": 1,
+        },
+        badge_columns={"total_score": "score"},
+        numeric_align={k: "right" for k in ["total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]},
     )
