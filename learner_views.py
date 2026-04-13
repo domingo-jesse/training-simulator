@@ -140,6 +140,21 @@ def _learner_stats_cached(user_id: int, organization_id: int) -> Dict:
     }
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _module_workspace_bundle(module_id: int, organization_id: int) -> tuple[dict | None, list[dict], list[dict]]:
+    """Cache relatively static module metadata used by the learner workspace."""
+    module = fetch_one(
+        "SELECT * FROM modules WHERE module_id = ? AND organization_id = ?",
+        (module_id, organization_id),
+    )
+    actions = fetch_all("SELECT * FROM investigation_actions WHERE module_id = ?", (module_id,))
+    questions = fetch_all(
+        "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
+        (module_id,),
+    )
+    return module, actions, questions
+
+
 def render_learner_home(user: Dict) -> None:
     st.subheader("Welcome back")
     st.caption("Complete assigned troubleshooting scenarios, submit your work, and review your coaching feedback.")
@@ -471,15 +486,11 @@ def render_scenario_page(user: Dict) -> None:
             st.rerun()
         return
 
-    module = fetch_one(
-        "SELECT * FROM modules WHERE module_id = ? AND organization_id = ?",
-        (module_id, user["organization_id"]),
-    )
-    actions = fetch_all("SELECT * FROM investigation_actions WHERE module_id = ?", (module_id,))
-    assessment_questions = fetch_all(
-        "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
-        (module_id,),
-    )
+    # Cache static module payload to avoid repeated DB reads during interaction reruns.
+    module, actions, assessment_questions = _module_workspace_bundle(module_id, int(user["organization_id"]))
+    if not module:
+        st.error("This module is no longer available.")
+        return
 
     duration_minutes = _estimated_minutes(module.get("estimated_time"), fallback=20)
     persisted = _load_or_create_workspace_state(
@@ -571,78 +582,6 @@ def render_scenario_page(user: Dict) -> None:
     if already_submitted:
         st.info("This assignment has already been submitted. Open Results or return to Assigned Modules.")
         return
-
-    question_answers: dict[str, str] = st.session_state.get(f"question_answers_{assignment_id}", {})
-    diagnosis = st.session_state.get(f"diagnosis_{assignment_id}", "")
-    next_steps = st.session_state.get(f"next_steps_{assignment_id}", "")
-    customer_response = st.session_state.get(f"customer_{assignment_id}", "")
-
-    if current_step == 1:
-        with st.container(border=True):
-            st.markdown("### Scenario Overview")
-            st.write(_build_scenario_overview(module))
-    elif current_step == 2:
-        st.markdown("### Investigation / Notes")
-        cols = st.columns(3)
-        for idx, action in enumerate(actions):
-            with cols[idx % 3]:
-                if st.button(action["action_name"], key=f"action_{assignment_id}_{action['action_id']}"):
-                    if action["action_name"] not in st.session_state[used_actions_key]:
-                        st.session_state[used_actions_key].append(action["action_name"])
-                    st.session_state[revealed_key][action["action_name"]] = action["revealed_information"]
-        if st.session_state[revealed_key]:
-            for name, details in st.session_state[revealed_key].items():
-                with st.expander(name, expanded=True):
-                    st.write(details)
-        st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
-    elif current_step == 3:
-        st.markdown("### Assessment Questions")
-        with st.form(f"assessment_questions_form_{assignment_id}", clear_on_submit=False):
-            for question in assessment_questions:
-                qid = str(question["question_id"])
-                question_key = f"assessment_q_{assignment_id}_{qid}"
-                if question_key not in st.session_state and question_answers.get(qid):
-                    st.session_state[question_key] = question_answers.get(qid)
-                if question.get("question_type") == "multiple_choice":
-                    options = _question_options(question.get("options_text"))
-                    answer = st.radio(
-                        f"Q{question['question_order']}. {question['question_text']}",
-                        options=options if options else ["No options configured"],
-                        key=question_key,
-                        index=None,
-                    )
-                else:
-                    answer = st.text_area(
-                        f"Q{question['question_order']}. {question['question_text']}",
-                        key=question_key,
-                        height=100,
-                    )
-                question_answers[qid] = answer or ""
-            if st.form_submit_button("Save question responses", use_container_width=True):
-                st.session_state[f"question_answers_{assignment_id}"] = question_answers
-                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                st.toast("Responses saved.")
-    elif current_step == 4:
-        st.markdown("### Final Response / Decision")
-        with st.form(f"final_response_form_{assignment_id}", clear_on_submit=False):
-            st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
-            st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
-            st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
-            st.selectbox(
-                "Escalation decision",
-                ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-                key=f"escalation_{assignment_id}",
-            )
-            if st.form_submit_button("Save final response", use_container_width=True):
-                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                st.toast("Final response saved.")
-    else:
-        st.markdown("### Review and Submit")
-        with st.container(border=True):
-            st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
-            answered = sum(1 for value in question_answers.values() if str(value).strip())
-            st.write(f"Answered questions: {answered}/{len(assessment_questions)}")
-            st.write(f"Diagnosis provided: {'Yes' if st.session_state.get(f'diagnosis_{assignment_id}', '').strip() else 'No'}")
 
     def _submit_module_attempt(*, timed_out: bool) -> None:
         scenario_logger = view_logger.bind(scenario_id=module_id)
@@ -742,33 +681,110 @@ def render_scenario_page(user: Dict) -> None:
     if remaining_seconds <= 0 and not st.session_state.get(timer_key) and not already_submitted:
         _submit_module_attempt(timed_out=True)
 
-    validation_error = None
-    if current_step == 3 and assessment_questions:
-        unanswered = [q for q in assessment_questions if not question_answers.get(str(q["question_id"]), "").strip()]
-        if unanswered:
-            validation_error = "Please answer all assessment questions before continuing."
-    if current_step == 4:
-        if not st.session_state.get(f"diagnosis_{assignment_id}", "").strip() or not st.session_state.get(f"next_steps_{assignment_id}", "").strip() or not st.session_state.get(f"customer_{assignment_id}", "").strip():
-            validation_error = "Diagnosis, next steps, and customer response are required before continuing."
-    if validation_error:
-        st.warning(validation_error)
+    @st.fragment
+    def _render_assessment_workspace() -> None:
+        # Keep interactive learner widgets in a fragment so shell/sidebar do not flicker on each interaction.
+        current_step_local = int(st.session_state.get(step_key, 1))
+        question_answers_local: dict[str, str] = st.session_state.get(f"question_answers_{assignment_id}", {})
+        validation_error = None
 
-    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+        if current_step_local == 1:
+            with st.container(border=True):
+                st.markdown("### Scenario Overview")
+                st.write(_build_scenario_overview(module))
+        elif current_step_local == 2:
+            st.markdown("### Investigation / Notes")
+            cols = st.columns(3)
+            for idx, action in enumerate(actions):
+                with cols[idx % 3]:
+                    if st.button(action["action_name"], key=f"action_{assignment_id}_{action['action_id']}"):
+                        if action["action_name"] not in st.session_state[used_actions_key]:
+                            st.session_state[used_actions_key].append(action["action_name"])
+                        st.session_state[revealed_key][action["action_name"]] = action["revealed_information"]
+                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+            if st.session_state[revealed_key]:
+                for name, details in st.session_state[revealed_key].items():
+                    with st.expander(name, expanded=True):
+                        st.write(details)
+            with st.form(f"investigation_form_{assignment_id}", clear_on_submit=False):
+                st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
+                if st.form_submit_button("Save notes", use_container_width=True):
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Notes saved.")
+        elif current_step_local == 3:
+            st.markdown("### Assessment Questions")
+            # Form batches answer edits so typing/selecting does not trigger reruns until explicit save.
+            with st.form(f"assessment_questions_form_{assignment_id}", clear_on_submit=False):
+                for question in assessment_questions:
+                    qid = str(question["question_id"])
+                    question_key = f"assessment_q_{assignment_id}_{qid}"
+                    if question_key not in st.session_state and question_answers_local.get(qid):
+                        st.session_state[question_key] = question_answers_local.get(qid)
+                    if question.get("question_type") == "multiple_choice":
+                        options = _question_options(question.get("options_text"))
+                        answer = st.radio(
+                            f"Q{question['question_order']}. {question['question_text']}",
+                            options=options if options else ["No options configured"],
+                            key=question_key,
+                            index=None,
+                        )
+                    else:
+                        answer = st.text_area(
+                            f"Q{question['question_order']}. {question['question_text']}",
+                            key=question_key,
+                            height=100,
+                        )
+                    question_answers_local[qid] = answer or ""
+                if st.form_submit_button("Save question responses", use_container_width=True):
+                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Responses saved.")
+        elif current_step_local == 4:
+            st.markdown("### Final Response / Decision")
+            with st.form(f"final_response_form_{assignment_id}", clear_on_submit=False):
+                st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
+                st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
+                st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
+                st.selectbox(
+                    "Escalation decision",
+                    ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
+                    key=f"escalation_{assignment_id}",
+                )
+                if st.form_submit_button("Save final response", use_container_width=True):
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Final response saved.")
+        else:
+            st.markdown("### Review and Submit")
+            with st.container(border=True):
+                st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
+                answered = sum(1 for value in question_answers_local.values() if str(value).strip())
+                st.write(f"Answered questions: {answered}/{len(assessment_questions)}")
+                st.write(f"Diagnosis provided: {'Yes' if st.session_state.get(f'diagnosis_{assignment_id}', '').strip() else 'No'}")
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Back", disabled=current_step <= 1):
-            st.session_state[step_key] = max(1, current_step - 1)
-            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-            st.rerun()
-    with c2:
-        if st.button("Next", disabled=current_step >= 5 or bool(validation_error)):
-            st.session_state[step_key] = min(5, current_step + 1)
-            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-            st.rerun()
-    with c3:
-        if st.button("Send to database: Submit module", type="primary", disabled=st.session_state.get(timer_key, False) or current_step < 5):
-            _submit_module_attempt(timed_out=False)
+        if current_step_local == 3 and assessment_questions:
+            unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
+            if unanswered:
+                validation_error = "Please answer all assessment questions before continuing."
+        if current_step_local == 4:
+            if not st.session_state.get(f"diagnosis_{assignment_id}", "").strip() or not st.session_state.get(f"next_steps_{assignment_id}", "").strip() or not st.session_state.get(f"customer_{assignment_id}", "").strip():
+                validation_error = "Diagnosis, next steps, and customer response are required before continuing."
+        if validation_error:
+            st.warning(validation_error)
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("Back", disabled=current_step_local <= 1):
+                st.session_state[step_key] = max(1, current_step_local - 1)
+                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+        with c2:
+            if st.button("Next", disabled=current_step_local >= 5 or bool(validation_error)):
+                st.session_state[step_key] = min(5, current_step_local + 1)
+                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+        with c3:
+            if st.button("Send to database: Submit module", type="primary", disabled=st.session_state.get(timer_key, False) or current_step_local < 5):
+                _submit_module_attempt(timed_out=False)
+
+    _render_assessment_workspace()
 
 
 def render_results_page(user: Dict) -> None:
