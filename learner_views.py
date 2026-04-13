@@ -8,12 +8,20 @@ from typing import Dict
 import altair as alt
 import streamlit as st
 
-from db import fetch_all, fetch_one, insert_attempt, log_actions
+from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
 from evaluation import evaluate_submission
 from logger import get_logger
 from utils import metric_row, parse_json_list, to_df
 
 learner_logger = get_logger(module="learner_views")
+WIZARD_STEPS = [
+    "Scenario Overview",
+    "Investigation / Notes",
+    "Assessment Questions",
+    "Final Response / Decision",
+    "Review and Submit",
+    "Results / Feedback",
+]
 
 
 def _compact_text(value: str) -> str:
@@ -170,8 +178,10 @@ def render_module_library(user: Dict) -> None:
             st.rerun()
         if c2.button("Yes, start now", key=f"confirm_start_{module['assignment_id']}_{module['module_id']}", type="primary"):
             view_logger.info("Start module confirmed.", action="start_module_confirmed", scenario_id=module["module_id"])
-            st.session_state.active_module_id = module["module_id"]
-            st.session_state.page = "Module Workspace"
+            st.session_state.active_assignment_id = int(module["assignment_id"])
+            st.session_state.learner_page = "Module Workspace"
+            st.query_params["page"] = "module_workspace"
+            st.query_params["assignment_id"] = str(module["assignment_id"])
             st.session_state.pending_start_module = None
             st.rerun()
 
@@ -179,15 +189,17 @@ def render_module_library(user: Dict) -> None:
     if pending_start:
         _start_module_warning_dialog(pending_start)
 
-    active_module_id = st.session_state.get("active_module_id")
-    if active_module_id:
+    active_assignment_id = st.session_state.get("active_assignment_id")
+    if active_assignment_id:
         if in_workspace_mode:
             st.caption("You're in your personal module workspace for the selected assignment.")
             c1, c2 = st.columns([3, 1])
             with c2:
                 if st.button("Exit workspace", use_container_width=True):
-                    st.session_state.active_module_id = None
-                    st.session_state.page = "Assigned Modules"
+                    st.session_state.active_assignment_id = None
+                    st.session_state.learner_page = "Assigned Modules"
+                    st.query_params["page"] = "assigned-modules"
+                    st.query_params.pop("assignment_id", None)
                     st.rerun()
             render_scenario_page(user)
             return
@@ -262,24 +274,125 @@ def render_module_library(user: Dict) -> None:
 
 
 
+def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user: Dict) -> dict:
+    state = fetch_one(
+        """
+        SELECT *
+        FROM assignment_workspace_state
+        WHERE assignment_id = ?
+          AND organization_id = ?
+          AND module_id = ?
+          AND user_id = ?
+        """,
+        (assignment_id, user["organization_id"], module_id, user["user_id"]),
+    )
+    if state:
+        return dict(state)
+
+    started_at = datetime.now(timezone.utc).isoformat()
+    execute(
+        """
+        INSERT INTO assignment_workspace_state (
+            assignment_id,
+            organization_id,
+            module_id,
+            user_id,
+            current_step,
+            progress_status,
+            learner_notes,
+            diagnosis_response,
+            next_steps_response,
+            customer_response,
+            escalation_choice,
+            question_responses,
+            revealed_actions,
+            used_actions,
+            submitted_state,
+            started_at,
+            created_at,
+            updated_at,
+            last_saved_at
+        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """,
+        (assignment_id, user["organization_id"], module_id, user["user_id"], started_at),
+    )
+    return fetch_one(
+        """
+        SELECT *
+        FROM assignment_workspace_state
+        WHERE assignment_id = ?
+          AND organization_id = ?
+          AND module_id = ?
+          AND user_id = ?
+        """,
+        (assignment_id, user["organization_id"], module_id, user["user_id"]),
+    ) or {}
+
+
+def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) -> None:
+    execute(
+        """
+        UPDATE assignment_workspace_state
+        SET
+            current_step = ?,
+            progress_status = ?,
+            learner_notes = ?,
+            diagnosis_response = ?,
+            next_steps_response = ?,
+            customer_response = ?,
+            escalation_choice = ?,
+            question_responses = ?,
+            revealed_actions = ?,
+            used_actions = ?,
+            submitted_state = ?,
+            updated_at = CURRENT_TIMESTAMP,
+            last_saved_at = CURRENT_TIMESTAMP
+        WHERE assignment_id = ?
+          AND organization_id = ?
+          AND module_id = ?
+          AND user_id = ?
+        """,
+        (
+            int(st.session_state.get(f"wizard_step_{assignment_id}", 1)),
+            "submitted" if st.session_state.get(f"submitted_{assignment_id}") else "in_progress",
+            st.session_state.get(f"notes_{assignment_id}", ""),
+            st.session_state.get(f"diagnosis_{assignment_id}", ""),
+            st.session_state.get(f"next_steps_{assignment_id}", ""),
+            st.session_state.get(f"customer_{assignment_id}", ""),
+            st.session_state.get(f"escalation_{assignment_id}", "No escalation"),
+            json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
+            json.dumps(st.session_state.get(f"revealed_{assignment_id}", {})),
+            json.dumps(st.session_state.get(f"used_actions_{assignment_id}", [])),
+            int(bool(st.session_state.get(f"submitted_{assignment_id}"))),
+            assignment_id,
+            user["organization_id"],
+            module_id,
+            user["user_id"],
+        ),
+    )
+
+
 def render_scenario_page(user: Dict) -> None:
     view_logger = learner_logger.bind(user_id=user.get("user_id"), session_id=st.session_state.get("session_id"))
-    module_id = st.session_state.get("active_module_id")
-    if not module_id:
+    assignment_id = st.session_state.get("active_assignment_id")
+    if not assignment_id:
         st.info("Select a module from Assigned Modules to begin.")
         return
 
     assignment = fetch_one(
         """
-        SELECT assignment_id, assigned_at
+        SELECT assignment_id, assigned_at, module_id
         FROM assignments
-        WHERE learner_id = ? AND module_id = ? AND organization_id = ? AND is_active = TRUE
+        WHERE learner_id = ? AND assignment_id = ? AND organization_id = ? AND is_active = TRUE
         """,
-        (user["user_id"], module_id, user["organization_id"]),
+        (user["user_id"], assignment_id, user["organization_id"]),
     )
     if not assignment:
-        st.warning("This module is not currently assigned to you.")
+        st.error("Assignment not found or you do not have access to it.")
         return
+
+    module_id = int(assignment["module_id"])
+    st.query_params["assignment_id"] = str(assignment_id)
 
     existing_attempt = fetch_one(
         """
@@ -298,7 +411,7 @@ def render_scenario_page(user: Dict) -> None:
         st.success(f"You've already completed this module. Score: {existing_attempt['total_score']}%")
         st.info("This assignment allows one graded submission. If reassigned by your admin, you can attempt it again.")
         if st.button("View completed results", type="secondary"):
-            st.session_state.active_module_id = None
+            st.session_state.active_assignment_id = None
             st.session_state.latest_attempt_id = int(existing_attempt["attempt_id"])
             st.session_state.page = "Results"
             st.rerun()
@@ -314,20 +427,28 @@ def render_scenario_page(user: Dict) -> None:
         (module_id,),
     )
 
+    persisted = _load_or_create_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+    step_key = f"wizard_step_{assignment_id}"
+    st.session_state.setdefault(step_key, int(persisted.get("current_step") or 1))
+    st.session_state.setdefault(f"used_actions_{assignment_id}", json.loads(persisted.get("used_actions") or "[]"))
+    st.session_state.setdefault(f"revealed_{assignment_id}", json.loads(persisted.get("revealed_actions") or "{}"))
+    st.session_state.setdefault(f"started_at_{assignment_id}", persisted.get("started_at") or datetime.now(timezone.utc).isoformat())
+    st.session_state.setdefault(f"notes_{assignment_id}", persisted.get("learner_notes") or "")
+    st.session_state.setdefault(f"diagnosis_{assignment_id}", persisted.get("diagnosis_response") or "")
+    st.session_state.setdefault(f"next_steps_{assignment_id}", persisted.get("next_steps_response") or "")
+    st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
+    st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
+    st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
+
     st.subheader(module["title"])
     st.caption(f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
-    with st.container(border=True):
-        st.markdown("**Scenario + Module Overview**")
-        st.write(_build_scenario_overview(module))
+    current_step = int(st.session_state.get(step_key, 1))
+    st.progress(current_step / len(WIZARD_STEPS), text=f"Step {current_step} of {len(WIZARD_STEPS)} • {WIZARD_STEPS[current_step - 1]}")
 
-    st.markdown("### Investigation Panel")
-    used_actions_key = f"used_actions_{module_id}"
-    revealed_key = f"revealed_{module_id}"
-    started_at_key = f"started_at_{module_id}"
-    st.session_state.setdefault(used_actions_key, [])
-    st.session_state.setdefault(revealed_key, {})
-    st.session_state.setdefault(started_at_key, datetime.now(timezone.utc).isoformat())
+    used_actions_key = f"used_actions_{assignment_id}"
+    revealed_key = f"revealed_{assignment_id}"
+    started_at_key = f"started_at_{assignment_id}"
 
     started_at_iso = st.session_state.get(started_at_key)
     try:
@@ -340,7 +461,7 @@ def render_scenario_page(user: Dict) -> None:
     deadline = started_at_dt.timestamp() + (duration_minutes * 60)
     now_ts = datetime.now(timezone.utc).timestamp()
     remaining_seconds = int(deadline - now_ts)
-    timer_key = f"timer_submitted_{module_id}"
+    timer_key = f"timer_submitted_{assignment_id}"
     st.session_state.setdefault(timer_key, False)
 
     @st.fragment(run_every="1s")
@@ -354,45 +475,69 @@ def render_scenario_page(user: Dict) -> None:
 
     _render_countdown(remaining_seconds)
 
-    cols = st.columns(3)
-    for idx, action in enumerate(actions):
-        with cols[idx % 3]:
-            if st.button(action["action_name"], key=f"action_{module_id}_{action['action_id']}"):
-                if action["action_name"] not in st.session_state[used_actions_key]:
-                    st.session_state[used_actions_key].append(action["action_name"])
-                st.session_state[revealed_key][action["action_name"]] = action["revealed_information"]
+    question_answers: dict[str, str] = st.session_state.get(f"question_answers_{assignment_id}", {})
+    diagnosis = st.session_state.get(f"diagnosis_{assignment_id}", "")
+    next_steps = st.session_state.get(f"next_steps_{assignment_id}", "")
+    customer_response = st.session_state.get(f"customer_{assignment_id}", "")
 
-    if st.session_state[revealed_key]:
-        for name, details in st.session_state[revealed_key].items():
-            with st.expander(name, expanded=True):
-                st.write(details)
-
-    notes = st.text_area("Personal notes", key=f"notes_{module_id}", height=100)
-    diagnosis = st.text_area("Diagnosis", key=f"diagnosis_{module_id}", height=100)
-    next_steps = st.text_area("Next steps", key=f"next_steps_{module_id}", height=120)
-    customer_response = st.text_area("Customer response", key=f"customer_{module_id}", height=120)
-    escalation_choice = st.selectbox("Escalation decision", ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"])
-
-    st.markdown("### Assessment questions")
-    question_answers: dict[str, str] = {}
-    for question in assessment_questions:
-        question_key = f"assessment_q_{module_id}_{question['question_id']}"
-        if question.get("question_type") == "multiple_choice":
-            options = _question_options(question.get("options_text"))
-            answer = st.radio(
-                f"Q{question['question_order']}. {question['question_text']}",
-                options=options if options else ["No options configured"],
-                key=question_key,
-                index=None,
-            )
-            question_answers[str(question["question_id"])] = answer or ""
-        else:
-            answer = st.text_area(
-                f"Q{question['question_order']}. {question['question_text']}",
-                key=question_key,
-                height=100,
-            )
-            question_answers[str(question["question_id"])] = answer or ""
+    if current_step == 1:
+        with st.container(border=True):
+            st.markdown("### Scenario Overview")
+            st.write(_build_scenario_overview(module))
+    elif current_step == 2:
+        st.markdown("### Investigation / Notes")
+        cols = st.columns(3)
+        for idx, action in enumerate(actions):
+            with cols[idx % 3]:
+                if st.button(action["action_name"], key=f"action_{assignment_id}_{action['action_id']}"):
+                    if action["action_name"] not in st.session_state[used_actions_key]:
+                        st.session_state[used_actions_key].append(action["action_name"])
+                    st.session_state[revealed_key][action["action_name"]] = action["revealed_information"]
+        if st.session_state[revealed_key]:
+            for name, details in st.session_state[revealed_key].items():
+                with st.expander(name, expanded=True):
+                    st.write(details)
+        st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
+    elif current_step == 3:
+        st.markdown("### Assessment Questions")
+        for question in assessment_questions:
+            qid = str(question["question_id"])
+            question_key = f"assessment_q_{assignment_id}_{qid}"
+            if question_key not in st.session_state and question_answers.get(qid):
+                st.session_state[question_key] = question_answers.get(qid)
+            if question.get("question_type") == "multiple_choice":
+                options = _question_options(question.get("options_text"))
+                answer = st.radio(
+                    f"Q{question['question_order']}. {question['question_text']}",
+                    options=options if options else ["No options configured"],
+                    key=question_key,
+                    index=None,
+                )
+            else:
+                answer = st.text_area(
+                    f"Q{question['question_order']}. {question['question_text']}",
+                    key=question_key,
+                    height=100,
+                )
+            question_answers[qid] = answer or ""
+        st.session_state[f"question_answers_{assignment_id}"] = question_answers
+    elif current_step == 4:
+        st.markdown("### Final Response / Decision")
+        st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
+        st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
+        st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
+        st.selectbox(
+            "Escalation decision",
+            ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
+            key=f"escalation_{assignment_id}",
+        )
+    else:
+        st.markdown("### Review and Submit")
+        with st.container(border=True):
+            st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
+            answered = sum(1 for value in question_answers.values() if str(value).strip())
+            st.write(f"Answered questions: {answered}/{len(assessment_questions)}")
+            st.write(f"Diagnosis provided: {'Yes' if st.session_state.get(f'diagnosis_{assignment_id}', '').strip() else 'No'}")
 
     def _submit_module_attempt(*, timed_out: bool) -> None:
         scenario_logger = view_logger.bind(scenario_id=module_id)
@@ -409,11 +554,11 @@ def render_scenario_page(user: Dict) -> None:
         time_remaining_seconds = max(0, time_limit_seconds - (elapsed_seconds or 0)) if elapsed_seconds is not None else None
         time_out_note = "\n\nTime limit reached before completion." if timed_out else ""
         answers = {
-            "diagnosis_answer": diagnosis,
-            "next_steps_answer": next_steps,
-            "customer_response": customer_response,
-            "escalation_choice": escalation_choice,
-            "notes": f"{notes}{time_out_note}",
+            "diagnosis_answer": st.session_state.get(f"diagnosis_{assignment_id}", ""),
+            "next_steps_answer": st.session_state.get(f"next_steps_{assignment_id}", ""),
+            "customer_response": st.session_state.get(f"customer_{assignment_id}", ""),
+            "escalation_choice": st.session_state.get(f"escalation_{assignment_id}", "No escalation"),
+            "notes": f"{st.session_state.get(f'notes_{assignment_id}', '')}{time_out_note}",
             "started_at": started_at.isoformat() if started_at else None,
             "submitted_at": submitted_at.isoformat(),
             "elapsed_seconds": elapsed_seconds,
@@ -426,7 +571,7 @@ def render_scenario_page(user: Dict) -> None:
             "actions_used": list(st.session_state[used_actions_key]),
             "actions_used_count": len(st.session_state[used_actions_key]),
             "timed_out": timed_out,
-            "question_responses": json.dumps(question_answers),
+            "question_responses": json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
         }
         try:
             evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
@@ -436,10 +581,24 @@ def render_scenario_page(user: Dict) -> None:
             scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id, timed_out=timed_out)
 
             st.session_state.latest_attempt_id = attempt_id
-            st.session_state.active_module_id = None
+            st.session_state.active_assignment_id = None
             st.session_state.page = "Results"
             st.session_state.pop(started_at_key, None)
             st.session_state[timer_key] = True
+            st.session_state[f"submitted_{assignment_id}"] = True
+            execute(
+                """
+                UPDATE assignment_workspace_state
+                SET progress_status = 'submitted',
+                    submitted_state = 1,
+                    submitted_at = CURRENT_TIMESTAMP,
+                    current_step = 6,
+                    updated_at = CURRENT_TIMESTAMP,
+                    last_saved_at = CURRENT_TIMESTAMP
+                WHERE assignment_id = ? AND organization_id = ? AND module_id = ? AND user_id = ?
+                """,
+                (assignment_id, user["organization_id"], module_id, user["user_id"]),
+            )
             if timed_out:
                 st.toast("⏰ Time ran out — we submitted your current work for grading.")
             else:
@@ -452,8 +611,33 @@ def render_scenario_page(user: Dict) -> None:
     if remaining_seconds <= 0 and not st.session_state.get(timer_key):
         _submit_module_attempt(timed_out=True)
 
-    if st.button("Send to database: Submit module", type="primary", disabled=st.session_state.get(timer_key, False)):
-        _submit_module_attempt(timed_out=False)
+    validation_error = None
+    if current_step == 3 and assessment_questions:
+        unanswered = [q for q in assessment_questions if not question_answers.get(str(q["question_id"]), "").strip()]
+        if unanswered:
+            validation_error = "Please answer all assessment questions before continuing."
+    if current_step == 4:
+        if not st.session_state.get(f"diagnosis_{assignment_id}", "").strip() or not st.session_state.get(f"next_steps_{assignment_id}", "").strip() or not st.session_state.get(f"customer_{assignment_id}", "").strip():
+            validation_error = "Diagnosis, next steps, and customer response are required before continuing."
+    if validation_error:
+        st.warning(validation_error)
+
+    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if st.button("Back", disabled=current_step <= 1):
+            st.session_state[step_key] = max(1, current_step - 1)
+            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+            st.rerun()
+    with c2:
+        if st.button("Next", disabled=current_step >= 5 or bool(validation_error)):
+            st.session_state[step_key] = min(5, current_step + 1)
+            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+            st.rerun()
+    with c3:
+        if st.button("Send to database: Submit module", type="primary", disabled=st.session_state.get(timer_key, False) or current_step < 5):
+            _submit_module_attempt(timed_out=False)
 
 
 def render_results_page(user: Dict) -> None:
@@ -518,6 +702,8 @@ def render_results_page(user: Dict) -> None:
     with c1:
         st.success("✅ Thank you! You've completed this module.")
     if c2.button("Back to assignments"):
+        st.session_state.active_assignment_id = None
+        st.query_params.pop("assignment_id", None)
         st.session_state.page = "Assigned Modules"
         st.rerun()
 

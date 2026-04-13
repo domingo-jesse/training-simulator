@@ -387,6 +387,33 @@ def init_db() -> None:
                     FOREIGN KEY(assigned_by) REFERENCES users(user_id)
                 );
 
+                CREATE TABLE IF NOT EXISTS assignment_workspace_state (
+                    assignment_id BIGINT PRIMARY KEY,
+                    organization_id BIGINT NOT NULL,
+                    module_id BIGINT NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    current_step INTEGER DEFAULT 1,
+                    progress_status TEXT DEFAULT 'not_started',
+                    learner_notes TEXT,
+                    diagnosis_response TEXT,
+                    next_steps_response TEXT,
+                    customer_response TEXT,
+                    escalation_choice TEXT,
+                    question_responses TEXT DEFAULT '{}',
+                    revealed_actions TEXT DEFAULT '{}',
+                    used_actions TEXT DEFAULT '[]',
+                    submitted_state INTEGER DEFAULT 0,
+                    started_at TEXT,
+                    submitted_at TIMESTAMPTZ,
+                    last_saved_at TIMESTAMPTZ DEFAULT NOW(),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(assignment_id) REFERENCES assignments(assignment_id) ON DELETE CASCADE,
+                    FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                    FOREIGN KEY(module_id) REFERENCES modules(module_id),
+                    FOREIGN KEY(user_id) REFERENCES users(user_id)
+                );
+
                 CREATE TABLE IF NOT EXISTS learner_profiles (
                     id TEXT PRIMARY KEY,
                     user_id TEXT NOT NULL UNIQUE,
@@ -648,6 +675,33 @@ def init_db() -> None:
                 FOREIGN KEY(module_id) REFERENCES modules(module_id),
                 FOREIGN KEY(learner_id) REFERENCES users(user_id),
                 FOREIGN KEY(assigned_by) REFERENCES users(user_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS assignment_workspace_state (
+                assignment_id INTEGER PRIMARY KEY,
+                organization_id INTEGER NOT NULL,
+                module_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                current_step INTEGER DEFAULT 1,
+                progress_status TEXT DEFAULT 'not_started',
+                learner_notes TEXT,
+                diagnosis_response TEXT,
+                next_steps_response TEXT,
+                customer_response TEXT,
+                escalation_choice TEXT,
+                question_responses TEXT DEFAULT '{}',
+                revealed_actions TEXT DEFAULT '{}',
+                used_actions TEXT DEFAULT '[]',
+                submitted_state INTEGER DEFAULT 0,
+                started_at TEXT,
+                submitted_at TEXT,
+                last_saved_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(assignment_id) REFERENCES assignments(assignment_id) ON DELETE CASCADE,
+                FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
+                FOREIGN KEY(module_id) REFERENCES modules(module_id),
+                FOREIGN KEY(user_id) REFERENCES users(user_id)
             );
 
             CREATE TABLE IF NOT EXISTS learner_profiles (

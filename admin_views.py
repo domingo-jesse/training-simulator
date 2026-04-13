@@ -264,7 +264,7 @@ def render_admin_dashboard(current_user: dict) -> None:
         }
     )
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown("#### Assignment status")
         if assignments_df.empty:
@@ -709,7 +709,7 @@ def render_current_assignments(current_user: dict) -> None:
     )
     selected_assignment_id = assignment_map[selected_assignment_label]
 
-    c1, c2 = st.columns(2)
+    c1, c2, c3 = st.columns(3)
     with c1:
         if st.button("Send to database: Remove assignment"):
             try:
@@ -748,6 +748,12 @@ def render_current_assignments(current_user: dict) -> None:
             except Exception:
                 view_logger.exception("Failed reassigning training.", assignment_id=selected_assignment_id)
                 st.error("Could not update assignment.")
+    with c3:
+        st.caption("Direct review")
+        if st.button("Open assignment review", use_container_width=True):
+            st.query_params["page"] = "admin_assignment_review"
+            st.query_params["assignment_id"] = str(selected_assignment_id)
+            st.rerun()
 
 
 def render_grading_center(current_user: dict) -> None:
@@ -825,6 +831,111 @@ def render_grading_center(current_user: dict) -> None:
         hide_index=True,
         use_container_width=True,
     )
+
+
+def render_admin_assignment_review(current_user: dict, assignment_id: int | None) -> None:
+    st.subheader("Assignment Instance Review")
+    if not assignment_id:
+        st.info("Provide an assignment_id in the URL to review a specific assignment instance.")
+        return
+
+    org_id = current_user["organization_id"]
+    assignment = fetch_one(
+        """
+        SELECT
+            a.assignment_id,
+            a.assigned_at,
+            a.due_date,
+            a.is_active,
+            a.module_id,
+            a.learner_id,
+            m.title AS module_title,
+            m.category,
+            m.difficulty,
+            u.name AS learner_name,
+            u.email AS learner_email
+        FROM assignments a
+        JOIN modules m ON m.module_id = a.module_id
+        JOIN users u ON u.user_id = a.learner_id
+        WHERE a.assignment_id = ? AND a.organization_id = ?
+        """,
+        (assignment_id, org_id),
+    )
+    if not assignment:
+        st.error("Assignment not found or you are not authorized to view it.")
+        return
+
+    st.caption(f"Assignment #{assignment['assignment_id']} • {assignment['module_title']}")
+    metric_row(
+        {
+            "Learner": assignment["learner_name"],
+            "Module": assignment["module_title"],
+            "Assigned at": str(assignment["assigned_at"]),
+            "Due date": str(assignment["due_date"] or "N/A"),
+        }
+    )
+
+    workspace_state = fetch_one(
+        """
+        SELECT *
+        FROM assignment_workspace_state
+        WHERE assignment_id = ? AND organization_id = ?
+        """,
+        (assignment_id, org_id),
+    )
+    attempt = fetch_one(
+        """
+        SELECT attempt_id, created_at, total_score, diagnosis_answer, next_steps_answer, customer_response, notes, question_responses
+        FROM attempts
+        WHERE user_id = ?
+          AND module_id = ?
+          AND organization_id = ?
+          AND created_at >= ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (assignment["learner_id"], assignment["module_id"], org_id, assignment["assigned_at"]),
+    )
+
+    with st.container(border=True):
+        st.markdown("#### Assignment details")
+        st.write(f"Learner: **{assignment['learner_name']}** ({assignment['learner_email'] or 'No email'})")
+        st.write(f"Status: **{'Active' if int(assignment['is_active']) else 'Inactive'}**")
+        if workspace_state:
+            st.write(f"Wizard step: **{workspace_state.get('current_step', 1)}**")
+            st.write(f"Progress state: **{workspace_state.get('progress_status', 'not_started')}**")
+            st.write(f"Last saved: **{workspace_state.get('last_saved_at')}**")
+            st.write(f"Submitted state: **{'Yes' if int(workspace_state.get('submitted_state') or 0) else 'No'}**")
+
+    with st.container(border=True):
+        st.markdown("#### Learner responses")
+        if workspace_state:
+            st.write("Notes")
+            st.code(workspace_state.get("learner_notes") or "No notes yet.")
+            st.write("Diagnosis")
+            st.code(workspace_state.get("diagnosis_response") or "No diagnosis yet.")
+            st.write("Next steps")
+            st.code(workspace_state.get("next_steps_response") or "No next steps yet.")
+            st.write("Customer response")
+            st.code(workspace_state.get("customer_response") or "No response yet.")
+            st.write(f"Escalation: **{workspace_state.get('escalation_choice') or 'No escalation'}**")
+        else:
+            st.info("No saved in-progress workspace state found yet.")
+
+    with st.container(border=True):
+        st.markdown("#### Submission / results")
+        if not attempt:
+            st.info("No submitted attempt found for this assignment instance yet.")
+            return
+        st.write(f"Attempt ID: **{attempt['attempt_id']}**")
+        st.write(f"Submitted at: **{attempt['created_at']}**")
+        st.write(f"Total score: **{attempt['total_score']}%**")
+        st.write("Diagnosis answer")
+        st.code(attempt.get("diagnosis_answer") or "N/A")
+        st.write("Next steps answer")
+        st.code(attempt.get("next_steps_answer") or "N/A")
+        st.write("Customer response")
+        st.code(attempt.get("customer_response") or "N/A")
 
     selected_attempt = st.selectbox(
         "Submission feedback",
