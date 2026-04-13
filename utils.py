@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
+_ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
 _PAGE_CONTAINER_VARIANTS = {"wide", "medium", "narrow"}
 
 
@@ -534,6 +535,44 @@ def _normalize_css_size(value: int | str | None, default: str = "450px") -> str:
         return f"{int(value)}px"
     cleaned = str(value).strip()
     return cleaned or default
+
+
+def render_admin_table(
+    df: pd.DataFrame,
+    *,
+    height: int = 500,
+    empty_message: str = "No records match current filters.",
+) -> None:
+    if not st.session_state.get(_ADMIN_TABLE_STYLE_KEY):
+        st.session_state[_ADMIN_TABLE_STYLE_KEY] = True
+        st.markdown(
+            """
+            <style>
+            .admin-table-card {
+                background: #ffffff;
+                border: 1px solid #e5e7eb;
+                border-radius: 16px;
+                padding: 12px;
+                margin-top: 12px;
+                margin-bottom: 12px;
+                width: 100%;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    if df is None or df.empty:
+        st.info(empty_message)
+        return
+
+    st.markdown('<div class="admin-table-card">', unsafe_allow_html=True)
+    st.dataframe(
+        df,
+        use_container_width=True,
+        height=height,
+    )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _inject_app_table_styles() -> None:

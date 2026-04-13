@@ -26,6 +26,7 @@ from utils import (
     filter_active_learners,
     filter_inactive_learners,
     metric_row,
+    render_admin_table,
     render_app_table,
     render_kpi_card,
     render_page_header,
@@ -34,6 +35,16 @@ from utils import (
 from module_generation import ModuleGenerationInput, generate_module_preview
 
 admin_logger = get_logger(module="admin_views")
+
+
+def _format_datetime_for_admin_grid(value) -> str:
+    if value is None or value == "":
+        return "—"
+    try:
+        dt = pd.to_datetime(value)
+        return dt.strftime("%b %d, %Y • %I:%M %p")
+    except Exception:
+        return str(value)
 
 
 def _select_all_filtered(multiselect_key: str, option_labels: list[str]) -> None:
@@ -404,9 +415,8 @@ def render_learner_management(current_user: dict) -> None:
             st.session_state[multiselect_key] = []
         st.session_state[multiselect_key] = [x for x in st.session_state[multiselect_key] if x in option_labels]
 
-        render_app_table(
-            learner_table_df,
-            column_labels={
+        learner_display_df = learner_table_df.rename(
+            columns={
                 "name": "Learner",
                 "team": "Team",
                 "organization_name": "Organization",
@@ -414,11 +424,14 @@ def render_learner_management(current_user: dict) -> None:
                 "assigned_modules": "Assigned",
                 "completed_modules": "Completed",
                 "last_activity": "Last Activity",
-            },
-            datetime_columns=["last_activity"],
-            badge_columns={"status": "status"},
-            empty_title="No learners match current filters",
-            empty_message="Adjust filters to display learners.",
+            }
+        )
+        if "Last Activity" in learner_display_df.columns:
+            learner_display_df["Last Activity"] = learner_display_df["Last Activity"].apply(_format_datetime_for_admin_grid)
+        render_admin_table(
+            learner_display_df,
+            height=520,
+            empty_message="No learners match current filters. Adjust filters to display learners.",
         )
 
         c1, c2, c3 = st.columns([1, 1, 2])
@@ -591,11 +604,13 @@ def _render_assignment_tool(current_user: dict) -> None:
         ]
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        render_app_table(
-            filtered_active_learners[["name", "team", "organization_name"]].reset_index(drop=True),
-            column_labels={"name": "Learner", "team": "Team", "organization_name": "Organization"},
-            empty_title="No active learners found",
-            empty_message="Update filters to find active learners.",
+        assignment_learner_grid = filtered_active_learners[["name", "team", "organization_name"]].reset_index(drop=True).rename(
+            columns={"name": "Learner", "team": "Team", "organization_name": "Organization"}
+        )
+        render_admin_table(
+            assignment_learner_grid,
+            height=420,
+            empty_message="No active learners found. Update filters to find active learners.",
         )
 
         select_col, clear_col = st.columns(2)
@@ -780,9 +795,8 @@ def render_current_assignments(current_user: dict) -> None:
     assignment_table_df = filtered_assignments[
         ["assignment_id", "learner_name", "team", "organization_name", "module_title", "due_date", "status", "last_attempt_at"]
     ].reset_index(drop=True)
-    render_app_table(
-        assignment_table_df,
-        column_labels={
+    assignment_display_df = assignment_table_df.rename(
+        columns={
             "assignment_id": "Assignment ID",
             "learner_name": "Learner",
             "team": "Team",
@@ -791,11 +805,16 @@ def render_current_assignments(current_user: dict) -> None:
             "due_date": "Due Date",
             "status": "Status",
             "last_attempt_at": "Last Attempt",
-        },
-        datetime_columns=["due_date", "last_attempt_at"],
-        badge_columns={"status": "status"},
-        empty_title="No assignments match current filters",
-        empty_message="Try changing search criteria.",
+        }
+    )
+    if "Due Date" in assignment_display_df.columns:
+        assignment_display_df["Due Date"] = assignment_display_df["Due Date"].apply(_format_datetime_for_admin_grid)
+    if "Last Attempt" in assignment_display_df.columns:
+        assignment_display_df["Last Attempt"] = assignment_display_df["Last Attempt"].apply(_format_datetime_for_admin_grid)
+    render_admin_table(
+        assignment_display_df,
+        height=520,
+        empty_message="No assignments match current filters. Try changing search criteria.",
     )
 
     assignment_records = filtered_assignments.reset_index(drop=True)
