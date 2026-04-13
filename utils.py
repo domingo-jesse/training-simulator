@@ -11,51 +11,82 @@ def inject_styles() -> None:
     st.markdown(
         """
         <style>
-        .main .block-container {padding-top: 1.8rem; padding-bottom: 2.2rem; max-width: 1200px;}
+        .main .block-container {padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1320px;}
         .stApp,
         [data-testid="stAppViewContainer"] {
             background: linear-gradient(145deg, #edf1f6, #e4e9f0 55%, #f3f6fa);
             color: #0f172a;
         }
+        [data-testid="stSidebar"] {
+            min-width: 260px;
+            max-width: 260px;
+        }
         [data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, #f6f8fb, #edf1f6);
-            border-right: 1px solid rgba(15, 23, 42, 0.08);
-            width: 280px;
-            min-width: 280px;
-            padding-top: 1.1rem;
+            background: linear-gradient(180deg, #f8fafd, #eef2f7);
+            border-right: 1px solid rgba(15, 23, 42, 0.09);
+            width: 260px;
+            min-width: 260px;
+            max-width: 260px;
+            padding-top: 0.8rem;
         }
         [data-testid="stSidebar"] .block-container {
-            padding-top: 0.5rem;
+            padding-top: 0.35rem;
             padding-bottom: 1rem;
+            padding-left: 0.8rem;
+            padding-right: 0.8rem;
         }
-        [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] p strong {
-            font-size: 0.95rem;
+        .sidebar-header {
+            margin: 0.1rem 0 0.7rem 0;
+            padding: 0.3rem 0.2rem 0.55rem 0.2rem;
+            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+        }
+        .sidebar-eyebrow {
+            font-size: 0.74rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #64748b;
+            font-weight: 700;
+            margin-bottom: 0.15rem;
+        }
+        .sidebar-title {
+            font-size: 1.02rem;
             color: #0f172a;
-            letter-spacing: 0.01em;
+            font-weight: 700;
+        }
+        [data-testid="stSidebar"] .stButton {
+            width: 100%;
+            margin-bottom: 0.38rem;
         }
         [data-testid="stSidebar"] .stButton > button {
-            border-radius: 10px;
+            width: 100%;
+            border-radius: 9px;
             justify-content: flex-start;
             text-align: left;
-            min-height: 2.45rem;
-            padding: 0.35rem 0.75rem;
-            margin-bottom: 0.25rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-height: 2.5rem;
+            padding: 0.45rem 0.75rem;
             font-weight: 600;
-            font-size: 0.92rem;
+            font-size: 0.9rem;
+            letter-spacing: 0.005em;
+            box-shadow: none;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-            background: rgba(37, 99, 235, 0.14);
-            border: 1px solid rgba(37, 99, 235, 0.45);
+            background: #e7efff;
+            border: 1px solid #bfd4ff;
             color: #1d4ed8;
         }
         [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
-            background: rgba(255, 255, 255, 0.86);
-            border: 1px solid rgba(15, 23, 42, 0.08);
+            background: rgba(255, 255, 255, 0.92);
+            border: 1px solid rgba(148, 163, 184, 0.25);
             color: #334155;
         }
         [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
-            background: rgba(239, 246, 255, 0.92);
-            color: #1d4ed8;
+            background: #f1f5f9;
+            border-color: rgba(100, 116, 139, 0.35);
+            color: #0f172a;
+            transform: none;
         }
         .stApp [data-testid="stMarkdownContainer"],
         .stApp label,
@@ -110,24 +141,43 @@ def inject_styles() -> None:
             margin-bottom: 0.75rem;
         }
         .app-shell-header {
-            padding: 0.2rem 0 0.55rem 0;
+            padding: 0.15rem 0 0.35rem 0;
         }
         .app-shell-header-title {
-            font-size: 1.6rem;
+            font-size: 1.45rem;
             font-weight: 700;
             color: #0f172a;
             line-height: 1.2;
         }
         .app-shell-header-subtitle {
             margin-top: 0.2rem;
-            color: #475569;
-            font-size: 0.92rem;
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        .shell-divider {
+            border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+            margin: 0.15rem 0 1rem 0;
         }
         .profile-menu-anchor {
             display: flex;
             justify-content: flex-end;
-            align-items: flex-start;
-            margin-top: 0.15rem;
+            align-items: center;
+            width: 100%;
+            padding-top: 0.1rem;
+        }
+        .profile-menu-anchor .stPopover {
+            margin-left: auto;
+        }
+        .profile-menu-anchor .stPopover > button {
+            height: 2.3rem;
+            border-radius: 999px;
+            padding: 0 0.8rem;
+            font-size: 0.84rem;
+            font-weight: 600;
+            white-space: nowrap;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .stButton > button {

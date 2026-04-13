@@ -967,7 +967,7 @@ def render_create_account_view() -> None:
 
 def render_topbar(user: dict[str, Any]) -> None:
     header = st.container()
-    left, right = header.columns([7, 2], vertical_alignment="center")
+    left, right = header.columns([8, 2], vertical_alignment="center")
     with left:
         st.markdown(
             """
@@ -1226,7 +1226,7 @@ def render_main_app() -> None:
         session_id=st.session_state.get("session_id"),
     )
     render_topbar(user)
-    st.markdown("---")
+    st.markdown("<div class='shell-divider'></div>", unsafe_allow_html=True)
     requested_page = st.session_state.get("page")
     if requested_page == "Profile":
         render_profile_page()
@@ -1273,8 +1273,17 @@ def render_main_app() -> None:
         if st.session_state.get("admin_page") not in visible_pages:
             st.session_state["admin_page"] = visible_pages[0]
         st.session_state["page"] = None
+        st.sidebar.markdown(
+            """
+            <div class="sidebar-header">
+                <div class="sidebar-eyebrow">Admin workspace</div>
+                <div class="sidebar-title">Navigation</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         render_horizontal_button_group(
-            "Admin Navigation",
+            "",
             visible_pages,
             "admin_page",
             container=st.sidebar,
@@ -1307,8 +1316,17 @@ def render_main_app() -> None:
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
         st.session_state["page"] = None
+        st.sidebar.markdown(
+            """
+            <div class="sidebar-header">
+                <div class="sidebar-eyebrow">Learner workspace</div>
+                <div class="sidebar-title">Navigation</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
         render_horizontal_button_group(
-            "Learner Navigation",
+            "",
             pages,
             "learner_page",
             container=st.sidebar,
