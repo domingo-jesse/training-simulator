@@ -132,6 +132,38 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
+def render_horizontal_button_group(
+    label: str,
+    options: list[str],
+    state_key: str,
+    *,
+    container=st,
+    format_func=None,
+) -> str:
+    if not options:
+        return ""
+
+    if st.session_state.get(state_key) not in options:
+        st.session_state[state_key] = options[0]
+
+    if label:
+        container.markdown(f"**{label}**")
+
+    columns = container.columns(len(options), gap="small")
+    for index, option in enumerate(options):
+        button_label = format_func(option) if format_func else str(option)
+        button_type = "primary" if st.session_state.get(state_key) == option else "secondary"
+        if columns[index].button(
+            button_label,
+            key=f"{state_key}_btn_{index}",
+            type=button_type,
+            use_container_width=True,
+        ):
+            st.session_state[state_key] = option
+
+    return st.session_state[state_key]
+
+
 @st.cache_resource
 def initialize_once() -> bool:
     """Run database initialization once per process."""
@@ -884,14 +916,13 @@ def render_create_account_view() -> None:
     app_logger.info("Rendering create-account view.", page="create_account")
     st.markdown("### Create your account")
     st.caption("You can register both Learner and Admin accounts using the same email address.")
+    role = render_horizontal_button_group(
+        "Select role",
+        ["learner", "admin"],
+        "selected_role",
+        format_func=lambda r: r.title(),
+    )
     with st.form("create_account_form", clear_on_submit=False):
-        role = st.radio(
-            "Select role",
-            options=["learner", "admin"],
-            horizontal=True,
-            index=0 if st.session_state.get("selected_role") != "admin" else 1,
-            format_func=lambda r: r.title(),
-        )
         full_name = st.text_input("Full name *")
         email = st.text_input("Email *")
         username = st.text_input("Username (optional)")
@@ -969,11 +1000,10 @@ def render_main_app() -> None:
         active_admin_page = st.session_state.get("admin_page", "Dashboard")
         show_workspace_toggle = active_admin_page in {"Debug Logs", "QA Test Center"}
         if show_workspace_toggle:
-            st.radio(
+            render_horizontal_button_group(
                 "Admin Workspace",
-                options=["Operations", "Quality Assurance"],
-                horizontal=True,
-                key="admin_nav_group",
+                ["Operations", "Quality Assurance"],
+                "admin_nav_group",
             )
         else:
             st.session_state["admin_nav_group"] = "Operations"
@@ -983,10 +1013,11 @@ def render_main_app() -> None:
         if st.session_state.get("admin_page") not in visible_pages:
             st.session_state["admin_page"] = visible_pages[0]
         st.session_state["page"] = None
-        st.sidebar.radio(
+        render_horizontal_button_group(
             "Admin Navigation",
-            options=visible_pages,
-            key="admin_page",
+            visible_pages,
+            "admin_page",
+            container=st.sidebar,
         )
         current_page = st.session_state.get("admin_page", "Dashboard")
         user_logger.info("Admin page load.", page=current_page)
@@ -1016,10 +1047,11 @@ def render_main_app() -> None:
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
         st.session_state["page"] = None
-        st.sidebar.radio(
+        render_horizontal_button_group(
             "Learner Navigation",
-            options=pages,
-            key="learner_page",
+            pages,
+            "learner_page",
+            container=st.sidebar,
         )
         current_page = st.session_state.get("learner_page", "Home")
         user_logger.info("Learner page load.", page=current_page)
