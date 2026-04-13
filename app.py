@@ -104,6 +104,58 @@ def hash_password(password: str) -> str:
     """
     return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
+ADMIN_PAGE_TO_NAV = {
+    "Dashboard": "dashboard",
+    "Assignment Management": "assignment-management",
+    "Submission Grading": "submission-grading",
+    "Progress Tracking": "progress-tracking",
+    "Learner Management": "learner-management",
+    "Module Builder": "module-builder",
+    "Manage Modules": "manage-modules",
+    "Database Tables": "database-tables",
+    "Debug Logs": "debug-logs",
+    "QA Test Center": "qa-test-center",
+    "Profile": "profile",
+    "Settings": "settings",
+}
+NAV_TO_ADMIN_PAGE = {value: key for key, value in ADMIN_PAGE_TO_NAV.items()}
+
+LEARNER_PAGE_TO_NAV = {
+    "Home": "home",
+    "Assigned Modules": "assigned-modules",
+    "Module Workspace": "module-workspace",
+    "Results": "results",
+    "My Progress": "my-progress",
+    "Profile": "profile",
+    "Settings": "settings",
+}
+NAV_TO_LEARNER_PAGE = {value: key for key, value in LEARNER_PAGE_TO_NAV.items()}
+
+
+def _normalize_nav_slug(value: Any) -> str:
+    if isinstance(value, list):
+        value = value[0] if value else None
+    slug = re.sub(r"[^a-z0-9-]+", "-", str(value or "").strip().lower()).strip("-")
+    return slug or "dashboard"
+
+
+def _read_nav_from_query_params() -> str:
+    return _normalize_nav_slug(st.query_params.get("page"))
+
+
+def _set_nav(slug: str) -> None:
+    nav_slug = _normalize_nav_slug(slug)
+    st.session_state["nav"] = nav_slug
+    st.query_params["page"] = nav_slug
+
+
+def _set_nav_for_page(page_name: str, role: str) -> None:
+    if role == "admin":
+        slug = ADMIN_PAGE_TO_NAV.get(page_name, "dashboard")
+    else:
+        slug = LEARNER_PAGE_TO_NAV.get(page_name, "home")
+    _set_nav(slug)
+
 
 def init_state() -> None:
     defaults = {
@@ -118,6 +170,7 @@ def init_state() -> None:
         "pending_google": None,
         "show_password": False,
         "page": None,
+        "nav": "dashboard",
         "bootstrapped": False,
         "bootstrap_error": None,
         "admin_page": "Dashboard",
@@ -1118,9 +1171,11 @@ def render_profile_menu(user: dict[str, Any]) -> None:
             )
             if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
                 st.session_state["page"] = "Profile"
+                _set_nav("profile")
                 st.rerun()
             if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
                 st.session_state["page"] = "Settings"
+                _set_nav("settings")
                 st.rerun()
             if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
                 logout_user()
@@ -1228,10 +1283,15 @@ def render_main_app() -> None:
     render_topbar(user)
     st.markdown("<div class='shell-divider'></div>", unsafe_allow_html=True)
     requested_page = st.session_state.get("page")
-    if requested_page == "Profile":
+    nav_page = st.session_state.get("nav", "dashboard")
+    if requested_page == "Profile" or nav_page == "profile":
+        st.session_state["page"] = "Profile"
+        _set_nav("profile")
         render_profile_page()
         return
-    if requested_page == "Settings":
+    if requested_page == "Settings" or nav_page == "settings":
+        st.session_state["page"] = "Settings"
+        _set_nav("settings")
         render_settings_page()
         return
 
@@ -1249,6 +1309,10 @@ def render_main_app() -> None:
         ]
         qa_pages = ["QA Test Center"]
         all_pages = operations_pages + qa_pages
+
+        nav_requested_page = NAV_TO_ADMIN_PAGE.get(nav_page)
+        if nav_requested_page in all_pages:
+            st.session_state["admin_page"] = nav_requested_page
 
         if requested_page in operations_pages:
             st.session_state["admin_nav_group"] = "Operations"
@@ -1282,6 +1346,7 @@ def render_main_app() -> None:
             """,
             unsafe_allow_html=True,
         )
+        previous_admin_page = st.session_state.get("admin_page", "Dashboard")
         render_horizontal_button_group(
             "",
             visible_pages,
@@ -1290,6 +1355,8 @@ def render_main_app() -> None:
             layout="vertical",
         )
         current_page = st.session_state.get("admin_page", "Dashboard")
+        if current_page != previous_admin_page or st.session_state.get("nav") != ADMIN_PAGE_TO_NAV.get(current_page):
+            _set_nav_for_page(current_page, "admin")
         user_logger.info("Admin page load.", page=current_page)
         if current_page == "Dashboard":
             render_admin_dashboard(user)
@@ -1313,6 +1380,10 @@ def render_main_app() -> None:
             render_admin_quality_hub(user)
     else:
         pages = ["Home", "Assigned Modules", "Module Workspace", "Results", "My Progress"]
+        nav_requested_page = NAV_TO_LEARNER_PAGE.get(nav_page)
+        if nav_requested_page in pages:
+            st.session_state["learner_page"] = nav_requested_page
+
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
         st.session_state["page"] = None
@@ -1325,6 +1396,7 @@ def render_main_app() -> None:
             """,
             unsafe_allow_html=True,
         )
+        previous_learner_page = st.session_state.get("learner_page", "Home")
         render_horizontal_button_group(
             "",
             pages,
@@ -1333,6 +1405,8 @@ def render_main_app() -> None:
             layout="vertical",
         )
         current_page = st.session_state.get("learner_page", "Home")
+        if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(current_page):
+            _set_nav_for_page(current_page, "learner")
         user_logger.info("Learner page load.", page=current_page)
         if current_page == "Home":
             render_learner_home(user)
@@ -1348,6 +1422,12 @@ def render_main_app() -> None:
 
 def main() -> None:
     init_state()
+    nav_from_url = _read_nav_from_query_params()
+    if st.session_state.get("nav") != nav_from_url:
+        st.session_state["nav"] = nav_from_url
+    if st.query_params.get("page") != st.session_state.get("nav"):
+        st.query_params["page"] = st.session_state.get("nav")
+
     st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
     app_logger.info("App startup.", session_id=st.session_state.get("session_id"))
     initialize_once()
