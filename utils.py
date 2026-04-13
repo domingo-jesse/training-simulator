@@ -62,7 +62,7 @@ def inject_styles() -> None:
         }
         [data-testid="stSidebar"] .stButton {
             width: 100%;
-            margin-bottom: 1px;
+            margin-bottom: 0;
             overflow: visible !important;
         }
         [data-testid="stSidebar"] .stButton > button {
@@ -76,8 +76,8 @@ def inject_styles() -> None:
             white-space: nowrap;
             overflow: visible !important;
             text-overflow: clip !important;
-            min-height: 1.95rem;
-            padding: 0.38rem 0.62rem;
+            min-height: 1.8rem;
+            padding: 0.29rem 0.6rem;
             font-weight: 500;
             font-size: 0.88rem;
             letter-spacing: 0.005em;
@@ -98,7 +98,7 @@ def inject_styles() -> None:
             overflow: visible !important;
             text-overflow: clip !important;
             margin: 0 !important;
-            line-height: 1.25 !important;
+            line-height: 1.16 !important;
             display: block !important;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"] {
