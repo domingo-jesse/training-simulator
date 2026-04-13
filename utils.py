@@ -19,18 +19,18 @@ def inject_styles() -> None:
         }
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
-            width: 280px !important;
-            min-width: 280px !important;
-            max-width: 280px !important;
-            flex: 0 0 280px !important;
+            width: 292px !important;
+            min-width: 292px !important;
+            max-width: 292px !important;
+            flex: 0 0 292px !important;
         }
         section[data-testid="stSidebar"] > div:first-child,
         [data-testid="stSidebar"] > div:first-child {
             background: linear-gradient(180deg, #f8fafd, #eef2f7);
             border-right: 1px solid rgba(15, 23, 42, 0.09);
-            width: 280px !important;
-            min-width: 280px !important;
-            max-width: 280px !important;
+            width: 292px !important;
+            min-width: 292px !important;
+            max-width: 292px !important;
             padding-top: 0.8rem;
             overflow: visible !important;
         }
@@ -62,13 +62,13 @@ def inject_styles() -> None:
         }
         [data-testid="stSidebar"] .stButton {
             width: 100%;
-            margin-bottom: 0.38rem;
+            margin-bottom: 0.2rem;
             overflow: visible !important;
         }
         [data-testid="stSidebar"] .stButton > button {
             width: 100% !important;
             max-width: 100% !important;
-            border-radius: 9px;
+            border-radius: 7px;
             display: flex !important;
             align-items: center;
             justify-content: flex-start;
@@ -76,12 +76,15 @@ def inject_styles() -> None:
             white-space: nowrap;
             overflow: visible !important;
             text-overflow: clip !important;
-            min-height: 2.5rem;
-            padding: 0.45rem 0.75rem;
-            font-weight: 600;
-            font-size: 0.9rem;
+            min-height: 2.2rem;
+            padding: 0.35rem 0.6rem;
+            font-weight: 500;
+            font-size: 0.88rem;
             letter-spacing: 0.005em;
             box-shadow: none;
+            border: none !important;
+            background: transparent !important;
+            transition: background-color 0.14s ease, color 0.14s ease;
         }
         [data-testid="stSidebar"] .stButton > button > div,
         [data-testid="stSidebar"] .stButton > button > div > p,
@@ -99,18 +102,23 @@ def inject_styles() -> None:
             display: block !important;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-            background: #e7efff;
-            border: 1px solid #bfd4ff;
+            background: rgba(37, 99, 235, 0.12) !important;
+            border: none !important;
             color: #1d4ed8;
+            font-weight: 600;
+        }
+        [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
+            background: rgba(37, 99, 235, 0.16) !important;
+            color: #1d4ed8;
+            transform: none;
         }
         [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
-            background: rgba(255, 255, 255, 0.92);
-            border: 1px solid rgba(148, 163, 184, 0.25);
+            background: transparent !important;
+            border: none !important;
             color: #334155;
         }
         [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
-            background: #f1f5f9;
-            border-color: rgba(100, 116, 139, 0.35);
+            background: rgba(148, 163, 184, 0.14) !important;
             color: #0f172a;
             transform: none;
         }
