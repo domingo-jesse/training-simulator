@@ -893,26 +893,24 @@ def render_login_view() -> None:
 
     pending = st.session_state.get("pending_google")
     if pending:
-        pending_placeholder = st.empty()
-        with pending_placeholder.container():
-            st.info(f"Google account detected: {pending.get('email') or 'Unknown email'}")
-            action_a, action_b = st.columns(2)
-            with action_a:
-                st.button(
-                    "Send to database: Create account",
-                    use_container_width=True,
-                    key="pending_google_create",
-                    on_click=_set_ui_event,
-                    args=("pending_google_create",),
-                )
-            with action_b:
-                st.button(
-                    "Back to sign in",
-                    use_container_width=True,
-                    key="pending_google_back",
-                    on_click=_set_ui_event,
-                    args=("pending_google_back",),
-                )
+        st.info(f"Google account detected: {pending.get('email') or 'Unknown email'}")
+        action_a, action_b = st.columns(2)
+        with action_a:
+            st.button(
+                "Send to database: Create account",
+                use_container_width=True,
+                key="pending_google_create",
+                on_click=_set_ui_event,
+                args=("pending_google_create",),
+            )
+        with action_b:
+            st.button(
+                "Back to sign in",
+                use_container_width=True,
+                key="pending_google_back",
+                on_click=_set_ui_event,
+                args=("pending_google_back",),
+            )
 
     learner_tab, admin_tab = st.tabs(["Learner", "Admin"])
 
@@ -925,10 +923,10 @@ def render_login_view() -> None:
                 ok, message, user = validate_dev_login(identifier, expected_role="learner")
                 if ok and user:
                     _sign_in_user(user, "dev_quick")
-                    st.rerun()
+                    return
                 st.session_state["auth_error"] = message
                 st.session_state["pending_google"] = None
-                st.rerun()
+                return
 
         _render_google_button("learner")
         st.button(
@@ -948,10 +946,10 @@ def render_login_view() -> None:
                 ok, message, user = validate_dev_login(identifier, expected_role="admin")
                 if ok and user:
                     _sign_in_user(user, "dev_quick")
-                    st.rerun()
+                    return
                 st.session_state["auth_error"] = message
                 st.session_state["pending_google"] = None
-                st.rerun()
+                return
 
         _render_google_button("admin")
         st.button(
@@ -979,9 +977,9 @@ def render_login_view() -> None:
         if ok and user:
             _sign_in_user(user, "google")
             st.session_state["post_create_success"] = message
-            st.rerun()
+            return
         st.session_state["auth_error"] = message
-        st.rerun()
+        return
 
     if ui_event == "pending_google_back":
         st.session_state["pending_google"] = None
@@ -991,12 +989,12 @@ def render_login_view() -> None:
     if ui_event == "create_link_learner":
         st.session_state["auth_view"] = "create_account"
         st.session_state["selected_role"] = "learner"
-        st.rerun()
+        return
 
     if ui_event == "create_link_admin":
         st.session_state["auth_view"] = "create_account"
         st.session_state["selected_role"] = "admin"
-        st.rerun()
+        return
 
 
 
@@ -1027,14 +1025,14 @@ def render_create_account_view() -> None:
                 st.session_state["auth_view"] = "login"
                 st.session_state["selected_role"] = role
                 st.session_state["auth_error"] = None
-                st.rerun()
+                return
             st.error(message)
 
     if st.button("Back to sign in", use_container_width=True):
         st.session_state["auth_view"] = "login"
         st.session_state["auth_error"] = None
         st.session_state["pending_google"] = None
-        st.rerun()
+        return
 
 
 def render_topbar(user: dict[str, Any]) -> None:
@@ -1191,14 +1189,11 @@ def render_profile_menu(user: dict[str, Any]) -> None:
             if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
                 st.session_state["page"] = "Profile"
                 _set_nav("profile")
-                st.rerun()
             if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
                 st.session_state["page"] = "Settings"
                 _set_nav("settings")
-                st.rerun()
             if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
                 logout_user()
-                st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
 
@@ -1269,12 +1264,12 @@ def render_profile_page() -> None:
                     refreshed = load_current_user_profile()
                     if refreshed:
                         _initialize_profile_form(refreshed)
-                st.rerun()
+                return
 
             if reset_clicked:
                 st.session_state["profile_form_initialized_for"] = None
                 st.session_state["profile_feedback"] = None
-                st.rerun()
+                return
 
 
 def render_settings_page() -> None:

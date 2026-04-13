@@ -58,6 +58,11 @@ def _format_duration(seconds: int | None) -> str:
 
 
 def _assigned_modules(user: Dict):
+    return _assigned_modules_cached(int(user["user_id"]), int(user["organization_id"]))
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _assigned_modules_cached(user_id: int, organization_id: int):
     return fetch_all(
         """
         SELECT
@@ -104,11 +109,16 @@ def _assigned_modules(user: Dict):
           AND m.status = 'published'
         ORDER BY a.assigned_at DESC
         """,
-        (user["user_id"], user["organization_id"], user["user_id"], user["organization_id"]),
+        (user_id, organization_id, user_id, organization_id),
     )
 
 
 def _learner_stats(user: Dict) -> Dict:
+    return _learner_stats_cached(int(user["user_id"]), int(user["organization_id"]))
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _learner_stats_cached(user_id: int, organization_id: int) -> Dict:
     attempts = fetch_all(
         """
         SELECT a.*, m.title FROM attempts a
@@ -116,9 +126,9 @@ def _learner_stats(user: Dict) -> Dict:
         WHERE a.user_id = ?
         ORDER BY a.created_at DESC
         """,
-        (user["user_id"],),
+        (user_id,),
     )
-    assigned_modules = _assigned_modules(user)
+    assigned_modules = _assigned_modules_cached(user_id, organization_id)
     completed_module_ids = {a["module_id"] for a in attempts}
     avg_score = round(sum(a["total_score"] for a in attempts) / len(attempts), 1) if attempts else 0
     return {
@@ -587,37 +597,45 @@ def render_scenario_page(user: Dict) -> None:
         st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
     elif current_step == 3:
         st.markdown("### Assessment Questions")
-        for question in assessment_questions:
-            qid = str(question["question_id"])
-            question_key = f"assessment_q_{assignment_id}_{qid}"
-            if question_key not in st.session_state and question_answers.get(qid):
-                st.session_state[question_key] = question_answers.get(qid)
-            if question.get("question_type") == "multiple_choice":
-                options = _question_options(question.get("options_text"))
-                answer = st.radio(
-                    f"Q{question['question_order']}. {question['question_text']}",
-                    options=options if options else ["No options configured"],
-                    key=question_key,
-                    index=None,
-                )
-            else:
-                answer = st.text_area(
-                    f"Q{question['question_order']}. {question['question_text']}",
-                    key=question_key,
-                    height=100,
-                )
-            question_answers[qid] = answer or ""
-        st.session_state[f"question_answers_{assignment_id}"] = question_answers
+        with st.form(f"assessment_questions_form_{assignment_id}", clear_on_submit=False):
+            for question in assessment_questions:
+                qid = str(question["question_id"])
+                question_key = f"assessment_q_{assignment_id}_{qid}"
+                if question_key not in st.session_state and question_answers.get(qid):
+                    st.session_state[question_key] = question_answers.get(qid)
+                if question.get("question_type") == "multiple_choice":
+                    options = _question_options(question.get("options_text"))
+                    answer = st.radio(
+                        f"Q{question['question_order']}. {question['question_text']}",
+                        options=options if options else ["No options configured"],
+                        key=question_key,
+                        index=None,
+                    )
+                else:
+                    answer = st.text_area(
+                        f"Q{question['question_order']}. {question['question_text']}",
+                        key=question_key,
+                        height=100,
+                    )
+                question_answers[qid] = answer or ""
+            if st.form_submit_button("Save question responses", use_container_width=True):
+                st.session_state[f"question_answers_{assignment_id}"] = question_answers
+                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                st.toast("Responses saved.")
     elif current_step == 4:
         st.markdown("### Final Response / Decision")
-        st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
-        st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
-        st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
-        st.selectbox(
-            "Escalation decision",
-            ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-            key=f"escalation_{assignment_id}",
-        )
+        with st.form(f"final_response_form_{assignment_id}", clear_on_submit=False):
+            st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
+            st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
+            st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
+            st.selectbox(
+                "Escalation decision",
+                ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
+                key=f"escalation_{assignment_id}",
+            )
+            if st.form_submit_button("Save final response", use_container_width=True):
+                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                st.toast("Final response saved.")
     else:
         st.markdown("### Review and Submit")
         with st.container(border=True):
@@ -711,6 +729,7 @@ def render_scenario_page(user: Dict) -> None:
                 st.toast("⏰ Time ran out — we submitted your current work for grading.")
             else:
                 st.toast("🎉 Thank you — you've completed this module!")
+            st.cache_data.clear()
             st.rerun()
         except Exception:
             scenario_logger.exception("Failed to submit module.")

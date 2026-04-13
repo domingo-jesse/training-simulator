@@ -452,6 +452,7 @@ def render_learner_management(current_user: dict) -> None:
                 st.success(
                     f"Updated {len(selected_ids)} learner(s) to {'Active' if new_status else 'Inactive'}."
                 )
+                st.cache_data.clear()
                 st.rerun()
             except Exception:
                 view_logger.exception("Failed bulk learner status update.", learner_count=len(selected_ids))
@@ -499,15 +500,45 @@ def _render_assignment_tool(current_user: dict) -> None:
         learners_df["team"] = learners_df["team"].fillna("")
         learners_df["organization_name"] = learners_df["organization_name"].fillna("Unassigned")
 
-        fc1, fc2, fc3 = st.columns(3)
-        with fc1:
-            q = st.text_input("Search learners", key="assignment_search_learners")
-        with fc2:
-            team_options = sorted([team for team in learners_df["team"].unique().tolist() if team])
-            team_filter = st.selectbox("Team/Department", ["All"] + team_options, key="assignment_team_filter")
-        with fc3:
-            org_options = sorted(learners_df["organization_name"].unique().tolist())
-            org_filter = st.selectbox("Organization", ["All"] + org_options, key="assignment_org_filter")
+        team_options = sorted([team for team in learners_df["team"].unique().tolist() if team])
+        org_options = sorted(learners_df["organization_name"].unique().tolist())
+        default_filters = {"search": "", "team": "All", "org": "All"}
+        active_filters = st.session_state.setdefault("assignment_tool_filters", dict(default_filters))
+
+        # Filter controls are grouped in a form to avoid reruns while typing/changing each control.
+        with st.form("assignment_tool_filters_form", clear_on_submit=False):
+            fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
+            with fc1:
+                search_draft = st.text_input("Search learners", value=active_filters.get("search", ""))
+            with fc2:
+                team_draft = st.selectbox(
+                    "Team/Department",
+                    ["All"] + team_options,
+                    index=(["All"] + team_options).index(active_filters.get("team", "All"))
+                    if active_filters.get("team", "All") in (["All"] + team_options)
+                    else 0,
+                )
+            with fc3:
+                org_draft = st.selectbox(
+                    "Organization",
+                    ["All"] + org_options,
+                    index=(["All"] + org_options).index(active_filters.get("org", "All"))
+                    if active_filters.get("org", "All") in (["All"] + org_options)
+                    else 0,
+                )
+            with fc4:
+                apply_filters = st.form_submit_button("Apply filters", use_container_width=True)
+
+        if apply_filters:
+            st.session_state["assignment_tool_filters"] = {
+                "search": search_draft,
+                "team": team_draft,
+                "org": org_draft,
+            }
+            active_filters = st.session_state["assignment_tool_filters"]
+        q = active_filters.get("search", "")
+        team_filter = active_filters.get("team", "All")
+        org_filter = active_filters.get("org", "All")
 
         filtered_active_learners = apply_learner_filters(
             filter_active_learners(learners_df),
@@ -560,12 +591,14 @@ def _render_assignment_tool(current_user: dict) -> None:
                 args=(learner_multiselect_key,),
             )
 
-        selected_module = st.selectbox("Module", list(module_map.keys()))
-        selected_learners = st.multiselect("Learners", learner_options, key=learner_multiselect_key)
-        enable_due_date = st.checkbox("Set due date", value=False)
-        due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
+        with st.form("assignment_tool_submit_form", clear_on_submit=False):
+            selected_module = st.selectbox("Module", list(module_map.keys()))
+            selected_learners = st.multiselect("Learners", learner_options, key=learner_multiselect_key)
+            enable_due_date = st.checkbox("Set due date", value=False)
+            due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
+            assign_submitted = st.form_submit_button("Send to database: Assign training", type="primary")
 
-        if st.button("Send to database: Assign training", type="primary"):
+        if assign_submitted:
             module_id = module_map[selected_module]
             due_date_value = due_date.isoformat() if enable_due_date else None
             if not selected_learners:
@@ -612,6 +645,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                 if skipped_count:
                     st.warning(f"Skipped {skipped_count} learner(s) who are no longer active.")
                 st.success(f"Assigned module to {len(valid_ids)} learner(s).")
+                st.cache_data.clear()
                 st.rerun()
             except Exception:
                 view_logger.exception("Failed assigning training.", scenario_id=module_id)
@@ -640,21 +674,72 @@ def render_current_assignments(current_user: dict) -> None:
     assignments_df["team"] = assignments_df["team"].fillna("")
     assignments_df["organization_name"] = assignments_df["organization_name"].fillna("Unassigned")
 
-    f1, f2, f3, f4, f5 = st.columns(5)
-    with f1:
-        q = st.text_input("Search learner or module", key="current_assignments_search")
-    with f2:
-        team_options = sorted([team for team in assignments_df["team"].unique().tolist() if team])
-        team_filter = st.selectbox("Team/Department", ["All"] + team_options, key="current_assignments_team")
-    with f3:
-        org_options = sorted(assignments_df["organization_name"].unique().tolist())
-        org_filter = st.selectbox("Organization", ["All"] + org_options, key="current_assignments_org")
-    with f4:
-        status_options = sorted(assignments_df["status"].unique().tolist())
-        status_filter = st.selectbox("Status", ["All"] + status_options, key="current_assignments_status")
-    with f5:
-        module_options = sorted(assignments_df["module_title"].unique().tolist())
-        module_filter = st.selectbox("Module", ["All"] + module_options, key="current_assignments_module")
+    team_options = sorted([team for team in assignments_df["team"].unique().tolist() if team])
+    org_options = sorted(assignments_df["organization_name"].unique().tolist())
+    status_options = sorted(assignments_df["status"].unique().tolist())
+    module_options = sorted(assignments_df["module_title"].unique().tolist())
+    assignment_filters = st.session_state.setdefault(
+        "current_assignments_filters",
+        {"search": "", "team": "All", "org": "All", "status": "All", "module": "All"},
+    )
+    with st.form("current_assignments_filters_form", clear_on_submit=False):
+        f1, f2, f3, f4, f5, f6 = st.columns([2, 1, 1, 1, 1, 1])
+        with f1:
+            q_draft = st.text_input("Search learner or module", value=assignment_filters.get("search", ""))
+        with f2:
+            team_values = ["All"] + team_options
+            team_draft = st.selectbox(
+                "Team/Department",
+                team_values,
+                index=team_values.index(assignment_filters.get("team", "All"))
+                if assignment_filters.get("team", "All") in team_values
+                else 0,
+            )
+        with f3:
+            org_values = ["All"] + org_options
+            org_draft = st.selectbox(
+                "Organization",
+                org_values,
+                index=org_values.index(assignment_filters.get("org", "All"))
+                if assignment_filters.get("org", "All") in org_values
+                else 0,
+            )
+        with f4:
+            status_values = ["All"] + status_options
+            status_draft = st.selectbox(
+                "Status",
+                status_values,
+                index=status_values.index(assignment_filters.get("status", "All"))
+                if assignment_filters.get("status", "All") in status_values
+                else 0,
+            )
+        with f5:
+            module_values = ["All"] + module_options
+            module_draft = st.selectbox(
+                "Module",
+                module_values,
+                index=module_values.index(assignment_filters.get("module", "All"))
+                if assignment_filters.get("module", "All") in module_values
+                else 0,
+            )
+        with f6:
+            apply_assignment_filters = st.form_submit_button("Apply filters", use_container_width=True)
+
+    if apply_assignment_filters:
+        st.session_state["current_assignments_filters"] = {
+            "search": q_draft,
+            "team": team_draft,
+            "org": org_draft,
+            "status": status_draft,
+            "module": module_draft,
+        }
+        assignment_filters = st.session_state["current_assignments_filters"]
+
+    q = assignment_filters.get("search", "")
+    team_filter = assignment_filters.get("team", "All")
+    org_filter = assignment_filters.get("org", "All")
+    status_filter = assignment_filters.get("status", "All")
+    module_filter = assignment_filters.get("module", "All")
 
     filtered_assignments = apply_learner_filters(
         assignments_df,
@@ -731,6 +816,7 @@ def render_current_assignments(current_user: dict) -> None:
                     )
                 view_logger.info("Button click.", action="remove_assignment", assignment_id=selected_assignment_id)
                 st.success("Assignment removed.")
+                st.cache_data.clear()
                 st.rerun()
             except Exception:
                 view_logger.exception("Failed removing assignment.", assignment_id=selected_assignment_id)
@@ -745,6 +831,7 @@ def render_current_assignments(current_user: dict) -> None:
                 )
                 view_logger.info("Button click.", action="reassign_training", assignment_id=selected_assignment_id)
                 st.success("Assignment updated.")
+                st.cache_data.clear()
                 st.rerun()
             except Exception:
                 view_logger.exception("Failed reassigning training.", assignment_id=selected_assignment_id)
