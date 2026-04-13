@@ -811,77 +811,133 @@ def render_current_assignments(current_user: dict) -> None:
         assignment_display_df["Due Date"] = assignment_display_df["Due Date"].apply(_format_datetime_for_admin_grid)
     if "Last Attempt" in assignment_display_df.columns:
         assignment_display_df["Last Attempt"] = assignment_display_df["Last Attempt"].apply(_format_datetime_for_admin_grid)
-    render_admin_table(
-        assignment_display_df,
+    selection_state_key = "assignment_management_selected_ids"
+    persisted_selection = {int(v) for v in st.session_state.get(selection_state_key, [])}
+    visible_assignment_ids = {int(v) for v in filtered_assignments["assignment_id"].tolist()}
+
+    interactive_df = assignment_display_df.copy()
+    interactive_df.insert(
+        0,
+        "selected",
+        [int(assignment_id) in persisted_selection for assignment_id in filtered_assignments["assignment_id"].tolist()],
+    )
+    edited_assignments_df = st.data_editor(
+        interactive_df,
+        key="assignment_management_data_editor",
+        use_container_width=True,
+        hide_index=True,
         height=520,
-        empty_message="No assignments match current filters. Try changing search criteria.",
+        column_config={"selected": st.column_config.CheckboxColumn("Select")},
+        disabled=[column for column in interactive_df.columns if column != "selected"],
     )
 
-    assignment_records = filtered_assignments.reset_index(drop=True)
-    assignment_map = {
-        f"#{r['assignment_id']} • {r['learner_name']} • {r['module_title']} ({r['status']})": int(r["assignment_id"])
-        for _, r in assignment_records.iterrows()
+    visible_selected_ids = {
+        int(assignment_id)
+        for assignment_id in filtered_assignments.loc[edited_assignments_df["selected"] == True, "assignment_id"].tolist()
     }
-    if not assignment_map:
-        st.info("No assignments available for remove/reassign actions with current filters.")
+    selected_assignment_ids = sorted((persisted_selection - visible_assignment_ids).union(visible_selected_ids))
+    st.session_state[selection_state_key] = selected_assignment_ids
+    selected_count = len(selected_assignment_ids)
+
+    if selected_count == 0:
+        st.info("Select one or more assignments from the table to enable bulk actions.")
         return
 
-    assignment_labels = list(assignment_map.keys())
-    default_label = assignment_labels[0]
-    selected_assignment_label = st.selectbox(
-        "Select assignment",
-        assignment_labels,
-        index=assignment_labels.index(default_label),
+    selected_assignments = assignments_df[assignments_df["assignment_id"].isin(selected_assignment_ids)].copy()
+    selected_assignments = selected_assignments.sort_values("assigned_at", ascending=False)
+    hidden_count = selected_count - len(
+        set(selected_assignments["assignment_id"].tolist()).intersection(visible_assignment_ids)
     )
-    selected_assignment_id = assignment_map[selected_assignment_label]
 
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        if st.button("Send to database: Remove assignment"):
-            try:
-                assignment_row = fetch_one(
-                    """
-                    SELECT module_id, learner_id
-                    FROM assignments
-                    WHERE assignment_id = ? AND organization_id = ?
-                    """,
-                    (selected_assignment_id, org_id),
-                )
-                execute("UPDATE assignments SET is_active = FALSE WHERE assignment_id = ? AND organization_id = ?", (selected_assignment_id, org_id))
-                if assignment_row:
-                    _cleanup_assignment_tracking_records(
-                        organization_id=org_id,
-                        module_id=int(assignment_row["module_id"]),
-                        learner_id=int(assignment_row["learner_id"]),
+    with st.container(border=True):
+        st.markdown("#### Bulk actions")
+        st.caption(
+            f"{selected_count} assignment(s) selected"
+            + (f" • {hidden_count} outside current filters" if hidden_count else "")
+        )
+        preview_df = selected_assignments[
+            ["assignment_id", "learner_name", "module_title", "status", "due_date"]
+        ].rename(
+            columns={
+                "assignment_id": "Assignment ID",
+                "learner_name": "Learner",
+                "module_title": "Module",
+                "status": "Status",
+                "due_date": "Due Date",
+            }
+        )
+        if "Due Date" in preview_df.columns:
+            preview_df["Due Date"] = preview_df["Due Date"].apply(_format_datetime_for_admin_grid)
+        st.dataframe(preview_df.head(20), use_container_width=True, hide_index=True)
+        if len(preview_df) > 20:
+            st.caption(f"Showing first 20 of {len(preview_df)} selected assignments.")
+
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            if st.button("Send to database: Remove selected assignments", type="primary", use_container_width=True):
+                try:
+                    rows_to_cleanup = fetch_all(
+                        """
+                        SELECT assignment_id, module_id, learner_id
+                        FROM assignments
+                        WHERE organization_id = ? AND assignment_id IN ?
+                        """,
+                        (org_id, tuple(selected_assignment_ids)),
                     )
-                view_logger.info("Button click.", action="remove_assignment", assignment_id=selected_assignment_id)
-                st.success("Assignment removed.")
-                st.cache_data.clear()
+                    execute(
+                        "UPDATE assignments SET is_active = FALSE WHERE organization_id = ? AND assignment_id IN ?",
+                        (org_id, tuple(selected_assignment_ids)),
+                    )
+                    for row in rows_to_cleanup:
+                        _cleanup_assignment_tracking_records(
+                            organization_id=org_id,
+                            module_id=int(row["module_id"]),
+                            learner_id=int(row["learner_id"]),
+                        )
+                    view_logger.info(
+                        "Button click.",
+                        action="remove_assignment",
+                        assignment_count=len(selected_assignment_ids),
+                    )
+                    st.success(f"Removed {len(selected_assignment_ids)} assignment(s).")
+                    st.session_state[selection_state_key] = []
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception:
+                    view_logger.exception(
+                        "Failed removing assignments.",
+                        assignment_count=len(selected_assignment_ids),
+                    )
+                    st.error("Could not remove selected assignments.")
+        with c2:
+            new_due = st.date_input("Reassign due date", key="reassign_due", value=date.today())
+            if st.button("Send to database: Reassign selected training", use_container_width=True):
+                try:
+                    execute(
+                        "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP "
+                        "WHERE organization_id = ? AND assignment_id IN ?",
+                        (new_due.isoformat(), current_user["user_id"], org_id, tuple(selected_assignment_ids)),
+                    )
+                    view_logger.info(
+                        "Button click.",
+                        action="reassign_training",
+                        assignment_count=len(selected_assignment_ids),
+                    )
+                    st.success(f"Updated {len(selected_assignment_ids)} assignment(s).")
+                    st.session_state[selection_state_key] = []
+                    st.cache_data.clear()
+                    st.rerun()
+                except Exception:
+                    view_logger.exception(
+                        "Failed reassigning training.",
+                        assignment_count=len(selected_assignment_ids),
+                    )
+                    st.error("Could not update selected assignments.")
+        with c3:
+            st.caption("Selection controls")
+            if st.button("Clear selection", use_container_width=True):
+                st.session_state[selection_state_key] = []
                 st.rerun()
-            except Exception:
-                view_logger.exception("Failed removing assignment.", assignment_id=selected_assignment_id)
-                st.error("Could not remove assignment.")
-    with c2:
-        new_due = st.date_input("Reassign due date", key="reassign_due", value=date.today())
-        if st.button("Send to database: Reassign training"):
-            try:
-                execute(
-                    "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP WHERE assignment_id = ? AND organization_id = ?",
-                    (new_due.isoformat(), current_user["user_id"], selected_assignment_id, org_id),
-                )
-                view_logger.info("Button click.", action="reassign_training", assignment_id=selected_assignment_id)
-                st.success("Assignment updated.")
-                st.cache_data.clear()
-                st.rerun()
-            except Exception:
-                view_logger.exception("Failed reassigning training.", assignment_id=selected_assignment_id)
-                st.error("Could not update assignment.")
-    with c3:
-        st.caption("Direct review")
-        if st.button("Open assignment review", use_container_width=True):
-            st.query_params["page"] = "admin_assignment_review"
-            st.query_params["assignment_id"] = str(selected_assignment_id)
-            st.rerun()
 
 
 def render_grading_center(current_user: dict) -> None:
