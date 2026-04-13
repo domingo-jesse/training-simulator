@@ -527,6 +527,15 @@ def _badge_style(value: Any, kind: str = "neutral") -> str:
     return "background:#f3f4f6;color:#374151;"
 
 
+def _normalize_css_size(value: int | str | None, default: str = "450px") -> str:
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return f"{int(value)}px"
+    cleaned = str(value).strip()
+    return cleaned or default
+
+
 def _inject_app_table_styles() -> None:
     if st.session_state.get(_APP_TABLE_STYLE_KEY):
         return
@@ -542,13 +551,19 @@ def _inject_app_table_styles() -> None:
             border: 1px solid #e5e7eb;
             border-radius: 16px;
             padding: 10px 14px;
-            overflow-x: auto;
             width: 100%;
+        }
+        .app-table-scroll {
+            border-radius: 12px;
+            max-height: var(--app-table-max-height, 450px);
+            overflow-y: auto;
+            overflow-x: auto;
         }
         .app-table {
             width: 100%;
             border-collapse: collapse;
             font-size: 14px;
+            min-width: 100%;
         }
         .app-table thead th {
             text-align: left;
@@ -560,6 +575,10 @@ def _inject_app_table_styles() -> None:
             padding: 12px 14px;
             border-bottom: 1px solid #e5e7eb;
             white-space: nowrap;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #ffffff;
         }
         .app-table tbody td {
             padding: 14px;
@@ -608,6 +627,7 @@ def render_app_table(
     table_subtitle: str = "",
     empty_title: str = "No data available",
     empty_message: str = "Records will appear here once data is available.",
+    table_max_height: int | str | None = 450,
 ) -> pd.DataFrame:
     _inject_app_table_styles()
     column_labels = column_labels or {}
@@ -656,7 +676,8 @@ def render_app_table(
         if col in render_df.columns and col not in badge_columns:
             render_df[col] = render_df[col].apply(lambda x: _format_numeric_value(x, decimals))
 
-    html = ['<div class="app-table-card"><table class="app-table"><thead><tr>']
+    table_height = _normalize_css_size(table_max_height)
+    html = [f'<div class="app-table-card"><div class="app-table-scroll" style="--app-table-max-height:{escape(table_height)};"><table class="app-table"><thead><tr>']
     for col in render_df.columns:
         label = column_labels.get(col, col.replace("_", " ").title())
         alignment = "right" if numeric_align.get(col) == "right" else "left"
@@ -683,6 +704,6 @@ def render_app_table(
                     f'<td style="text-align:{alignment};"><span class="{cell_class}">{escape(str(display_value))}</span></td>'
                 )
         html.append("</tr>")
-    html.append("</tbody></table></div>")
+    html.append("</tbody></table></div></div>")
     st.markdown("".join(html), unsafe_allow_html=True)
     return render_df
