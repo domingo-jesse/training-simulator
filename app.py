@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sys
 from contextlib import contextmanager
 from typing import Any
@@ -126,6 +127,8 @@ def init_state() -> None:
         "db_test_nonce": 0,
         "db_test_result": None,
         "quick_connect_result": None,
+        "profile_feedback": None,
+        "profile_form_initialized_for": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -955,15 +958,240 @@ def render_topbar(user: dict[str, Any]) -> None:
         st.title("Training Simulator")
         st.caption("Simulation workspace and readiness analytics")
     with right:
-        st.markdown(f"**{user['full_name']}**")
-        st.caption(user["email"])
+        render_profile_menu(user)
+
+
+def _avatar_initials(full_name: str) -> str:
+    tokens = [token for token in (full_name or "").strip().split() if token]
+    if not tokens:
+        return "U"
+    if len(tokens) == 1:
+        return tokens[0][0].upper()
+    return f"{tokens[0][0]}{tokens[-1][0]}".upper()
+
+
+def _is_valid_email(email: str) -> bool:
+    return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", (email or "").strip()))
+
+
+def load_current_user_profile() -> dict[str, Any] | None:
+    current_user = st.session_state.get("current_user") or {}
+    user_id = current_user.get("user_id")
+    if not user_id:
+        return None
+    row = fetch_one(
+        """
+        SELECT user_id, id, name, email, username, role, password_hash, auth_provider, organization_id
+        FROM users
+        WHERE user_id = ?
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    return dict(row) if row else None
+
+
+def _refresh_current_user_session(profile_row: dict[str, Any]) -> None:
+    current = dict(st.session_state.get("current_user") or {})
+    current.update(
+        {
+            "id": profile_row.get("id", current.get("id")),
+            "user_id": profile_row.get("user_id", current.get("user_id")),
+            "full_name": profile_row.get("name", current.get("full_name")),
+            "name": profile_row.get("name", current.get("name")),
+            "email": profile_row.get("email", current.get("email")),
+            "role": _normalize_role(profile_row.get("role", current.get("role"))),
+            "organization_id": profile_row.get("organization_id", current.get("organization_id")),
+        }
+    )
+    st.session_state["current_user"] = current
+
+
+def save_user_profile_updates(
+    *,
+    full_name: str,
+    email: str,
+    username: str,
+    current_password: str,
+    new_password: str,
+    confirm_new_password: str,
+) -> tuple[bool, str]:
+    profile = load_current_user_profile()
+    if not profile:
+        return False, "Could not load your account details. Please sign in again."
+
+    full_name = (full_name or "").strip()
+    email = (email or "").strip().lower()
+    username_clean = (username or "").strip() or None
+    current_password = (current_password or "").strip()
+    new_password = (new_password or "").strip()
+    confirm_new_password = (confirm_new_password or "").strip()
+
+    if not full_name:
+        return False, "Full name is required."
+    if not email:
+        return False, "Email is required."
+    if not _is_valid_email(email):
+        return False, "Please enter a valid email address."
+
+    existing_email = fetch_one(
+        """
+        SELECT user_id
+        FROM users
+        WHERE LOWER(email) = ? AND role = ? AND user_id <> ?
+        LIMIT 1
+        """,
+        (email, profile["role"], profile["user_id"]),
+    )
+    if existing_email:
+        return False, "That email is already linked to another account for this role."
+
+    if username_clean:
+        existing_username = fetch_one(
+            "SELECT user_id FROM users WHERE LOWER(username) = ? AND user_id <> ? LIMIT 1",
+            (username_clean.lower(), profile["user_id"]),
+        )
+        if existing_username:
+            return False, "That username is already in use."
+
+    updates: dict[str, Any] = {"name": full_name, "email": email, "username": username_clean}
+
+    wants_password_change = any([current_password, new_password, confirm_new_password])
+    if wants_password_change:
+        if profile.get("auth_provider") != "local_password":
+            return False, "Password updates are unavailable for Google-authenticated accounts."
+        if not current_password:
+            return False, "Current password is required to set a new password."
+        if hash_password(current_password) != (profile.get("password_hash") or ""):
+            return False, "Current password is incorrect."
+        if not new_password or not confirm_new_password:
+            return False, "Enter and confirm your new password."
+        if len(new_password) < 8:
+            return False, "New password must be at least 8 characters."
+        if new_password != confirm_new_password:
+            return False, "New password and confirmation must match."
+        updates["password_hash"] = hash_password(new_password)
+
+    set_clause = ", ".join(f"{col} = ?" for col in updates.keys())
+    params = tuple(updates.values()) + (profile["user_id"],)
+    execute(f"UPDATE users SET {set_clause} WHERE user_id = ?", params)
+
+    refreshed = load_current_user_profile()
+    if refreshed:
+        _refresh_current_user_session(refreshed)
+    return True, "Profile updated successfully."
+
+
+def render_profile_menu(user: dict[str, Any]) -> None:
+    initials = _avatar_initials(user.get("full_name", ""))
+    display_name = user.get("full_name") or "User"
+    with st.popover(f"{initials} · {display_name}"):
+        st.markdown(f"**{display_name}**")
+        st.caption(user.get("email", ""))
         st.markdown(
-            f"<span class='role-badge'>{user['role'].title()}</span>",
+            f"<span class='role-badge'>{user.get('role', 'learner').title()}</span>",
             unsafe_allow_html=True,
         )
-        if st.button("Logout", use_container_width=True):
+        if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
+            st.session_state["page"] = "Profile"
+            st.rerun()
+        if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
+            st.session_state["page"] = "Settings"
+            st.rerun()
+        if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
             logout_user()
             st.rerun()
+
+
+def _initialize_profile_form(profile: dict[str, Any]) -> None:
+    profile_user_id = profile.get("user_id")
+    if st.session_state.get("profile_form_initialized_for") == profile_user_id:
+        return
+    st.session_state["profile_full_name"] = profile.get("name", "")
+    st.session_state["profile_email"] = profile.get("email", "")
+    st.session_state["profile_username"] = profile.get("username") or ""
+    st.session_state["profile_current_password"] = ""
+    st.session_state["profile_new_password"] = ""
+    st.session_state["profile_confirm_password"] = ""
+    st.session_state["profile_form_initialized_for"] = profile_user_id
+
+
+def render_profile_page() -> None:
+    profile = load_current_user_profile()
+    st.markdown("### Profile")
+    st.caption("Update your account information and security settings.")
+    if not profile:
+        st.error("Could not load profile details.")
+        return
+
+    _initialize_profile_form(profile)
+    feedback = st.session_state.get("profile_feedback")
+    if feedback:
+        status, message = feedback
+        if status == "success":
+            st.success(message)
+        else:
+            st.error(message)
+
+    _, content, _ = st.columns([1, 2.2, 1])
+    with content:
+        st.markdown("#### Account Information")
+        with st.form("profile_account_form", clear_on_submit=False):
+            st.text_input("Full name *", key="profile_full_name")
+            st.text_input("Email *", key="profile_email")
+            st.text_input("Username", key="profile_username")
+            st.text_input("Role", value=str(profile.get("role", "")).title(), disabled=True)
+
+            st.markdown("#### Security")
+            if profile.get("auth_provider") == "local_password":
+                st.text_input("Current password", type="password", key="profile_current_password")
+                st.text_input("New password", type="password", key="profile_new_password")
+                st.text_input("Confirm new password", type="password", key="profile_confirm_password")
+            else:
+                st.info("Password is managed by Google for this account.")
+
+            save_col, reset_col = st.columns(2)
+            with save_col:
+                save_clicked = st.form_submit_button("Save changes", use_container_width=True, type="primary")
+            with reset_col:
+                reset_clicked = st.form_submit_button("Reset", use_container_width=True)
+
+            if save_clicked:
+                ok, message = save_user_profile_updates(
+                    full_name=st.session_state.get("profile_full_name", ""),
+                    email=st.session_state.get("profile_email", ""),
+                    username=st.session_state.get("profile_username", ""),
+                    current_password=st.session_state.get("profile_current_password", ""),
+                    new_password=st.session_state.get("profile_new_password", ""),
+                    confirm_new_password=st.session_state.get("profile_confirm_password", ""),
+                )
+                st.session_state["profile_feedback"] = ("success" if ok else "error", message)
+                if ok:
+                    refreshed = load_current_user_profile()
+                    if refreshed:
+                        _initialize_profile_form(refreshed)
+                st.rerun()
+
+            if reset_clicked:
+                st.session_state["profile_form_initialized_for"] = None
+                st.session_state["profile_feedback"] = None
+                st.rerun()
+
+
+def render_settings_page() -> None:
+    st.markdown("### Settings")
+    st.caption("Personalization and account preferences.")
+    _, content, _ = st.columns([1, 2.2, 1])
+    with content:
+        with st.container(border=True):
+            st.markdown("#### Account Preferences")
+            st.caption("Workspace defaults and account-level preferences will appear here.")
+        with st.container(border=True):
+            st.markdown("#### Display")
+            st.caption("Theme, density, and dashboard layout preferences are coming soon.")
+        with st.container(border=True):
+            st.markdown("#### Notifications")
+            st.caption("Email and in-app notification preferences are coming soon.")
 
 
 def render_main_app() -> None:
@@ -974,6 +1202,14 @@ def render_main_app() -> None:
     )
     render_topbar(user)
     st.markdown("---")
+    requested_page = st.session_state.get("page")
+    if requested_page == "Profile":
+        render_profile_page()
+        return
+    if requested_page == "Settings":
+        render_settings_page()
+        return
+
     if user["role"] == "admin":
         operations_pages = [
             "Dashboard",
@@ -989,7 +1225,6 @@ def render_main_app() -> None:
         qa_pages = ["QA Test Center"]
         all_pages = operations_pages + qa_pages
 
-        requested_page = st.session_state.get("page")
         if requested_page in operations_pages:
             st.session_state["admin_nav_group"] = "Operations"
             st.session_state["admin_page"] = requested_page
@@ -1043,7 +1278,6 @@ def render_main_app() -> None:
             render_admin_quality_hub(user)
     else:
         pages = ["Home", "Assigned Modules", "Module Workspace", "Results", "My Progress"]
-        requested_page = st.session_state.get("page")
         if requested_page in pages and st.session_state.get("learner_page") != requested_page:
             st.session_state["learner_page"] = requested_page
         st.session_state["page"] = None
