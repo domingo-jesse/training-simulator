@@ -84,7 +84,8 @@ def _merge_row_selection_into_multiselect(
     st.session_state[multiselect_key] = merged
 
 
-def _assignments_with_status(org_id: int) -> pd.DataFrame:
+@st.cache_data(show_spinner=False)
+def _assignments_with_status(org_id: int, refresh_token: int = 0) -> pd.DataFrame:
     rows = fetch_all(
         """
         SELECT
@@ -704,7 +705,8 @@ def render_current_assignments(current_user: dict) -> None:
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.markdown("#### Current assignments")
 
-    assignments_df = _assignments_with_status(org_id)
+    refresh_token = int(st.session_state.get("assignment_management_refresh_token", 0))
+    assignments_df = _assignments_with_status(org_id, refresh_token)
     if assignments_df.empty:
         st.info("No assignments yet.")
         return
@@ -780,16 +782,33 @@ def render_current_assignments(current_user: dict) -> None:
     status_filter = assignment_filters.get("status", "All")
     module_filter = assignment_filters.get("module", "All")
 
-    filtered_assignments = apply_learner_filters(
-        assignments_df,
-        search_text=q,
-        team_filter=team_filter,
-        org_filter=org_filter,
+    filter_cache_key = (
+        q.strip().lower(),
+        team_filter,
+        org_filter,
+        status_filter,
+        module_filter,
+        len(assignments_df),
+        refresh_token,
     )
-    if status_filter != "All":
-        filtered_assignments = filtered_assignments[filtered_assignments["status"] == status_filter]
-    if module_filter != "All":
-        filtered_assignments = filtered_assignments[filtered_assignments["module_title"] == module_filter]
+    filtered_cache = st.session_state.get("assignment_management_filtered_cache")
+    if filtered_cache and filtered_cache.get("key") == filter_cache_key:
+        filtered_assignments = filtered_cache["df"].copy()
+    else:
+        filtered_assignments = apply_learner_filters(
+            assignments_df,
+            search_text=q,
+            team_filter=team_filter,
+            org_filter=org_filter,
+        )
+        if status_filter != "All":
+            filtered_assignments = filtered_assignments[filtered_assignments["status"] == status_filter]
+        if module_filter != "All":
+            filtered_assignments = filtered_assignments[filtered_assignments["module_title"] == module_filter]
+        st.session_state["assignment_management_filtered_cache"] = {
+            "key": filter_cache_key,
+            "df": filtered_assignments.copy(),
+        }
 
     st.caption(f"{len(filtered_assignments)} assignment(s) match current filters")
     assignment_table_df = filtered_assignments[
@@ -812,8 +831,9 @@ def render_current_assignments(current_user: dict) -> None:
     if "Last Attempt" in assignment_display_df.columns:
         assignment_display_df["Last Attempt"] = assignment_display_df["Last Attempt"].apply(_format_datetime_for_admin_grid)
     selection_state_key = "assignment_management_selected_ids"
-    persisted_selection = {int(v) for v in st.session_state.get(selection_state_key, [])}
+    persisted_selection = {int(v) for v in st.session_state.get(selection_state_key, set())}
     visible_assignment_ids = {int(v) for v in filtered_assignments["assignment_id"].tolist()}
+    persisted_selection = persisted_selection.intersection(visible_assignment_ids)
 
     interactive_df = assignment_display_df.copy()
     interactive_df.insert(
@@ -821,13 +841,36 @@ def render_current_assignments(current_user: dict) -> None:
         "selected",
         [int(assignment_id) in persisted_selection for assignment_id in filtered_assignments["assignment_id"].tolist()],
     )
+    st.markdown(
+        """
+        <style>
+        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked) {
+            background: rgba(79, 70, 229, 0.14) !important;
+        }
+        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked):hover {
+            background: rgba(79, 70, 229, 0.22) !important;
+        }
+        [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
+            transform: scale(1.1);
+            transform-origin: center;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     edited_assignments_df = st.data_editor(
         interactive_df,
         key="assignment_management_data_editor",
         use_container_width=True,
         hide_index=True,
         height=520,
-        column_config={"selected": st.column_config.CheckboxColumn("Select")},
+        column_config={
+            "selected": st.column_config.CheckboxColumn(
+                "Select",
+                width="medium",
+                help="Select assignments for bulk actions.",
+            )
+        },
         disabled=[column for column in interactive_df.columns if column != "selected"],
     )
 
@@ -835,7 +878,7 @@ def render_current_assignments(current_user: dict) -> None:
         int(assignment_id)
         for assignment_id in filtered_assignments.loc[edited_assignments_df["selected"] == True, "assignment_id"].tolist()
     }
-    selected_assignment_ids = sorted((persisted_selection - visible_assignment_ids).union(visible_selected_ids))
+    selected_assignment_ids = sorted(visible_selected_ids)
     st.session_state[selection_state_key] = selected_assignment_ids
     selected_count = len(selected_assignment_ids)
 
@@ -845,16 +888,9 @@ def render_current_assignments(current_user: dict) -> None:
 
     selected_assignments = assignments_df[assignments_df["assignment_id"].isin(selected_assignment_ids)].copy()
     selected_assignments = selected_assignments.sort_values("assigned_at", ascending=False)
-    hidden_count = selected_count - len(
-        set(selected_assignments["assignment_id"].tolist()).intersection(visible_assignment_ids)
-    )
-
     with st.container(border=True):
         st.markdown("#### Bulk actions")
-        st.caption(
-            f"{selected_count} assignment(s) selected"
-            + (f" • {hidden_count} outside current filters" if hidden_count else "")
-        )
+        st.caption(f"{selected_count} assignment(s) selected")
         preview_df = selected_assignments[
             ["assignment_id", "learner_name", "module_title", "status", "due_date"]
         ].rename(
@@ -900,7 +936,9 @@ def render_current_assignments(current_user: dict) -> None:
                         assignment_count=len(selected_assignment_ids),
                     )
                     st.success(f"Removed {len(selected_assignment_ids)} assignment(s).")
-                    st.session_state[selection_state_key] = []
+                    st.session_state[selection_state_key] = set()
+                    st.session_state["assignment_management_refresh_token"] = refresh_token + 1
+                    st.session_state.pop("assignment_management_filtered_cache", None)
                     st.cache_data.clear()
                     st.rerun()
                 except Exception:
@@ -924,7 +962,9 @@ def render_current_assignments(current_user: dict) -> None:
                         assignment_count=len(selected_assignment_ids),
                     )
                     st.success(f"Updated {len(selected_assignment_ids)} assignment(s).")
-                    st.session_state[selection_state_key] = []
+                    st.session_state[selection_state_key] = set()
+                    st.session_state["assignment_management_refresh_token"] = refresh_token + 1
+                    st.session_state.pop("assignment_management_filtered_cache", None)
                     st.cache_data.clear()
                     st.rerun()
                 except Exception:
@@ -936,7 +976,7 @@ def render_current_assignments(current_user: dict) -> None:
         with c3:
             st.caption("Selection controls")
             if st.button("Clear selection", use_container_width=True):
-                st.session_state[selection_state_key] = []
+                st.session_state[selection_state_key] = set()
                 st.rerun()
 
 
