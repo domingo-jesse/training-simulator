@@ -598,6 +598,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                         """
                         INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
                         VALUES (?, ?, ?, ?, ?, ?)
+                        RETURNING assignment_id AS id
                         """,
                         (org_id, module_id, learner_id, current_user["user_id"], due_date_value, True),
                     )
@@ -1221,6 +1222,7 @@ def render_module_builder(current_user: dict) -> None:
                             generated_title, generated_description, generated_scenario_overview,
                             generation_status, updated_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
+                        RETURNING run_id AS id
                         """,
                         (
                             org_id,
@@ -1554,6 +1556,7 @@ def render_module_builder(current_user: dict) -> None:
                         scenario_context, organization_id, status, learning_objectives, content_sections,
                         completion_requirements, quiz_required, created_by, updated_at
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    RETURNING module_id AS id
                     """,
                     (
                         run.get("generated_title") or run.get("input_title") or "AI Draft Module",
@@ -2266,6 +2269,7 @@ def _qa_test_create_learner(current_user: dict) -> dict:
             """
             INSERT INTO users (name, email, role, team, organization_id, is_active)
             VALUES (?, ?, 'learner', 'QA', ?, TRUE)
+            RETURNING user_id AS id
             """,
             (f"QA Learner {token}", f"qa.learner.{token}@example.com", org_id),
         )
@@ -2285,6 +2289,7 @@ def _qa_test_deactivate_reactivate(current_user: dict) -> dict:
             """
             INSERT INTO users (name, email, role, team, organization_id, is_active)
             VALUES (?, ?, 'learner', 'QA', ?, TRUE)
+            RETURNING user_id AS id
             """,
             (f"QA Toggle {token}", f"qa.toggle.{token}@example.com", org_id),
         )
@@ -2312,6 +2317,7 @@ def _qa_test_assignment_save(current_user: dict) -> dict:
             """
             INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
             VALUES (?, ?, ?, ?, ?, TRUE)
+            RETURNING assignment_id AS id
             """,
             (org_id, int(module["module_id"]), int(learner["user_id"]), int(current_user["user_id"]), (date.today() + timedelta(days=7)).isoformat()),
         )
@@ -2349,6 +2355,7 @@ def _qa_test_bulk_assign(current_user: dict) -> dict:
                     """
                     INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
                     VALUES (?, ?, ?, ?, ?, TRUE)
+                    RETURNING assignment_id AS id
                     """,
                     (org_id, int(module["module_id"]), int(learner["user_id"]), int(current_user["user_id"]), due_date),
                 )
@@ -2396,6 +2403,7 @@ def _qa_test_custom_question_crud(current_user: dict) -> dict:
             """
             INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
             VALUES (?, 999, ?, 'QA', 'free_text', '', NULL)
+            RETURNING question_id AS id
             """,
             (int(module["module_id"]), "Temporary QA question"),
         )
@@ -2417,6 +2425,7 @@ def _qa_test_save_scenario(current_user: dict) -> dict:
             """
             INSERT INTO modules (title, category, difficulty, description, estimated_time, organization_id, status, created_by)
             VALUES (?, 'QA', 'Easy', ?, 10, ?, 'draft', ?)
+            RETURNING module_id AS id
             """,
             (f"QA Scenario {str(uuid4())[:8]}", "Temporary module for QA save test", org_id, int(current_user["user_id"])),
         )

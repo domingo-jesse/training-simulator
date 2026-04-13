@@ -1179,11 +1179,13 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
         with get_conn() as conn:
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
-                    cur.execute(_sql(query), params_tuple)
-                    if query.lstrip().upper().startswith("INSERT"):
-                        cur.execute("SELECT LASTVAL() AS id")
+                    translated_query = _sql(query)
+                    cur.execute(translated_query, params_tuple)
+                    is_insert = translated_query.lstrip().upper().startswith("INSERT")
+                    has_returning = "RETURNING" in translated_query.upper()
+                    if is_insert and has_returning:
                         lastrow = cur.fetchone()
-                        lastrowid = int(lastrow["id"]) if lastrow else 0
+                        lastrowid = int(lastrow["id"]) if lastrow and "id" in lastrow else 0
                     else:
                         lastrowid = 0
             else:
@@ -1270,6 +1272,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             total_score, ai_feedback, strengths, missed_points,
             best_practice_reasoning, recommended_response, takeaway_summary
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        RETURNING attempt_id AS id
         """,
         (
             user_id,

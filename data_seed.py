@@ -49,7 +49,7 @@ def _ensure_org() -> int:
     org = fetch_one("SELECT organization_id FROM organizations WHERE name = ?", (DEFAULT_ORG,))
     if org:
         return int(org["organization_id"])
-    return int(execute("INSERT INTO organizations (name) VALUES (?)", (DEFAULT_ORG,)))
+    return int(execute("INSERT INTO organizations (name) VALUES (?) RETURNING organization_id AS id", (DEFAULT_ORG,)))
 
 
 def _ensure_user(name: str, email: str, role: str, team: str, org_id: int, is_active: bool = True) -> int:
@@ -174,6 +174,7 @@ def seed_modules() -> None:
                 expected_customer_response, lesson_takeaway, organization_id, status,
                 learning_objectives, content_sections, completion_requirements, quiz_required
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            RETURNING module_id AS id
             """,
             module,
         )
