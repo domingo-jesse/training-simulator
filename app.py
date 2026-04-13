@@ -274,7 +274,7 @@ def _default_org_id() -> int:
     org = fetch_one("SELECT organization_id FROM organizations ORDER BY organization_id LIMIT 1")
     if org:
         return int(org["organization_id"])
-    return int(execute("INSERT INTO organizations (name) VALUES (?)", ("Default Org",)))
+    return int(execute("INSERT INTO organizations (name) VALUES (?) RETURNING organization_id AS id", ("Default Org",)))
 
 
 def _normalize_role(role: str | None) -> str:
@@ -303,6 +303,7 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
         """
         INSERT INTO users (name, email, role, team, organization_id, is_active)
         VALUES (?, ?, ?, ?, ?, TRUE)
+        RETURNING user_id AS id
         """,
         (auth_user["full_name"], auth_user["email"].strip().lower(), normalized_role, "General", org_id),
     )
@@ -499,6 +500,7 @@ def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, 
         """
         INSERT INTO users (id, name, email, role, team, organization_id, auth_provider, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, TRUE)
+        RETURNING user_id AS id
         """,
         (f"u_{role}_{email}", full_name, email, role, "General", org_id, "google"),
     )
