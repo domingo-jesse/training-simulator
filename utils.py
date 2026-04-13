@@ -75,14 +75,30 @@ def inject_styles() -> None:
         }
 
         .stButton > button {
+            border-radius: 999px;
+            border: 1px solid rgba(59, 130, 246, 0.25);
+            transition: all 0.18s ease;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+        }
+        .stButton > button[kind="primary"] {
             background: linear-gradient(135deg, #3b82f6, #6366f1);
             color: #ffffff;
-            border-radius: 8px;
-            border: none;
+            border-color: transparent;
         }
-        .stButton > button:hover {
+        .stButton > button[kind="primary"]:hover {
             background: linear-gradient(135deg, #60a5fa, #818cf8);
             color: #ffffff;
+            transform: translateY(-1px);
+        }
+        .stButton > button[kind="secondary"] {
+            background: rgba(255, 255, 255, 0.9);
+            color: #1e293b;
+        }
+        .stButton > button[kind="secondary"]:hover {
+            border-color: rgba(59, 130, 246, 0.45);
+            background: rgba(239, 246, 255, 0.95);
+            color: #1d4ed8;
+            transform: translateY(-1px);
         }
 
         [data-testid="stTextInput"] input,
