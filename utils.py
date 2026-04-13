@@ -10,6 +10,7 @@ import streamlit as st
 
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 _ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
+_ADMIN_SELECTION_STYLE_KEY = "_admin_selection_table_styles_injected"
 _PAGE_CONTAINER_VARIANTS = {"wide", "medium", "narrow"}
 
 
@@ -573,6 +574,86 @@ def render_admin_table(
         height=height,
     )
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _inject_admin_selection_table_styles() -> None:
+    if st.session_state.get(_ADMIN_SELECTION_STYLE_KEY):
+        return
+    st.session_state[_ADMIN_SELECTION_STYLE_KEY] = True
+    st.markdown(
+        """
+        <style>
+        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked) {
+            background: rgba(79, 70, 229, 0.14) !important;
+        }
+        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked):hover {
+            background: rgba(79, 70, 229, 0.22) !important;
+        }
+        [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
+            transform: scale(1.08);
+            transform-origin: center;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_admin_selection_table(
+    df: pd.DataFrame,
+    *,
+    row_id_col: str,
+    selection_state_key: str,
+    table_key: str,
+    selection_label: str = "Select",
+    selection_help: str = "Select row(s).",
+    single_select: bool = False,
+    use_container_width: bool = True,
+    hide_index: bool = True,
+    height: int = 450,
+) -> tuple[pd.DataFrame, list]:
+    _inject_admin_selection_table_styles()
+    if df is None or df.empty:
+        st.session_state[selection_state_key] = None if single_select else []
+        return pd.DataFrame(), []
+
+    if row_id_col not in df.columns:
+        raise ValueError(f"row_id_col '{row_id_col}' must exist in table data.")
+
+    persisted_raw = st.session_state.get(selection_state_key)
+    if single_select:
+        persisted_ids = {persisted_raw} if persisted_raw is not None else set()
+    else:
+        persisted_ids = set(persisted_raw or [])
+
+    visible_ids = set(df[row_id_col].tolist())
+    persisted_ids = {value for value in persisted_ids if value in visible_ids}
+    working_df = df.copy()
+    working_df.insert(0, "selected", working_df[row_id_col].isin(persisted_ids))
+    edited_df = st.data_editor(
+        working_df,
+        key=table_key,
+        use_container_width=use_container_width,
+        hide_index=hide_index,
+        height=height,
+        column_config={
+            "selected": st.column_config.CheckboxColumn(
+                selection_label,
+                width="medium",
+                help=selection_help,
+            )
+        },
+        disabled=[column for column in working_df.columns if column != "selected"],
+    )
+
+    selected_ids = edited_df.loc[edited_df["selected"] == True, row_id_col].tolist()
+    if single_select:
+        chosen_id = selected_ids[-1] if selected_ids else None
+        st.session_state[selection_state_key] = chosen_id
+        return edited_df, [chosen_id] if chosen_id is not None else []
+
+    st.session_state[selection_state_key] = selected_ids
+    return edited_df, selected_ids
 
 
 def _inject_app_table_styles() -> None:
