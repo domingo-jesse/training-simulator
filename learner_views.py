@@ -274,7 +274,7 @@ def render_module_library(user: Dict) -> None:
 
 
 
-def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user: Dict) -> dict:
+def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user: Dict, time_limit_minutes: int) -> dict:
     state = fetch_one(
         """
         SELECT *
@@ -289,7 +289,8 @@ def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user:
     if state:
         return dict(state)
 
-    started_at = datetime.now(timezone.utc).isoformat()
+    started_at = datetime.now(timezone.utc)
+    end_time = datetime.fromtimestamp(started_at.timestamp() + (time_limit_minutes * 60), timezone.utc)
     execute(
         """
         INSERT INTO assignment_workspace_state (
@@ -309,12 +310,23 @@ def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user:
             used_actions,
             submitted_state,
             started_at,
+            time_limit_minutes,
+            end_time,
+            auto_submitted_state,
             created_at,
             updated_at,
             last_saved_at
-        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', 0, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         """,
-        (assignment_id, user["organization_id"], module_id, user["user_id"], started_at),
+        (
+            assignment_id,
+            user["organization_id"],
+            module_id,
+            user["user_id"],
+            started_at.isoformat(),
+            time_limit_minutes,
+            end_time.isoformat(),
+        ),
     )
     return fetch_one(
         """
@@ -459,7 +471,13 @@ def render_scenario_page(user: Dict) -> None:
         (module_id,),
     )
 
-    persisted = _load_or_create_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+    duration_minutes = _estimated_minutes(module.get("estimated_time"), fallback=20)
+    persisted = _load_or_create_workspace_state(
+        assignment_id=assignment_id,
+        module_id=module_id,
+        user=user,
+        time_limit_minutes=duration_minutes,
+    )
     step_key = f"wizard_step_{assignment_id}"
     st.session_state.setdefault(step_key, int(persisted.get("current_step") or 1))
     st.session_state.setdefault(f"used_actions_{assignment_id}", json.loads(persisted.get("used_actions") or "[]"))
@@ -471,6 +489,7 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
     st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
+    st.session_state.setdefault(f"submitted_{assignment_id}", bool(int(persisted.get("submitted_state") or 0)))
 
     st.subheader(module["title"])
     st.caption(f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
@@ -482,30 +501,66 @@ def render_scenario_page(user: Dict) -> None:
     revealed_key = f"revealed_{assignment_id}"
     started_at_key = f"started_at_{assignment_id}"
 
-    started_at_iso = st.session_state.get(started_at_key)
+    started_at_iso = persisted.get("started_at") or st.session_state.get(started_at_key)
     try:
         started_at_dt = datetime.fromisoformat(started_at_iso) if started_at_iso else datetime.now(timezone.utc)
     except (TypeError, ValueError):
         started_at_dt = datetime.now(timezone.utc)
         st.session_state[started_at_key] = started_at_dt.isoformat()
 
-    duration_minutes = _estimated_minutes(module.get("estimated_time"), fallback=20)
-    deadline = started_at_dt.timestamp() + (duration_minutes * 60)
+    persisted_limit_minutes = int(persisted.get("time_limit_minutes") or duration_minutes)
+    end_time_iso = persisted.get("end_time")
+    try:
+        end_time_dt = datetime.fromisoformat(end_time_iso) if end_time_iso else datetime.fromtimestamp(
+            started_at_dt.timestamp() + (persisted_limit_minutes * 60), timezone.utc
+        )
+    except (TypeError, ValueError):
+        end_time_dt = datetime.fromtimestamp(started_at_dt.timestamp() + (persisted_limit_minutes * 60), timezone.utc)
+    if not end_time_iso:
+        execute(
+            """
+            UPDATE assignment_workspace_state
+            SET time_limit_minutes = COALESCE(time_limit_minutes, ?),
+                end_time = ?,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE assignment_id = ? AND organization_id = ? AND module_id = ? AND user_id = ?
+            """,
+            (
+                persisted_limit_minutes,
+                end_time_dt.isoformat(),
+                assignment_id,
+                user["organization_id"],
+                module_id,
+                user["user_id"],
+            ),
+        )
+    deadline = end_time_dt.timestamp()
     now_ts = datetime.now(timezone.utc).timestamp()
     remaining_seconds = int(deadline - now_ts)
     timer_key = f"timer_submitted_{assignment_id}"
     st.session_state.setdefault(timer_key, False)
+    already_submitted = int(persisted.get("submitted_state") or 0) == 1
+    already_auto_submitted = int(persisted.get("auto_submitted_state") or 0) == 1
 
-    @st.fragment(run_every="1s")
-    def _render_countdown(seconds_left: int) -> None:
+    @st.fragment(run_every="1s" if not already_submitted else None)
+    def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:
+        seconds_left = int(deadline_epoch - datetime.now(timezone.utc).timestamp())
         minutes = max(0, seconds_left) // 60
         seconds = max(0, seconds_left) % 60
-        if seconds_left > 0:
+        if is_submitted:
+            st.success("✅ This assignment is already submitted.")
+        elif seconds_left > 60:
             st.info(f"⏳ Time remaining: {minutes:02d}:{seconds:02d}")
+        elif seconds_left > 0:
+            st.warning(f"⚠️ 1 minute remaining — submit soon ({minutes:02d}:{seconds:02d}).")
         else:
-            st.error("⏰ Time is up. Your current work will be submitted automatically.")
+            st.error("⏰ Time is up. Submitting your assignment...")
 
-    _render_countdown(remaining_seconds)
+    _render_countdown(deadline, already_submitted)
+
+    if already_submitted:
+        st.info("This assignment has already been submitted. Open Results or return to Assigned Modules.")
+        return
 
     question_answers: dict[str, str] = st.session_state.get(f"question_answers_{assignment_id}", {})
     diagnosis = st.session_state.get(f"diagnosis_{assignment_id}", "")
@@ -574,6 +629,30 @@ def render_scenario_page(user: Dict) -> None:
     def _submit_module_attempt(*, timed_out: bool) -> None:
         scenario_logger = view_logger.bind(scenario_id=module_id)
         scenario_logger.info("Form submitted.", form="submit_module", timed_out=timed_out)
+        submission_lock = fetch_one(
+            """
+            UPDATE assignment_workspace_state
+            SET submitted_state = 1,
+                progress_status = 'submitted',
+                submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP),
+                auto_submitted_state = CASE WHEN ? THEN 1 ELSE auto_submitted_state END,
+                updated_at = CURRENT_TIMESTAMP,
+                last_saved_at = CURRENT_TIMESTAMP
+            WHERE assignment_id = ?
+              AND organization_id = ?
+              AND module_id = ?
+              AND user_id = ?
+              AND submitted_state = 0
+            RETURNING assignment_id
+            """,
+            (timed_out, assignment_id, user["organization_id"], module_id, user["user_id"]),
+        )
+        if not submission_lock:
+            scenario_logger.info("Skipping duplicate submission attempt.")
+            st.session_state[timer_key] = True
+            st.session_state[f"submitted_{assignment_id}"] = True
+            return
+
         submitted_at = datetime.now(timezone.utc)
         started_at_iso_inner = st.session_state.get(started_at_key)
         started_at = None
@@ -582,7 +661,7 @@ def render_scenario_page(user: Dict) -> None:
         except (TypeError, ValueError):
             started_at = None
         elapsed_seconds = int((submitted_at - started_at).total_seconds()) if started_at else None
-        time_limit_seconds = duration_minutes * 60
+        time_limit_seconds = persisted_limit_minutes * 60
         time_remaining_seconds = max(0, time_limit_seconds - (elapsed_seconds or 0)) if elapsed_seconds is not None else None
         time_out_note = "\n\nTime limit reached before completion." if timed_out else ""
         answers = {
@@ -621,10 +700,7 @@ def render_scenario_page(user: Dict) -> None:
             execute(
                 """
                 UPDATE assignment_workspace_state
-                SET progress_status = 'submitted',
-                    submitted_state = 1,
-                    submitted_at = CURRENT_TIMESTAMP,
-                    current_step = 6,
+                SET current_step = 6,
                     updated_at = CURRENT_TIMESTAMP,
                     last_saved_at = CURRENT_TIMESTAMP
                 WHERE assignment_id = ? AND organization_id = ? AND module_id = ? AND user_id = ?
@@ -640,7 +716,11 @@ def render_scenario_page(user: Dict) -> None:
             scenario_logger.exception("Failed to submit module.")
             st.error("We couldn't submit this module. Please try again.")
 
-    if remaining_seconds <= 0 and not st.session_state.get(timer_key):
+    if (already_submitted or already_auto_submitted) and remaining_seconds <= 0:
+        st.info("This assignment has already expired and been submitted.")
+        return
+
+    if remaining_seconds <= 0 and not st.session_state.get(timer_key) and not already_submitted:
         _submit_module_attempt(timed_out=True)
 
     validation_error = None
