@@ -26,6 +26,8 @@ from utils import (
     filter_active_learners,
     filter_inactive_learners,
     metric_row,
+    render_kpi_card,
+    render_page_header,
     to_df,
 )
 from module_generation import ModuleGenerationInput, generate_module_preview
@@ -231,7 +233,7 @@ def _cleanup_assignment_tracking_records(
 def render_admin_dashboard(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.subheader("Admin Dashboard")
+    render_page_header("Dashboard Overview", "Operational health across learners, assignments, and outcomes.")
 
     try:
         learners_df = to_df(fetch_all("SELECT * FROM users WHERE role='learner' AND organization_id = ?", (org_id,)))
@@ -251,38 +253,62 @@ def render_admin_dashboard(current_user: dict) -> None:
     overdue_assignments = int(assignments_df["status"].eq("Overdue").sum()) if not assignments_df.empty else 0
     in_progress_assignments = int(assignments_df["status"].eq("In Progress").sum()) if not assignments_df.empty else 0
 
-    metric_row(
-        {
-            "Total learners": total_learners,
-            "Active learners": active_learners,
-            "Inactive learners": inactive_learners,
-            "Modules created": modules_created,
-            "Modules assigned": modules_assigned,
-            "Completion rate": f"{completion_rate}%",
-            "Overdue assignments": overdue_assignments,
-            "In-progress assignments": in_progress_assignments,
-        }
-    )
+    m1, m2, m3, m4 = st.columns(4)
+    with m1:
+        render_kpi_card("Total learners", total_learners, f"{active_learners} active")
+    with m2:
+        render_kpi_card("Active assignments", modules_assigned, f"{in_progress_assignments} in progress")
+    with m3:
+        render_kpi_card("Completion rate", f"{completion_rate}%", "Across all active assignments")
+    with m4:
+        render_kpi_card("Overdue", overdue_assignments, "Need follow-up")
 
-    c1, c2, c3 = st.columns(3)
+    st.markdown("#### Assignment analytics")
+    c1, c2 = st.columns([2, 1])
     with c1:
-        st.markdown("#### Assignment status")
+        if assignments_df.empty:
+            st.info("No assignments yet.")
+        else:
+            trend = assignments_df.copy()
+            trend["assigned_at"] = pd.to_datetime(trend["assigned_at"])
+            trend = trend.groupby(trend["assigned_at"].dt.date).size().reset_index(name="count")
+            trend.columns = ["date", "count"]
+            st.line_chart(trend.set_index("date"))
+    with c2:
+        st.markdown("##### Status breakdown")
         if assignments_df.empty:
             st.info("No assignments yet.")
         else:
             st.bar_chart(assignments_df["status"].value_counts())
-    with c2:
-        st.markdown("#### Learner status")
-        if learners_df.empty:
-            st.info("No learners found.")
-        else:
+
+    c3, c4, c5 = st.columns(3)
+    with c3:
+        with st.container(border=True):
+            st.markdown("##### Learner status")
             st.bar_chart(pd.Series({"Active": active_learners, "Inactive": inactive_learners}))
+    with c4:
+        with st.container(border=True):
+            st.markdown("##### Recent submissions")
+            recent = assignments_df[assignments_df["last_attempt_at"].notna()].head(5)
+            if recent.empty:
+                st.caption("No submissions yet.")
+            else:
+                for _, row in recent.iterrows():
+                    st.caption(f"{row['learner_name']} • {row['module_title']}")
+    with c5:
+        with st.container(border=True):
+            st.markdown("##### Module catalog")
+            st.metric("Created modules", modules_created)
+            st.metric("Inactive learners", inactive_learners)
+            st.metric("In-progress", in_progress_assignments)
+    
+    
 
 
 def render_learner_management(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.subheader("Learner Management")
+    render_page_header("Learner Management", "Search, segment, and manage active learner access.")
 
     rows = fetch_all(
         """
@@ -342,14 +368,14 @@ def render_learner_management(current_user: dict) -> None:
     df["is_active"] = df["is_active"].astype(bool)
     df["status"] = df["is_active"].map({True: "Active", False: "Inactive"})
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3 = st.columns([2, 1, 1])
+    team_options = sorted([team for team in df["team"].unique().tolist() if team])
+    org_options = sorted(df["organization_name"].unique().tolist())
     with c1:
-        q = st.text_input("Search learners")
+        q = st.text_input("Search learners", placeholder="Search by name, team, or department")
     with c2:
-        team_options = sorted([team for team in df["team"].unique().tolist() if team])
-        team_filter = st.selectbox("Team", ["All"] + team_options)
+        team_filter = st.selectbox("Department/Team", ["All"] + team_options)
     with c3:
-        org_options = sorted(df["organization_name"].unique().tolist())
         org_filter = st.selectbox("Organization", ["All"] + org_options)
     filtered = apply_learner_filters(df, search_text=q, team_filter=team_filter, org_filter=org_filter)
 
@@ -409,7 +435,7 @@ def render_learner_management(current_user: dict) -> None:
             )
 
         selected_learners = st.multiselect(
-            "Select learners",
+            "Selected learners",
             options=option_labels,
             key=multiselect_key,
         )
@@ -426,7 +452,9 @@ def render_learner_management(current_user: dict) -> None:
             action_type = "primary"
 
         with c3:
-            run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}")
+            with st.container(border=True):
+                st.caption("Bulk action toolbar")
+                run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}", use_container_width=True)
 
         if run_bulk_action:
             if not selected_ids:
@@ -653,7 +681,7 @@ def _render_assignment_tool(current_user: dict) -> None:
 
 
 def render_assignment_management(current_user: dict) -> None:
-    st.subheader("Assignments")
+    render_page_header("Assignment Management", "Assign modules in bulk and monitor assignment status.")
     current_tab, tool_tab = st.tabs(["Current Assignments", "Assignment Tool"])
     with current_tab:
         render_current_assignments(current_user)
@@ -664,7 +692,7 @@ def render_assignment_management(current_user: dict) -> None:
 def render_current_assignments(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.subheader("Current Assignments")
+    st.markdown("#### Current assignments")
 
     assignments_df = _assignments_with_status(org_id)
     if assignments_df.empty:
@@ -682,48 +710,49 @@ def render_current_assignments(current_user: dict) -> None:
         "current_assignments_filters",
         {"search": "", "team": "All", "org": "All", "status": "All", "module": "All"},
     )
-    with st.form("current_assignments_filters_form", clear_on_submit=False):
-        f1, f2, f3, f4, f5, f6 = st.columns([2, 1, 1, 1, 1, 1])
-        with f1:
-            q_draft = st.text_input("Search learner or module", value=assignment_filters.get("search", ""))
-        with f2:
-            team_values = ["All"] + team_options
-            team_draft = st.selectbox(
-                "Team/Department",
-                team_values,
-                index=team_values.index(assignment_filters.get("team", "All"))
-                if assignment_filters.get("team", "All") in team_values
-                else 0,
-            )
-        with f3:
-            org_values = ["All"] + org_options
-            org_draft = st.selectbox(
-                "Organization",
-                org_values,
-                index=org_values.index(assignment_filters.get("org", "All"))
-                if assignment_filters.get("org", "All") in org_values
-                else 0,
-            )
-        with f4:
-            status_values = ["All"] + status_options
-            status_draft = st.selectbox(
-                "Status",
-                status_values,
-                index=status_values.index(assignment_filters.get("status", "All"))
-                if assignment_filters.get("status", "All") in status_values
-                else 0,
-            )
-        with f5:
-            module_values = ["All"] + module_options
-            module_draft = st.selectbox(
-                "Module",
-                module_values,
-                index=module_values.index(assignment_filters.get("module", "All"))
-                if assignment_filters.get("module", "All") in module_values
-                else 0,
-            )
-        with f6:
-            apply_assignment_filters = st.form_submit_button("Apply filters", use_container_width=True)
+    with st.container(border=True):
+        with st.form("current_assignments_filters_form", clear_on_submit=False):
+            f1, f2, f3, f4, f5, f6 = st.columns([2, 1, 1, 1, 1, 1])
+            with f1:
+                q_draft = st.text_input("Search learner or module", value=assignment_filters.get("search", ""))
+            with f2:
+                team_values = ["All"] + team_options
+                team_draft = st.selectbox(
+                    "Team/Department",
+                    team_values,
+                    index=team_values.index(assignment_filters.get("team", "All"))
+                    if assignment_filters.get("team", "All") in team_values
+                    else 0,
+                )
+            with f3:
+                org_values = ["All"] + org_options
+                org_draft = st.selectbox(
+                    "Organization",
+                    org_values,
+                    index=org_values.index(assignment_filters.get("org", "All"))
+                    if assignment_filters.get("org", "All") in org_values
+                    else 0,
+                )
+            with f4:
+                status_values = ["All"] + status_options
+                status_draft = st.selectbox(
+                    "Status",
+                    status_values,
+                    index=status_values.index(assignment_filters.get("status", "All"))
+                    if assignment_filters.get("status", "All") in status_values
+                    else 0,
+                )
+            with f5:
+                module_values = ["All"] + module_options
+                module_draft = st.selectbox(
+                    "Module",
+                    module_values,
+                    index=module_values.index(assignment_filters.get("module", "All"))
+                    if assignment_filters.get("module", "All") in module_values
+                    else 0,
+                )
+            with f6:
+                apply_assignment_filters = st.form_submit_button("Apply filters", use_container_width=True)
 
     if apply_assignment_filters:
         st.session_state["current_assignments_filters"] = {
@@ -1101,8 +1130,7 @@ def _render_named_step_indicator(step_index: int, labels: list[str]) -> None:
 
 def render_module_builder(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    st.subheader("Module Builder")
-    st.caption("Build from admin input → AI draft preview → approve/deny scenario + questions → publish.")
+    render_page_header("Module Builder", "Guided wizard for structured module generation and approval.")
 
     st.markdown("#### Step 1: Enter module goals")
     module_builder_step_key = "module_builder_step"
@@ -1149,106 +1177,107 @@ def render_module_builder(current_user: dict) -> None:
     _render_wizard_progress(current_step, total_steps, step_config["title"])
 
     # Wizard: render exactly one step at a time and persist each input in session state.
-    step_valid = True
-    required_message = ""
-    if step_config["field"] == "title":
-        module_form["title"] = st.text_input("Title", value=module_form["title"], key="module_builder_title")
-        step_valid = _is_present(module_form["title"])
-        required_message = "Title is required."
-    elif step_config["field"] == "category":
-        module_form["category"] = st.text_input("Category", value=module_form["category"], key="module_builder_category")
-        step_valid = _is_present(module_form["category"])
-        required_message = "Category is required."
-    elif step_config["field"] == "difficulty":
-        difficulty_options = ["Beginner", "Intermediate", "Advanced"]
-        current_difficulty = module_form["difficulty"] if module_form["difficulty"] in difficulty_options else "Beginner"
-        module_form["difficulty"] = st.selectbox(
-            "Difficulty",
-            difficulty_options,
-            index=difficulty_options.index(current_difficulty),
-            key="module_builder_difficulty",
-        )
-    elif step_config["field"] == "role_focus":
-        module_form["role_focus"] = st.text_input(
-            "Role being simulated (e.g., Support Tier 1, Team Lead)",
-            value=module_form["role_focus"],
-            key="module_builder_role_focus",
-        )
-        step_valid = _is_present(module_form["role_focus"])
-        required_message = "Role focus is required."
-    elif step_config["field"] == "test_focus":
-        module_form["test_focus"] = st.text_input(
-            "What should this module test?",
-            value=module_form["test_focus"],
-            key="module_builder_test_focus",
-        )
-        step_valid = _is_present(module_form["test_focus"])
-        required_message = "Test focus is required."
-    elif step_config["field"] == "description":
-        module_form["description"] = st.text_area("Description", value=module_form["description"], key="module_builder_description")
-        step_valid = _is_present(module_form["description"])
-        required_message = "Description is required."
-    elif step_config["field"] == "learning_objectives":
-        module_form["learning_objectives"] = st.text_area(
-            "Learning objectives (one per line)",
-            value=module_form["learning_objectives"],
-            key="module_builder_learning_objectives",
-        )
-        step_valid = _is_present(module_form["learning_objectives"])
-        required_message = "Learning objectives are required."
-    elif step_config["field"] == "scenario_constraints":
-        module_form["scenario_constraints"] = st.text_area(
-            "Scenario context / constraints",
-            value=module_form["scenario_constraints"],
-            key="module_builder_scenario_constraints",
-        )
-        step_valid = _is_present(module_form["scenario_constraints"])
-        required_message = "Scenario context is required."
-    elif step_config["field"] == "content_sections":
-        module_form["content_sections"] = st.text_area(
-            "Ordered content sections (one per line)",
-            value=module_form["content_sections"],
-            key="module_builder_content_sections",
-        )
-        step_valid = _is_present(module_form["content_sections"])
-        required_message = "Content sections are required."
-    elif step_config["field"] == "completion_requirements":
-        module_form["completion_requirements"] = st.text_area(
-            "Completion requirements",
-            value=module_form["completion_requirements"],
-            key="module_builder_completion_requirements",
-        )
-        step_valid = _is_present(module_form["completion_requirements"])
-        required_message = "Completion requirements are required."
-    elif step_config["field"] == "assessment_settings":
-        module_form["quiz_required"] = st.checkbox(
-            "Quiz required",
-            value=bool(module_form["quiz_required"]),
-            key="module_builder_quiz_required",
-        )
-        module_form["estimated_minutes"] = int(
-            st.number_input(
-                "Estimated assessment time (minutes)",
-                min_value=1,
-                max_value=240,
-                value=int(module_form["estimated_minutes"]),
-                step=1,
-                key="module_builder_estimated_minutes",
+    with st.container(border=True):
+        step_valid = True
+        required_message = ""
+        if step_config["field"] == "title":
+            module_form["title"] = st.text_input("Title", value=module_form["title"], key="module_builder_title")
+            step_valid = _is_present(module_form["title"])
+            required_message = "Title is required."
+        elif step_config["field"] == "category":
+            module_form["category"] = st.text_input("Category", value=module_form["category"], key="module_builder_category")
+            step_valid = _is_present(module_form["category"])
+            required_message = "Category is required."
+        elif step_config["field"] == "difficulty":
+            difficulty_options = ["Beginner", "Intermediate", "Advanced"]
+            current_difficulty = module_form["difficulty"] if module_form["difficulty"] in difficulty_options else "Beginner"
+            module_form["difficulty"] = st.selectbox(
+                "Difficulty",
+                difficulty_options,
+                index=difficulty_options.index(current_difficulty),
+                key="module_builder_difficulty",
             )
-        )
-        module_form["question_count"] = int(
-            st.slider(
-                "AI-generated questions",
-                min_value=5,
-                max_value=6,
-                value=int(module_form["question_count"]),
-                key="module_builder_question_count",
+        elif step_config["field"] == "role_focus":
+            module_form["role_focus"] = st.text_input(
+                "Role being simulated (e.g., Support Tier 1, Team Lead)",
+                value=module_form["role_focus"],
+                key="module_builder_role_focus",
             )
-        )
-    else:
-        st.markdown("##### Review")
-        st.write("Please review your values before saving.")
-        st.json(module_form)
+            step_valid = _is_present(module_form["role_focus"])
+            required_message = "Role focus is required."
+        elif step_config["field"] == "test_focus":
+            module_form["test_focus"] = st.text_input(
+                "What should this module test?",
+                value=module_form["test_focus"],
+                key="module_builder_test_focus",
+            )
+            step_valid = _is_present(module_form["test_focus"])
+            required_message = "Test focus is required."
+        elif step_config["field"] == "description":
+            module_form["description"] = st.text_area("Description", value=module_form["description"], key="module_builder_description")
+            step_valid = _is_present(module_form["description"])
+            required_message = "Description is required."
+        elif step_config["field"] == "learning_objectives":
+            module_form["learning_objectives"] = st.text_area(
+                "Learning objectives (one per line)",
+                value=module_form["learning_objectives"],
+                key="module_builder_learning_objectives",
+            )
+            step_valid = _is_present(module_form["learning_objectives"])
+            required_message = "Learning objectives are required."
+        elif step_config["field"] == "scenario_constraints":
+            module_form["scenario_constraints"] = st.text_area(
+                "Scenario context / constraints",
+                value=module_form["scenario_constraints"],
+                key="module_builder_scenario_constraints",
+            )
+            step_valid = _is_present(module_form["scenario_constraints"])
+            required_message = "Scenario context is required."
+        elif step_config["field"] == "content_sections":
+            module_form["content_sections"] = st.text_area(
+                "Ordered content sections (one per line)",
+                value=module_form["content_sections"],
+                key="module_builder_content_sections",
+            )
+            step_valid = _is_present(module_form["content_sections"])
+            required_message = "Content sections are required."
+        elif step_config["field"] == "completion_requirements":
+            module_form["completion_requirements"] = st.text_area(
+                "Completion requirements",
+                value=module_form["completion_requirements"],
+                key="module_builder_completion_requirements",
+            )
+            step_valid = _is_present(module_form["completion_requirements"])
+            required_message = "Completion requirements are required."
+        elif step_config["field"] == "assessment_settings":
+            module_form["quiz_required"] = st.checkbox(
+                "Quiz required",
+                value=bool(module_form["quiz_required"]),
+                key="module_builder_quiz_required",
+            )
+            module_form["estimated_minutes"] = int(
+                st.number_input(
+                    "Estimated assessment time (minutes)",
+                    min_value=1,
+                    max_value=240,
+                    value=int(module_form["estimated_minutes"]),
+                    step=1,
+                    key="module_builder_estimated_minutes",
+                )
+            )
+            module_form["question_count"] = int(
+                st.slider(
+                    "AI-generated questions",
+                    min_value=5,
+                    max_value=6,
+                    value=int(module_form["question_count"]),
+                    key="module_builder_question_count",
+                )
+            )
+        else:
+            st.markdown("##### Review")
+            st.write("Please review your values before saving.")
+            st.json(module_form)
         missing_required = [
             "title",
             "category",

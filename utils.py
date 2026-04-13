@@ -11,26 +11,38 @@ def inject_styles() -> None:
     st.markdown(
         """
         <style>
-        .main .block-container {padding-top: 1.1rem; padding-bottom: 2rem; max-width: 1320px;}
+        :root {
+            --bg: #f5f7fb;
+            --surface: #ffffff;
+            --line: #e6eaf2;
+            --text: #101828;
+            --muted: #667085;
+            --brand: #4f46e5;
+            --brand-soft: #eef2ff;
+            --success: #067647;
+            --warning: #b54708;
+            --danger: #b42318;
+        }
+        .main .block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1320px;}
         .stApp,
         [data-testid="stAppViewContainer"] {
-            background: linear-gradient(145deg, #edf1f6, #e4e9f0 55%, #f3f6fa);
-            color: #0f172a;
+            background: var(--bg);
+            color: var(--text);
         }
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
-            width: 292px !important;
-            min-width: 292px !important;
-            max-width: 292px !important;
-            flex: 0 0 292px !important;
+            width: 250px !important;
+            min-width: 250px !important;
+            max-width: 250px !important;
+            flex: 0 0 250px !important;
         }
         section[data-testid="stSidebar"] > div:first-child,
         [data-testid="stSidebar"] > div:first-child {
-            background: linear-gradient(180deg, #f8fafd, #eef2f7);
-            border-right: 1px solid rgba(15, 23, 42, 0.09);
-            width: 292px !important;
-            min-width: 292px !important;
-            max-width: 292px !important;
+            background: var(--surface);
+            border-right: 1px solid var(--line);
+            width: 250px !important;
+            min-width: 250px !important;
+            max-width: 250px !important;
             padding-top: 0.8rem;
             overflow: visible !important;
         }
@@ -43,21 +55,21 @@ def inject_styles() -> None:
             overflow: visible !important;
         }
         .sidebar-header {
-            margin: 0.1rem 0 0.7rem 0;
-            padding: 0.3rem 0.2rem 0.55rem 0.2rem;
-            border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+            margin: 0.1rem 0 1rem 0;
+            padding: 0.2rem 0.3rem 0.8rem 0.3rem;
+            border-bottom: 1px solid var(--line);
         }
         .sidebar-eyebrow {
             font-size: 0.74rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
-            color: #64748b;
+            color: var(--muted);
             font-weight: 700;
             margin-bottom: 0.15rem;
         }
         .sidebar-title {
             font-size: 1.02rem;
-            color: #0f172a;
+            color: var(--text);
             font-weight: 700;
         }
         [data-testid="stSidebar"] .stButton {
@@ -68,7 +80,7 @@ def inject_styles() -> None:
         [data-testid="stSidebar"] .stButton > button {
             width: 100% !important;
             max-width: 100% !important;
-            border-radius: 7px;
+            border-radius: 12px;
             display: flex !important;
             align-items: center;
             justify-content: flex-start;
@@ -76,10 +88,10 @@ def inject_styles() -> None:
             white-space: nowrap;
             overflow: visible !important;
             text-overflow: clip !important;
-            min-height: 1.8rem;
-            padding: 0.29rem 0.6rem;
+            min-height: 2.1rem;
+            padding: 0.4rem 0.72rem;
             font-weight: 500;
-            font-size: 0.88rem;
+            font-size: 0.9rem;
             letter-spacing: 0.005em;
             box-shadow: none;
             border: none !important;
@@ -102,24 +114,24 @@ def inject_styles() -> None:
             display: block !important;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-            background: rgba(37, 99, 235, 0.12) !important;
+            background: var(--brand) !important;
             border: none !important;
-            color: #1d4ed8;
+            color: #ffffff;
             font-weight: 600;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
-            background: rgba(37, 99, 235, 0.16) !important;
-            color: #1d4ed8;
+            background: #4338ca !important;
+            color: #ffffff;
             transform: none;
         }
         [data-testid="stSidebar"] .stButton > button[kind="secondary"] {
             background: transparent !important;
             border: none !important;
-            color: #334155;
+            color: #344054;
         }
         [data-testid="stSidebar"] .stButton > button[kind="secondary"]:hover {
-            background: rgba(148, 163, 184, 0.14) !important;
-            color: #0f172a;
+            background: #f2f4f7 !important;
+            color: var(--text);
             transform: none;
         }
         .stApp [data-testid="stMarkdownContainer"],
@@ -127,7 +139,7 @@ def inject_styles() -> None:
         .stApp p,
         .stApp .st-emotion-cache-10trblm,
         .stApp .st-emotion-cache-16idsys {
-            color: #0f172a;
+            color: var(--text);
         }
 
         .panel,
@@ -135,14 +147,40 @@ def inject_styles() -> None:
         [data-testid="stVerticalBlockBorderWrapper"],
         [data-testid="stDataFrame"],
         .stTabs [data-baseweb="tab-panel"] {
-            background: rgba(255, 255, 255, 0.88);
-            backdrop-filter: blur(6px);
-            border: 1px solid rgba(15, 23, 42, 0.08);
-            border-radius: 12px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 16px;
             padding: 16px;
         }
-        .subtle {color: #475569; font-size: 0.92rem;}
-        .title-chip {display:inline-block;padding:0.25rem 0.6rem;border-radius:999px;background:rgba(59,130,246,0.14);color:#1d4ed8;font-size:0.78rem;}
+        .subtle {color: var(--muted); font-size: 0.92rem;}
+        .title-chip {display:inline-block;padding:0.25rem 0.6rem;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-size:0.78rem;}
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.25rem;
+        }
+        .page-header-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
+        .page-header-subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 0.1rem; }
+        .kpi-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 16px;
+            padding: 14px 16px;
+        }
+        .kpi-label { color: var(--muted); font-size: 0.82rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+        .kpi-value { color: var(--text); font-size: 1.7rem; font-weight: 700; line-height: 1.1; margin-top: 6px; }
+        .kpi-sub { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
+        .status-pill {
+            display: inline-block;
+            border-radius: 999px;
+            padding: 3px 10px;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .status-active { background: #e7f8ef; color: #067647; }
+        .status-pending { background: #fff4e5; color: #b54708; }
+        .status-inactive { background: #f2f4f7; color: #344054; }
         .login-shell {
             max-width: 420px;
             margin: 0 auto 1rem auto;
@@ -165,31 +203,28 @@ def inject_styles() -> None:
         .login-legal strong {color:#e2e8f0; font-weight:600;}
 
         .stApp h2, .stApp h3 {
-            font-size: 1.35rem;
-            background: linear-gradient(90deg, #1d4ed8, #4338ca);
-            -webkit-background-clip: text;
-            background-clip: text;
-            color: transparent;
+            font-size: 1.3rem;
+            color: var(--text);
         }
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
         }
         .app-shell-header {
-            padding: 0.15rem 0 0.35rem 0;
+            padding: 0.1rem 0 0.35rem 0;
         }
         .app-shell-header-title {
-            font-size: 1.45rem;
+            font-size: 1.32rem;
             font-weight: 700;
-            color: #0f172a;
+            color: var(--text);
             line-height: 1.2;
         }
         .app-shell-header-subtitle {
             margin-top: 0.2rem;
-            color: #64748b;
+            color: var(--muted);
             font-size: 0.9rem;
         }
         .shell-divider {
-            border-bottom: 1px solid rgba(148, 163, 184, 0.28);
+            border-bottom: 1px solid var(--line);
             margin: 0.15rem 0 1rem 0;
         }
         .profile-menu-anchor {
@@ -204,7 +239,7 @@ def inject_styles() -> None:
         }
         .profile-menu-anchor .stPopover > button {
             height: 2.3rem;
-            border-radius: 999px;
+            border-radius: 12px;
             padding: 0 0.8rem;
             font-size: 0.84rem;
             font-weight: 600;
@@ -215,30 +250,30 @@ def inject_styles() -> None:
         }
 
         .stButton > button {
-            border-radius: 999px;
-            border: 1px solid rgba(59, 130, 246, 0.25);
+            border-radius: 10px;
+            border: 1px solid #d0d5dd;
             transition: all 0.18s ease;
-            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+            box-shadow: none;
         }
         .stButton > button[kind="primary"] {
-            background: linear-gradient(135deg, #3b82f6, #6366f1);
+            background: var(--brand);
             color: #ffffff;
             border-color: transparent;
         }
         .stButton > button[kind="primary"]:hover {
-            background: linear-gradient(135deg, #60a5fa, #818cf8);
+            background: #4338ca;
             color: #ffffff;
-            transform: translateY(-1px);
+            transform: none;
         }
         .stButton > button[kind="secondary"] {
             background: rgba(255, 255, 255, 0.9);
             color: #1e293b;
         }
         .stButton > button[kind="secondary"]:hover {
-            border-color: rgba(59, 130, 246, 0.45);
-            background: rgba(239, 246, 255, 0.95);
-            color: #1d4ed8;
-            transform: translateY(-1px);
+            border-color: #98a2b3;
+            background: #f9fafb;
+            color: #1d2939;
+            transform: none;
         }
 
         [data-testid="stTextInput"] input,
@@ -247,7 +282,7 @@ def inject_styles() -> None:
         [data-baseweb="select"] > div {
             background: #ffffff !important;
             border: 1px solid rgba(15, 23, 42, 0.16) !important;
-            border-radius: 8px !important;
+            border-radius: 12px !important;
             color: #0f172a !important;
         }
         [data-baseweb="select"] span {
@@ -255,10 +290,16 @@ def inject_styles() -> None:
         }
 
         [data-testid="stDataFrame"] [role="columnheader"] {
-            background: rgba(148, 163, 184, 0.16) !important;
+            background: #f8f9fc !important;
         }
         [data-testid="stDataFrame"] [role="row"]:hover {
-            background: rgba(59, 130, 246, 0.08) !important;
+            background: #f9f5ff !important;
+        }
+        [data-testid="stMetric"] {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 12px;
         }
         .login-card [data-testid="stTextInput"] input {
             border-radius: 8px;
@@ -280,6 +321,33 @@ def metric_row(items: Dict[str, Any]) -> None:
     cols = st.columns(len(items))
     for i, (label, value) in enumerate(items.items()):
         cols[i].metric(label, value)
+
+
+def render_page_header(title: str, subtitle: str = "") -> None:
+    st.markdown(
+        f"""
+        <div class="page-header">
+          <div>
+            <div class="page-header-title">{title}</div>
+            <div class="page-header-subtitle">{subtitle}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_kpi_card(label: str, value: Any, subtext: str = "") -> None:
+    st.markdown(
+        f"""
+        <div class="kpi-card">
+          <div class="kpi-label">{label}</div>
+          <div class="kpi-value">{value}</div>
+          <div class="kpi-sub">{subtext}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def to_df(rows) -> pd.DataFrame:
