@@ -17,23 +17,30 @@ def inject_styles() -> None:
             background: linear-gradient(145deg, #edf1f6, #e4e9f0 55%, #f3f6fa);
             color: #0f172a;
         }
+        section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
-            min-width: 260px;
-            max-width: 260px;
+            width: 280px !important;
+            min-width: 280px !important;
+            max-width: 280px !important;
+            flex: 0 0 280px !important;
         }
+        section[data-testid="stSidebar"] > div:first-child,
         [data-testid="stSidebar"] > div:first-child {
             background: linear-gradient(180deg, #f8fafd, #eef2f7);
             border-right: 1px solid rgba(15, 23, 42, 0.09);
-            width: 260px;
-            min-width: 260px;
-            max-width: 260px;
+            width: 280px !important;
+            min-width: 280px !important;
+            max-width: 280px !important;
             padding-top: 0.8rem;
+            overflow: visible !important;
         }
         [data-testid="stSidebar"] .block-container {
             padding-top: 0.35rem;
             padding-bottom: 1rem;
             padding-left: 0.8rem;
             padding-right: 0.8rem;
+            max-width: 100% !important;
+            overflow: visible !important;
         }
         .sidebar-header {
             margin: 0.1rem 0 0.7rem 0;
@@ -56,21 +63,40 @@ def inject_styles() -> None:
         [data-testid="stSidebar"] .stButton {
             width: 100%;
             margin-bottom: 0.38rem;
+            overflow: visible !important;
         }
         [data-testid="stSidebar"] .stButton > button {
-            width: 100%;
+            width: 100% !important;
+            max-width: 100% !important;
             border-radius: 9px;
+            display: flex !important;
+            align-items: center;
             justify-content: flex-start;
             text-align: left;
             white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            overflow: visible !important;
+            text-overflow: clip !important;
             min-height: 2.5rem;
             padding: 0.45rem 0.75rem;
             font-weight: 600;
             font-size: 0.9rem;
             letter-spacing: 0.005em;
             box-shadow: none;
+        }
+        [data-testid="stSidebar"] .stButton > button > div,
+        [data-testid="stSidebar"] .stButton > button > div > p,
+        [data-testid="stSidebar"] .stButton > button [data-testid="stMarkdownContainer"],
+        [data-testid="stSidebar"] .stButton > button [data-testid="stMarkdownContainer"] p {
+            width: 100% !important;
+            max-width: 100% !important;
+            min-width: 0 !important;
+            text-align: left !important;
+            white-space: nowrap !important;
+            overflow: visible !important;
+            text-overflow: clip !important;
+            margin: 0 !important;
+            line-height: 1.25 !important;
+            display: block !important;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"] {
             background: #e7efff;
