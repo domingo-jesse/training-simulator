@@ -150,7 +150,10 @@ def _read_assignment_id_from_query_params() -> int | None:
     if isinstance(value, list):
         value = value[0] if value else None
     try:
-        return int(value) if value is not None and str(value).strip() else None
+        parsed = int(value) if value is not None and str(value).strip() else None
+        if parsed is None or parsed <= 0:
+            return None
+        return parsed
     except (TypeError, ValueError):
         return None
 
