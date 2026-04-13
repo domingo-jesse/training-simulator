@@ -971,6 +971,9 @@ def init_db() -> None:
             _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")
             _ensure_column(conn, "module_questions", "question_type", "TEXT DEFAULT 'open_text'")
             _ensure_column(conn, "module_questions", "options_text", "TEXT")
+            _ensure_column(conn, "assignment_workspace_state", "time_limit_minutes", "INTEGER")
+            _ensure_column(conn, "assignment_workspace_state", "end_time", "TEXT")
+            _ensure_column(conn, "assignment_workspace_state", "auto_submitted_state", "INTEGER DEFAULT 0")
 
             if RUNTIME_USE_POSTGRES:
                 _executescript(
