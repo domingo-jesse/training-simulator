@@ -27,6 +27,7 @@ from utils import (
     filter_inactive_learners,
     metric_row,
     render_admin_table,
+    render_admin_selection_table,
     render_app_table,
     render_kpi_card,
     render_page_header,
@@ -605,34 +606,40 @@ def _render_assignment_tool(current_user: dict) -> None:
         ]
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        assignment_learner_grid = filtered_active_learners[["name", "team", "organization_name"]].reset_index(drop=True).rename(
-            columns={"name": "Learner", "team": "Team", "organization_name": "Organization"}
+        assignment_learner_grid = filtered_active_learners[
+            ["user_id", "name", "team", "organization_name"]
+        ].reset_index(drop=True).rename(
+            columns={
+                "user_id": "learner_id",
+                "name": "Learner",
+                "team": "Team",
+                "organization_name": "Organization",
+            }
         )
-        render_admin_table(
+        _, selected_learner_ids = render_admin_selection_table(
             assignment_learner_grid,
+            row_id_col="learner_id",
+            selection_state_key="assignment_tool_selected_learner_ids",
+            table_key="assignment_tool_learner_data_editor",
+            selection_label="Select",
+            selection_help="Select learners to assign this module.",
+            single_select=False,
             height=420,
-            empty_message="No active learners found. Update filters to find active learners.",
         )
-
-        select_col, clear_col = st.columns(2)
-        with select_col:
-            st.button(
-                "Select all filtered learners",
-                key="assignment_select_all_filtered",
-                on_click=_select_all_filtered,
-                args=(learner_multiselect_key, learner_options),
-            )
-        with clear_col:
-            st.button(
-                "Clear learner selection",
-                key="assignment_clear_filtered",
-                on_click=_clear_filtered_selection,
-                args=(learner_multiselect_key,),
-            )
+        selected_id_set = {int(v) for v in selected_learner_ids}
+        st.session_state[learner_multiselect_key] = [
+            label for label, learner_id in learner_map.items() if learner_id in selected_id_set
+        ]
+        st.caption(f"{len(selected_id_set)} learner(s) selected from table")
 
         with st.form("assignment_tool_submit_form", clear_on_submit=False):
             selected_module = st.selectbox("Module", list(module_map.keys()))
-            selected_learners = st.multiselect("Learners", learner_options, key=learner_multiselect_key)
+            selected_learners = st.multiselect(
+                "Selected learners (from table)",
+                learner_options,
+                key=learner_multiselect_key,
+                help="Primary selection happens in the table above.",
+            )
             enable_due_date = st.checkbox("Set due date", value=False)
             due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
             assign_submitted = st.form_submit_button("Send to database: Assign training", type="primary")
@@ -831,55 +838,18 @@ def render_current_assignments(current_user: dict) -> None:
     if "Last Attempt" in assignment_display_df.columns:
         assignment_display_df["Last Attempt"] = assignment_display_df["Last Attempt"].apply(_format_datetime_for_admin_grid)
     selection_state_key = "assignment_management_selected_ids"
-    persisted_selection = {int(v) for v in st.session_state.get(selection_state_key, set())}
-    visible_assignment_ids = {int(v) for v in filtered_assignments["assignment_id"].tolist()}
-    persisted_selection = persisted_selection.intersection(visible_assignment_ids)
-
     interactive_df = assignment_display_df.copy()
-    interactive_df.insert(
-        0,
-        "selected",
-        [int(assignment_id) in persisted_selection for assignment_id in filtered_assignments["assignment_id"].tolist()],
-    )
-    st.markdown(
-        """
-        <style>
-        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked) {
-            background: rgba(79, 70, 229, 0.14) !important;
-        }
-        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked):hover {
-            background: rgba(79, 70, 229, 0.22) !important;
-        }
-        [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
-            transform: scale(1.1);
-            transform-origin: center;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    edited_assignments_df = st.data_editor(
+    _, selected_assignment_ids = render_admin_selection_table(
         interactive_df,
-        key="assignment_management_data_editor",
-        use_container_width=True,
-        hide_index=True,
+        row_id_col="Assignment ID",
+        selection_state_key=selection_state_key,
+        table_key="assignment_management_data_editor",
+        selection_label="Select",
+        selection_help="Select assignments for bulk actions.",
+        single_select=False,
         height=520,
-        column_config={
-            "selected": st.column_config.CheckboxColumn(
-                "Select",
-                width="medium",
-                help="Select assignments for bulk actions.",
-            )
-        },
-        disabled=[column for column in interactive_df.columns if column != "selected"],
     )
-
-    visible_selected_ids = {
-        int(assignment_id)
-        for assignment_id in filtered_assignments.loc[edited_assignments_df["selected"] == True, "assignment_id"].tolist()
-    }
-    selected_assignment_ids = sorted(visible_selected_ids)
-    st.session_state[selection_state_key] = selected_assignment_ids
+    selected_assignment_ids = sorted(int(v) for v in selected_assignment_ids)
     selected_count = len(selected_assignment_ids)
 
     if selected_count == 0:
@@ -1849,17 +1819,21 @@ def render_manage_modules(current_user: dict) -> None:
         library_df = modules_df[["module_id", "title", "status", "difficulty", "updated_at"]].copy()
         if "updated_at" in library_df.columns:
             library_df["updated_at"] = library_df["updated_at"].apply(_format_datetime_for_admin_grid)
-        st.dataframe(
+        _, selected_module_ids = render_admin_selection_table(
             library_df,
-            use_container_width=True,
+            row_id_col="module_id",
+            selection_state_key="manage_modules_selected_module_id",
+            table_key="manage_modules_data_editor",
+            selection_label="Select",
+            selection_help="Select the module you want to edit.",
+            single_select=True,
             height=450,
         )
-
-    module_map = {f"#{int(r['module_id'])} • {r['title']} ({r['status']})": int(r["module_id"]) for _, r in modules_df.iterrows()}
-    module_selector_col, _ = st.columns([2, 1])
-    with module_selector_col:
-        selected_label = st.selectbox("Select module to edit", list(module_map.keys()))
-    module_id = int(module_map[selected_label])
+    if not selected_module_ids:
+        fallback_module_id = int(modules_df.iloc[0]["module_id"])
+        st.session_state["manage_modules_selected_module_id"] = fallback_module_id
+        selected_module_ids = [fallback_module_id]
+    module_id = int(selected_module_ids[0])
     module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
     module_questions = fetch_all(
         "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
