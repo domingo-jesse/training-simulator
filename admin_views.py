@@ -436,7 +436,7 @@ def render_learner_management(current_user: dict) -> None:
             empty_message="No learners match current filters. Adjust filters to display learners.",
         )
 
-        c1, c2, c3 = st.columns([1, 1, 2])
+        c1, c2 = st.columns([1, 1])
         with c1:
             st.button(
                 "Select All Filtered",
@@ -461,18 +461,17 @@ def render_learner_management(current_user: dict) -> None:
         st.caption(f"{len(selected_ids)} of {len(scoped)} filtered learners selected")
 
         if show_active:
-            action_label = "Deactivate selected learners"
+            action_label = "Archive"
             new_status = False
             action_type = "secondary"
         else:
-            action_label = "Activate selected learners"
+            action_label = "Activate"
             new_status = True
             action_type = "primary"
 
-        with c3:
-            with st.container(border=True):
-                st.caption("Bulk action toolbar")
-                run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}", use_container_width=True)
+        with st.container(border=True):
+            st.caption("Actions")
+            run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}", use_container_width=True)
 
         if run_bulk_action:
             if not selected_ids:
