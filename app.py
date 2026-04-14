@@ -233,6 +233,34 @@ def _navigate_back_to_main_app() -> None:
     st.rerun()
 
 
+def _sync_current_page_with_query(role: str) -> str:
+    default_nav = _default_main_nav_for_role(role)
+    main_slugs = ADMIN_MAIN_NAV_SLUGS if role == "admin" else LEARNER_MAIN_NAV_SLUGS
+    query_slug = _read_nav_from_query_params()
+    active_key = st.session_state.get("current_page")
+
+    if query_slug in {"profile", "settings"}:
+        st.session_state["current_page"] = query_slug
+        st.session_state["nav"] = query_slug
+        return query_slug
+
+    if query_slug in main_slugs:
+        resolved_slug = query_slug
+    elif _is_valid_main_page_key(active_key):
+        key_role, key_slug = str(active_key).split(":", 1)
+        resolved_slug = key_slug if key_role == role and key_slug in main_slugs else default_nav
+    else:
+        resolved_slug = default_nav
+
+    page_key = _build_main_page_key(role, resolved_slug)
+    if st.session_state.get("current_page") != page_key:
+        st.session_state["current_page"] = page_key
+    st.session_state["nav"] = resolved_slug
+    if st.query_params.get("page") != resolved_slug:
+        st.query_params["page"] = resolved_slug
+    return resolved_slug
+
+
 def init_state() -> None:
     defaults = {
         "auth_authenticated": False,
@@ -1374,7 +1402,7 @@ def render_main_app() -> None:
     render_topbar(user)
     st.markdown("<div class='shell-divider'></div>", unsafe_allow_html=True)
     requested_page = st.session_state.get("page")
-    nav_page = st.session_state.get("nav", "dashboard")
+    nav_page = _sync_current_page_with_query(user["role"])
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
@@ -1459,9 +1487,10 @@ def render_main_app() -> None:
         )
         current_page = st.session_state.get("admin_page", "📊 Dashboard")
         normalized_page = re.sub(r"^[^\w]+", "", current_page).strip()
-        if current_page != previous_admin_page or st.session_state.get("nav") != ADMIN_PAGE_TO_NAV.get(normalized_page):
-            _set_nav_for_page(normalized_page, "admin")
-        st.session_state["current_page"] = _build_main_page_key("admin", st.session_state.get("nav", "dashboard"))
+        selected_slug = ADMIN_PAGE_TO_NAV.get(normalized_page, "dashboard")
+        if current_page != previous_admin_page or st.session_state.get("nav") != selected_slug:
+            _set_nav(selected_slug)
+        st.session_state["current_page"] = _build_main_page_key("admin", selected_slug)
         user_logger.info("Admin page load.", page=current_page)
         admin_container_variant = {
             "Dashboard": "wide",
@@ -1539,9 +1568,10 @@ def render_main_app() -> None:
             layout="vertical",
         )
         current_page = st.session_state.get("learner_page", "home")
-        if current_page != previous_learner_page or st.session_state.get("nav") != LEARNER_PAGE_TO_NAV.get(current_page):
-            _set_nav_for_page(current_page, "learner")
-        st.session_state["current_page"] = _build_main_page_key("learner", st.session_state.get("nav", "home"))
+        selected_slug = LEARNER_PAGE_TO_NAV.get(current_page, "home")
+        if current_page != previous_learner_page or st.session_state.get("nav") != selected_slug:
+            _set_nav(selected_slug)
+        st.session_state["current_page"] = _build_main_page_key("learner", selected_slug)
         st.caption(f"Debug: learner_page key = `{current_page}`")
         render_branch = current_page
         st.caption(f"Debug: render branch = `{render_branch}`")
@@ -1574,14 +1604,9 @@ def render_main_app() -> None:
 
 def main() -> None:
     init_state()
-    nav_from_url = _read_nav_from_query_params()
     assignment_from_url = _read_assignment_id_from_query_params()
-    if st.session_state.get("nav") != nav_from_url:
-        st.session_state["nav"] = nav_from_url
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
-    if st.query_params.get("page") != st.session_state.get("nav"):
-        st.query_params["page"] = st.session_state.get("nav")
     active_assignment_id = st.session_state.get("active_assignment_id")
     if active_assignment_id is not None and str(st.query_params.get("assignment_id") or "") != str(active_assignment_id):
         st.query_params["assignment_id"] = str(active_assignment_id)
