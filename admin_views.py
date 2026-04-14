@@ -1371,12 +1371,14 @@ def render_module_builder(current_user: dict) -> None:
     render_page_header("Module Builder", "Guided wizard for structured module generation and approval.")
 
     module_builder_phase_key = "module_builder_phase"
-    module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft"]
+    module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft", "Module completed"]
+    module_builder_completed_module_id_key = "module_builder_completed_module_id"
     if module_builder_phase_key not in st.session_state:
         st.session_state[module_builder_phase_key] = 0
     current_phase = max(0, min(int(st.session_state.get(module_builder_phase_key, 0)), len(module_builder_phase_labels) - 1))
     st.session_state[module_builder_phase_key] = current_phase
-    _render_wizard_progress(current_phase, len(module_builder_phase_labels), module_builder_phase_labels[current_phase])
+    if current_phase in (0, 1):
+        _render_wizard_progress(current_phase, 2, module_builder_phase_labels[current_phase])
 
     module_builder_step_key = "module_builder_step"
     module_builder_form_key = "module_builder_form"
@@ -1644,11 +1646,6 @@ def render_module_builder(current_user: dict) -> None:
 
     elif current_phase == 1:
         st.markdown("#### Step 2: Review and approve generated draft")
-        back_to_goals_col, _ = st.columns([1, 4])
-        with back_to_goals_col:
-            if st.button("Back to Step 1", key="module_builder_back_to_goals"):
-                st.session_state[module_builder_phase_key] = 0
-                st.rerun()
 
         runs_df = to_df(
             fetch_all(
@@ -1994,7 +1991,29 @@ def render_module_builder(current_user: dict) -> None:
                     """,
                     (run_id, org_id),
                 )
-                st.success("Approved draft converted into a module.")
+                st.session_state[module_builder_phase_key] = 2
+                st.session_state[module_builder_completed_module_id_key] = int(module_id)
+                st.rerun()
+
+    else:
+        completed_module_id = st.session_state.get(module_builder_completed_module_id_key)
+        st.success("You've completed your module.")
+        if completed_module_id:
+            st.caption(f"Module #{int(completed_module_id)} was created successfully.")
+        action_col_1, action_col_2 = st.columns(2)
+        with action_col_1:
+            if st.button("Create a new module", key="module_builder_create_new", type="primary"):
+                st.session_state[module_builder_form_key] = dict(module_builder_defaults)
+                st.session_state[module_builder_step_key] = 0
+                st.session_state[module_builder_phase_key] = 0
+                st.session_state.pop(module_builder_completed_module_id_key, None)
+                st.rerun()
+        with action_col_2:
+            if st.button("Go to Manage Modules", key="module_builder_go_manage"):
+                st.session_state[module_builder_phase_key] = 0
+                st.session_state.pop(module_builder_completed_module_id_key, None)
+                st.session_state["admin_page"] = "📚 Manage Modules"
+                st.session_state["nav"] = "manage-modules"
                 st.rerun()
 
 
