@@ -1292,8 +1292,8 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
             <div class="sidebar-profile-label">{safe_role}</div>
             {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
             <div class="sidebar-profile-actions">
-                <a class="sidebar-profile-action-link" href="{settings_href}">Settings</a>
-                <a class="sidebar-profile-action-link" href="{logout_href}">Logout</a>
+                <a class="sidebar-profile-action-link" href="{settings_href}" style="font-size:18px; font-weight:500;">Settings</a>
+                <a class="sidebar-profile-action-link" href="{logout_href}" style="font-size:18px; font-weight:500;">Logout</a>
             </div>
         </section>
         """,
