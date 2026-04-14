@@ -34,6 +34,8 @@ from learner_views import (
 from logger import get_logger
 from utils import inject_styles, page_container
 
+DEBUG = False  # set to True only when debugging
+
 app_logger = get_logger(module="app")
 
 
@@ -48,11 +50,12 @@ def get_conn():
     safe_db = parsed.path.lstrip("/")
     safe_query = parsed.query
 
-    st.write("DB debug user:", safe_user)
-    st.write("DB debug host:", safe_host)
-    st.write("DB debug port:", safe_port)
-    st.write("DB debug db:", safe_db)
-    st.write("DB debug query:", safe_query)
+    if DEBUG:
+        app_logger.debug("DB debug user: {}", safe_user)
+        app_logger.debug("DB debug host: {}", safe_host)
+        app_logger.debug("DB debug port: {}", safe_port)
+        app_logger.debug("DB debug db: {}", safe_db)
+        app_logger.debug("DB debug query: {}", safe_query)
 
     try:
         conn = psycopg2.connect(database_url, connect_timeout=10)
@@ -1577,9 +1580,10 @@ def render_main_app() -> None:
         if st.session_state.get("nav") != current_slug:
             _set_nav(current_slug)
         st.session_state["current_page"] = _build_main_page_key("learner", current_slug)
-        st.caption(f"Debug: learner_page key = `{current_page}`")
         render_branch = current_page
-        st.caption(f"Debug: render branch = `{render_branch}`")
+        if DEBUG:
+            app_logger.debug("learner_page key = {}", current_page)
+            app_logger.debug("render branch = {}", render_branch)
         user_logger.info("Learner page load.", page=current_page)
         learner_container_variant = {
             "home": "medium",
