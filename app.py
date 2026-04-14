@@ -261,6 +261,17 @@ def _sync_current_page_with_query(role: str) -> str:
     return resolved_slug
 
 
+def _get_current_main_nav_slug(role: str) -> str:
+    default_nav = _default_main_nav_for_role(role)
+    main_slugs = ADMIN_MAIN_NAV_SLUGS if role == "admin" else LEARNER_MAIN_NAV_SLUGS
+    active_key = st.session_state.get("current_page")
+    if _is_valid_main_page_key(active_key):
+        key_role, key_slug = str(active_key).split(":", 1)
+        if key_role == role and key_slug in main_slugs:
+            return key_slug
+    return default_nav
+
+
 def init_state() -> None:
     defaults = {
         "auth_authenticated": False,
@@ -1477,21 +1488,31 @@ def render_main_app() -> None:
             """,
             unsafe_allow_html=True,
         )
-        previous_admin_page = st.session_state.get("admin_page", "Dashboard")
-        render_horizontal_button_group(
-            "",
-            visible_pages,
-            "admin_page",
-            container=st.sidebar,
-            layout="vertical",
-        )
-        current_page = st.session_state.get("admin_page", "📊 Dashboard")
-        normalized_page = re.sub(r"^[^\w]+", "", current_page).strip()
-        selected_slug = ADMIN_PAGE_TO_NAV.get(normalized_page, "dashboard")
-        if current_page != previous_admin_page or st.session_state.get("nav") != selected_slug:
-            _set_nav(selected_slug)
-        st.session_state["current_page"] = _build_main_page_key("admin", selected_slug)
-        user_logger.info("Admin page load.", page=current_page)
+        current_slug = _get_current_main_nav_slug("admin")
+        current_page_name = NAV_TO_ADMIN_PAGE.get(current_slug, "Dashboard")
+        current_display_page = base_page_lookup.get(current_page_name, "📊 Dashboard")
+        st.session_state["admin_page"] = current_display_page
+        for index, option in enumerate(visible_pages):
+            option_name = re.sub(r"^[^\w]+", "", option).strip()
+            option_slug = ADMIN_PAGE_TO_NAV.get(option_name, "dashboard")
+            button_type = "primary" if option_slug == current_slug else "secondary"
+            if st.sidebar.button(
+                option,
+                key=f"admin_sidebar_nav_btn_{index}",
+                type=button_type,
+                use_container_width=True,
+            ):
+                if option_slug != current_slug:
+                    st.session_state["admin_page"] = option
+                    st.session_state["current_page"] = _build_main_page_key("admin", option_slug)
+                    st.session_state["page"] = None
+                    _set_nav(option_slug)
+                    st.rerun()
+        normalized_page = NAV_TO_ADMIN_PAGE.get(current_slug, "Dashboard")
+        if st.session_state.get("nav") != current_slug:
+            _set_nav(current_slug)
+        st.session_state["current_page"] = _build_main_page_key("admin", current_slug)
+        user_logger.info("Admin page load.", page=normalized_page)
         admin_container_variant = {
             "Dashboard": "wide",
             "Assignment Management": "wide",
@@ -1558,20 +1579,27 @@ def render_main_app() -> None:
             """,
             unsafe_allow_html=True,
         )
-        previous_learner_page = st.session_state.get("learner_page", "home")
-        render_horizontal_button_group(
-            "",
-            pages,
-            "learner_page",
-            container=st.sidebar,
-            format_func=lambda k: LEARNER_NAV_CONFIG.get(k, str(k)),
-            layout="vertical",
-        )
-        current_page = st.session_state.get("learner_page", "home")
-        selected_slug = LEARNER_PAGE_TO_NAV.get(current_page, "home")
-        if current_page != previous_learner_page or st.session_state.get("nav") != selected_slug:
-            _set_nav(selected_slug)
-        st.session_state["current_page"] = _build_main_page_key("learner", selected_slug)
+        current_slug = _get_current_main_nav_slug("learner")
+        current_page = NAV_TO_LEARNER_PAGE.get(current_slug, "home")
+        st.session_state["learner_page"] = current_page
+        for index, option in enumerate(pages):
+            option_slug = LEARNER_PAGE_TO_NAV.get(option, "home")
+            button_type = "primary" if option_slug == current_slug else "secondary"
+            if st.sidebar.button(
+                LEARNER_NAV_CONFIG.get(option, str(option)),
+                key=f"learner_sidebar_nav_btn_{index}",
+                type=button_type,
+                use_container_width=True,
+            ):
+                if option_slug != current_slug:
+                    st.session_state["learner_page"] = option
+                    st.session_state["current_page"] = _build_main_page_key("learner", option_slug)
+                    st.session_state["page"] = None
+                    _set_nav(option_slug)
+                    st.rerun()
+        if st.session_state.get("nav") != current_slug:
+            _set_nav(current_slug)
+        st.session_state["current_page"] = _build_main_page_key("learner", current_slug)
         st.caption(f"Debug: learner_page key = `{current_page}`")
         render_branch = current_page
         st.caption(f"Debug: render branch = `{render_branch}`")
