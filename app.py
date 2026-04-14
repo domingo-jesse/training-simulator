@@ -4,6 +4,7 @@ import hashlib
 import re
 import sys
 from contextlib import contextmanager
+from html import escape
 from typing import Any
 from urllib.parse import urlparse
 
@@ -1260,19 +1261,28 @@ def save_user_profile_updates(
     return True, "Profile updated successfully."
 
 
-def render_profile_menu(user: dict[str, Any]) -> None:
+def render_sidebar_profile_section(user: dict[str, Any]) -> None:
     initials = _avatar_initials(user.get("full_name", ""))
     display_name = user.get("full_name") or "User"
+    role = str(user.get("role", "learner")).title()
+    email = (user.get("email") or "").strip()
+    safe_display_name = escape(display_name)
+    safe_label = escape(f"{initials} · {display_name} · {role}")
+    safe_email = escape(email)
+
+    st.markdown(
+        f"""
+        <div class="sidebar-profile">
+            <div class="sidebar-profile-name">👤 {safe_display_name}</div>
+            <div class="sidebar-profile-label">{safe_label}</div>
+            {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     with st.container():
-        st.markdown("<div class='profile-menu-anchor'>", unsafe_allow_html=True)
-        profile_label = f"{initials} · {display_name}"
-        with st.popover(profile_label):
-            st.markdown(f"**{display_name}**")
-            st.caption(user.get("email", ""))
-            st.markdown(
-                f"<span class='role-badge'>{user.get('role', 'learner').title()}</span>",
-                unsafe_allow_html=True,
-            )
+        st.markdown("<div class='sidebar-account-actions'>", unsafe_allow_html=True)
+        with st.popover("Account"):
             if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
                 _navigate_to_account_page("profile")
             if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
@@ -1390,7 +1400,8 @@ def render_main_app() -> None:
         session_id=st.session_state.get("session_id"),
     )
     with st.sidebar:
-        render_profile_menu(user)
+        render_sidebar_profile_section(user)
+        st.divider()
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
     assignment_from_url = _read_assignment_id_from_query_params()

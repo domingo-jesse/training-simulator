@@ -250,26 +250,43 @@ def inject_styles() -> None:
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
         }
-        .profile-menu-anchor {
-            display: flex;
-            justify-content: flex-end;
-            align-items: center;
-            width: 100%;
-            padding-top: 0.1rem;
+        .sidebar-profile {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fbfcff;
+            padding: 0.68rem 0.72rem 0.62rem;
+            margin-bottom: 0.22rem;
         }
-        .profile-menu-anchor .stPopover {
-            margin-left: auto;
+        .sidebar-profile-name {
+            color: var(--text);
+            font-size: 0.98rem;
+            font-weight: 700;
+            line-height: 1.25;
+            margin-bottom: 0.22rem;
         }
-        .profile-menu-anchor .stPopover > button {
-            height: 2.3rem;
-            border-radius: 12px;
-            padding: 0 0.8rem;
-            font-size: 0.84rem;
+        .sidebar-profile-label {
+            color: var(--muted);
+            font-size: 0.77rem;
             font-weight: 600;
-            white-space: nowrap;
-            max-width: 100%;
-            overflow: hidden;
-            text-overflow: ellipsis;
+            letter-spacing: 0.01em;
+            margin-bottom: 0.14rem;
+        }
+        .sidebar-profile-email {
+            color: #475467;
+            font-size: 0.75rem;
+            line-height: 1.2;
+            margin-bottom: 0.16rem;
+            word-break: break-word;
+        }
+        .sidebar-account-actions {
+            margin-top: 0.2rem;
+        }
+        .sidebar-account-actions .stPopover > button {
+            width: 100%;
+            height: 2rem;
+            border-radius: 10px;
+            font-size: 0.8rem;
+            font-weight: 600;
         }
 
         .stButton > button {
