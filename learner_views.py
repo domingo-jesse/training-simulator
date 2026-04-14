@@ -702,6 +702,7 @@ def render_scenario_page(user: Dict) -> None:
                         st.session_state[step_key] = 2
                         _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                         st.toast("Progress saved.")
+                        st.rerun()
             elif current_step_local == 2:
                 st.markdown("### Investigation / Notes")
                 cols = st.columns(3)
@@ -725,11 +726,14 @@ def render_scenario_page(user: Dict) -> None:
                         next_clicked = st.form_submit_button("Next", type="primary")
 
                 if back_clicked:
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
+                    st.rerun()
                 elif next_clicked:
                     st.session_state[step_key] = min(5, current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.toast("Notes saved.")
+                    st.rerun()
             elif current_step_local == 3:
                 st.markdown("### Assessment Questions")
                 with st.form(key=f"wizard_step3_form_{assignment_id}", clear_on_submit=False):
@@ -764,12 +768,16 @@ def render_scenario_page(user: Dict) -> None:
                         next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
 
                 if back_clicked:
+                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
+                    st.rerun()
                 elif next_clicked:
                     st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
                     st.session_state[step_key] = min(5, current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.toast("Progress saved.")
+                    st.rerun()
             elif current_step_local == 4:
                 st.markdown("### Final Response / Decision")
                 with st.form(key=f"wizard_step4_form_{assignment_id}", clear_on_submit=False):
@@ -796,11 +804,14 @@ def render_scenario_page(user: Dict) -> None:
                         next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
 
                 if back_clicked:
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
+                    st.rerun()
                 elif next_clicked:
                     st.session_state[step_key] = min(5, current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.toast("Progress saved.")
+                    st.rerun()
             else:
                 st.markdown("### Review and Submit")
                 st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
@@ -822,7 +833,9 @@ def render_scenario_page(user: Dict) -> None:
                 c1, c2 = st.columns(2)
                 with c1:
                     if st.button("Back"):
+                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                         st.session_state[step_key] = max(1, current_step_local - 1)
+                        st.rerun()
                 with c2:
                     if st.button(
                         "Submit Response",
