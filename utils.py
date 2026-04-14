@@ -309,9 +309,9 @@ def inject_styles() -> None:
             justify-content: flex-start;
             color: #667085;
             text-decoration: none;
-            font-size: 0.61rem;
-            font-weight: 600;
-            line-height: 1.02;
+            font-size: 0.84rem;
+            font-weight: 650;
+            line-height: 1.05;
             padding: 0.02rem 0;
             margin: 0;
             border-radius: 4px;
