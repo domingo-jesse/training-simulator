@@ -1262,34 +1262,32 @@ def save_user_profile_updates(
 
 
 def render_sidebar_profile_section(user: dict[str, Any]) -> None:
-    initials = _avatar_initials(user.get("full_name", ""))
     display_name = user.get("full_name") or "User"
     role = str(user.get("role", "learner")).title()
     email = (user.get("email") or "").strip()
     safe_display_name = escape(display_name)
-    safe_label = escape(f"{initials} · {display_name} · {role}")
+    safe_role = escape(role)
     safe_email = escape(email)
 
     st.markdown(
         f"""
         <div class="sidebar-profile">
-            <div class="sidebar-profile-name">👤 {safe_display_name}</div>
-            <div class="sidebar-profile-label">{safe_label}</div>
+            <div class="sidebar-profile-name">{safe_display_name}</div>
+            <div class="sidebar-profile-label">{safe_role}</div>
             {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
         </div>
         """,
         unsafe_allow_html=True,
     )
-    with st.container():
-        st.markdown("<div class='sidebar-account-actions'>", unsafe_allow_html=True)
-        with st.popover("Account"):
-            if st.button("Profile", use_container_width=True, key="menu_profile_btn"):
-                _navigate_to_account_page("profile")
-            if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
-                _navigate_to_account_page("settings")
-            if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
-                logout_user()
-        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("<div class='sidebar-profile-actions'>", unsafe_allow_html=True)
+    action_settings, action_logout = st.columns(2, gap="small")
+    with action_settings:
+        if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
+            _navigate_to_account_page("settings")
+    with action_logout:
+        if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
+            logout_user()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _initialize_profile_form(profile: dict[str, Any]) -> None:
@@ -1401,7 +1399,6 @@ def render_main_app() -> None:
     )
     with st.sidebar:
         render_sidebar_profile_section(user)
-        st.divider()
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
     assignment_from_url = _read_assignment_id_from_query_params()

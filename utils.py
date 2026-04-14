@@ -254,39 +254,40 @@ def inject_styles() -> None:
             border: 1px solid var(--line);
             border-radius: 14px;
             background: #fbfcff;
-            padding: 0.68rem 0.72rem 0.62rem;
-            margin-bottom: 0.22rem;
+            padding: 0.9rem 0.85rem 0.75rem;
+            margin-bottom: 0.25rem;
         }
         .sidebar-profile-name {
             color: var(--text);
-            font-size: 0.98rem;
+            font-size: 1rem;
             font-weight: 700;
-            line-height: 1.25;
-            margin-bottom: 0.22rem;
+            line-height: 1.3;
+            margin-bottom: 0.2rem;
         }
         .sidebar-profile-label {
             color: var(--muted);
-            font-size: 0.77rem;
+            font-size: 0.8rem;
             font-weight: 600;
             letter-spacing: 0.01em;
-            margin-bottom: 0.14rem;
+            margin-bottom: 0.25rem;
         }
         .sidebar-profile-email {
             color: #475467;
-            font-size: 0.75rem;
-            line-height: 1.2;
-            margin-bottom: 0.16rem;
+            font-size: 0.73rem;
+            line-height: 1.25;
             word-break: break-word;
         }
-        .sidebar-account-actions {
-            margin-top: 0.2rem;
+        .sidebar-profile-actions {
+            margin-top: 0.15rem;
+            margin-bottom: 0.35rem;
         }
-        .sidebar-account-actions .stPopover > button {
+        .sidebar-profile-actions .stButton > button {
             width: 100%;
-            height: 2rem;
+            height: 1.9rem;
             border-radius: 10px;
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             font-weight: 600;
+            background: #f8fafc;
         }
 
         .stButton > button {
