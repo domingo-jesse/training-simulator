@@ -5,7 +5,6 @@ import re
 from datetime import datetime, timezone
 from typing import Dict
 
-import altair as alt
 import streamlit as st
 
 from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
@@ -956,14 +955,6 @@ def render_progress_page(user: Dict) -> None:
             "Recent score": f"{df['total_score'].iloc[-1]}%",
         }
     )
-
-    trend = (
-        alt.Chart(df)
-        .mark_line(point=True)
-        .encode(x="created_at:T", y="total_score:Q", tooltip=["title", "total_score"])
-        .properties(height=260)
-    )
-    st.altair_chart(trend, use_container_width=True)
 
     strengths = []
     misses = []
