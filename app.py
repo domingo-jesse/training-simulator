@@ -1269,24 +1269,23 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
     safe_role = escape(role)
     safe_email = escape(email)
 
-    st.markdown(
-        f"""
-        <section class="sidebar-profile sidebar-profile-compact" data-testid="sidebar-profile-compact">
-            <div class="sidebar-profile-name">{safe_display_name}</div>
-            <div class="sidebar-profile-label">{safe_role}</div>
-            {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
-            <div class="sidebar-profile-actions">
-                <div style="font-size:18px; font-weight:500; line-height:1.4; margin-top:6px; cursor:pointer;">
-                    Settings
-                </div>
-                <div style="font-size:18px; font-weight:500; line-height:1.4; margin-top:4px; cursor:pointer;">
-                    Logout
-                </div>
-            </div>
-        </section>
-        """,
-        unsafe_allow_html=True,
-    )
+    with st.container():
+        st.markdown('<div class="sidebar-profile-compact-marker"></div>', unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <section class="sidebar-profile sidebar-profile-compact" data-testid="sidebar-profile-compact">
+                <div class="sidebar-profile-name">{safe_display_name}</div>
+                <div class="sidebar-profile-label">{safe_role}</div>
+                {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+        if st.button("Settings", key="sidebar_profile_settings_btn", type="secondary", use_container_width=True):
+            _navigate_to_account_page("settings")
+        if st.button("Logout", key="sidebar_profile_logout_btn", type="secondary", use_container_width=True):
+            logout_user()
+            st.rerun()
 
 
 def _initialize_profile_form(profile: dict[str, Any]) -> None:

@@ -263,15 +263,24 @@ def inject_styles() -> None:
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
         }
-        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(> [data-testid="stMarkdown"] .sidebar-profile-compact) {
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) {
             margin-bottom: 0.2rem !important;
         }
-        .sidebar-profile.sidebar-profile-compact {
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) {
             border: 1px solid #e4e7ec;
             border-radius: 9px;
             background: #fcfdff;
             padding: 0.4rem 0.46rem 0.34rem;
             margin: 0 0 0.12rem;
+        }
+        .sidebar-profile-compact-marker {
+            display: none;
+        }
+        .sidebar-profile.sidebar-profile-compact {
+            border: 0;
+            background: transparent;
+            padding: 0;
+            margin: 0;
         }
         .sidebar-profile-compact .sidebar-profile-name {
             color: var(--text);
@@ -303,23 +312,35 @@ def inject_styles() -> None:
             align-items: flex-start;
             gap: 0.03rem;
         }
-        .sidebar-profile-compact .sidebar-profile-action-link {
-            display: inline-flex;
-            align-items: center;
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) .stButton {
+            margin: 0 !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) .stButton:first-of-type {
+            margin-top: 0.14rem !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) .stButton + .stButton {
+            margin-top: 0.04rem !important;
+        }
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) .stButton > button {
             justify-content: flex-start;
+            text-align: left;
+            width: 100%;
+            min-height: 1.05rem;
+            padding: 0.03rem 0.06rem;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
             color: #667085;
-            text-decoration: none;
             font-size: 0.84rem;
             font-weight: 650;
-            line-height: 1.05;
-            padding: 0.02rem 0;
-            margin: 0;
-            border-radius: 4px;
+            line-height: 1.08;
+            box-shadow: none;
         }
-        .sidebar-profile-compact .sidebar-profile-action-link:hover,
-        .sidebar-profile-compact .sidebar-profile-action-link:focus-visible {
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) .stButton > button:hover,
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(.sidebar-profile-compact-marker) .stButton > button:focus-visible {
+            background: #f2f4f7;
             color: #344054;
-            text-decoration: underline;
+            border: 0;
         }
 
         .stButton > button {
