@@ -432,6 +432,7 @@ def render_learner_management(current_user: dict) -> None:
         )
         if "Last Activity" in learner_display_df.columns:
             learner_display_df["Last Activity"] = learner_display_df["Last Activity"].apply(_format_datetime_for_admin_grid)
+        st.caption("Select learners directly from the table below.")
         _, selected_row_ids = render_admin_selection_table(
             learner_display_df,
             row_id_col="learner_id",
@@ -466,11 +467,13 @@ def render_learner_management(current_user: dict) -> None:
             label for label, learner_id in learner_options.items() if learner_id in selected_id_set
         ]
 
+        st.markdown("##### Selected learners")
         selected_learners = st.multiselect(
             "Selected learners",
             options=option_labels,
             key=multiselect_key,
             help="Select from the table above. Chips reflect the current table selection.",
+            label_visibility="collapsed",
         )
         selected_ids = [learner_options[label] for label in selected_learners]
         st.session_state[selection_state_key] = list(selected_ids)
@@ -485,7 +488,7 @@ def render_learner_management(current_user: dict) -> None:
             new_status = True
             action_type = "primary"
 
-        _, _, action_col = st.columns([6, 2, 2])
+        _, action_col = st.columns([8, 2], gap="small")
         with action_col:
             run_bulk_action = st.button(
                 action_label,
