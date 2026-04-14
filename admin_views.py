@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import date, datetime, timedelta, timezone
+from html import escape
 from io import StringIO
 from uuid import uuid4
 
@@ -266,42 +267,157 @@ def render_admin_dashboard(current_user: dict) -> None:
     overdue_assignments = int(assignments_df["status"].eq("Overdue").sum()) if not assignments_df.empty else 0
     in_progress_assignments = int(assignments_df["status"].eq("In Progress").sum()) if not assignments_df.empty else 0
 
-    m1, m2, m3, m4 = st.columns(4)
+    completion_tone = "warning" if completion_rate < 70 else "default"
+    st.markdown(
+        """
+        <style>
+        .dashboard-section-title {
+            font-size: 0.96rem;
+            font-weight: 700;
+            color: #344054;
+            margin: 0.15rem 0 0.35rem 0;
+        }
+        .attention-panel {
+            border: 1px solid #f1d2ce;
+            border-radius: 14px;
+            background: #fff8f7;
+            padding: 12px;
+        }
+        .attention-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 0;
+            border-bottom: 1px dashed #f0dbd7;
+            font-size: 0.86rem;
+        }
+        .attention-row:last-child { border-bottom: none; padding-bottom: 2px; }
+        .attention-label { color: #7a271a; font-weight: 600; }
+        .attention-value { color: #b42318; font-weight: 700; }
+        .dashboard-submission-item {
+            padding: 7px 0;
+            border-bottom: 1px solid #eaecf0;
+        }
+        .dashboard-submission-item:last-child { border-bottom: none; padding-bottom: 0; }
+        .submission-title {
+            margin: 0;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #1d2939;
+            line-height: 1.2;
+        }
+        .submission-meta {
+            margin-top: 2px;
+            color: #667085;
+            font-size: 0.77rem;
+        }
+        .module-stat-card {
+            border: 1px solid #eaecf0;
+            border-radius: 12px;
+            background: #fcfcfd;
+            padding: 10px 11px;
+            margin-bottom: 8px;
+        }
+        .module-stat-label {
+            color: #667085;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: .02em;
+            margin-bottom: 2px;
+            font-weight: 600;
+        }
+        .module-stat-value {
+            color: #101828;
+            font-size: 1.2rem;
+            font-weight: 700;
+            line-height: 1.1;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    m1, m2, m3, m4 = st.columns(4, gap="small")
     with m1:
-        render_kpi_card("Total learners", total_learners, f"{active_learners} active")
+        render_kpi_card("Total learners", total_learners, f"{active_learners} active", compact=True)
     with m2:
-        render_kpi_card("Active assignments", modules_assigned, f"{in_progress_assignments} in progress")
+        render_kpi_card("Active assignments", modules_assigned, f"{in_progress_assignments} in progress", compact=True)
     with m3:
-        render_kpi_card("Completion rate", f"{completion_rate}%", "Across all active assignments")
+        render_kpi_card(
+            "Completion rate",
+            f"{completion_rate}%",
+            "Across all active assignments",
+            tone=completion_tone,
+            compact=True,
+        )
     with m4:
-        render_kpi_card("Overdue", overdue_assignments, "Need follow-up")
+        render_kpi_card("Overdue", overdue_assignments, "Need follow-up", tone="danger", compact=True)
 
-    st.markdown("##### Status breakdown")
-    if assignments_df.empty:
-        st.info("No assignments yet.")
-    else:
-        st.bar_chart(assignments_df["status"].value_counts())
+    top_left, top_right = st.columns([2.2, 1], gap="small")
+    with top_left:
+        st.markdown("<div class='dashboard-section-title'>Status breakdown</div>", unsafe_allow_html=True)
+        if assignments_df.empty:
+            st.info("No assignments yet.")
+        else:
+            st.bar_chart(assignments_df["status"].value_counts(), height=220)
+    with top_right:
+        st.markdown("<div class='dashboard-section-title'>Needs attention</div>", unsafe_allow_html=True)
+        st.markdown(
+            f"""
+            <div class="attention-panel">
+              <div class="attention-row"><span class="attention-label">🔴 Overdue assignments</span><span class="attention-value">{overdue_assignments}</span></div>
+              <div class="attention-row"><span class="attention-label">🟠 Inactive learners</span><span class="attention-value">{inactive_learners}</span></div>
+              <div class="attention-row"><span class="attention-label">🟡 Completion rate below goal</span><span class="attention-value">{completion_rate}%</span></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-    c3, c4, c5 = st.columns(3)
+    c3, c4, c5 = st.columns([1.1, 1.9, 1], gap="small")
     with c3:
         with st.container(border=True):
-            st.markdown("##### Learner status")
-            st.bar_chart(pd.Series({"Active": active_learners, "Inactive": inactive_learners}))
+            st.markdown("<div class='dashboard-section-title'>Learner status</div>", unsafe_allow_html=True)
+            st.bar_chart(pd.Series({"Active": active_learners, "Inactive": inactive_learners}), height=180)
     with c4:
         with st.container(border=True):
-            st.markdown("##### Recent submissions")
+            st.markdown("<div class='dashboard-section-title'>Recent submissions</div>", unsafe_allow_html=True)
             recent = assignments_df[assignments_df["last_attempt_at"].notna()].head(5)
             if recent.empty:
                 st.caption("No submissions yet.")
             else:
                 for _, row in recent.iterrows():
-                    st.caption(f"{row['learner_name']} • {row['module_title']}")
+                    attempted_at = _format_datetime_for_admin_grid(row["last_attempt_at"])
+                    learner_name = escape(str(row["learner_name"]))
+                    module_title = escape(str(row["module_title"]))
+                    st.markdown(
+                        f"""
+                        <div class="dashboard-submission-item">
+                          <p class="submission-title">{learner_name} • {module_title}</p>
+                          <div class="submission-meta">{attempted_at}</div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True,
+                    )
     with c5:
         with st.container(border=True):
-            st.markdown("##### Module catalog")
-            st.metric("Created modules", modules_created)
-            st.metric("Inactive learners", inactive_learners)
-            st.metric("In-progress", in_progress_assignments)
+            st.markdown("<div class='dashboard-section-title'>Module catalog</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="module-stat-card">
+                  <div class="module-stat-label">Created modules</div>
+                  <div class="module-stat-value">{modules_created}</div>
+                </div>
+                <div class="module-stat-card">
+                  <div class="module-stat-label">Inactive learners</div>
+                  <div class="module-stat-value">{inactive_learners}</div>
+                </div>
+                <div class="module-stat-card">
+                  <div class="module-stat-label">In progress</div>
+                  <div class="module-stat-value">{in_progress_assignments}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
     
     
 
