@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from html import escape
 from contextlib import contextmanager
 from typing import Any, Dict, Optional
@@ -12,6 +13,19 @@ _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 _ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
 _ADMIN_SELECTION_STYLE_KEY = "_admin_selection_table_styles_injected"
 _PAGE_CONTAINER_VARIANTS = {"wide", "medium", "narrow"}
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    if value is None:
+        return default
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    if pd.isna(value):
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def inject_styles() -> None:

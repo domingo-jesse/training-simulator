@@ -31,6 +31,7 @@ from utils import (
     render_app_table,
     render_kpi_card,
     render_page_header,
+    safe_int,
     to_df,
 )
 from module_generation import ModuleGenerationInput, generate_module_preview
@@ -1253,7 +1254,7 @@ def render_admin_assignment_review(current_user: dict, assignment_id: int | None
             st.write(f"Wizard step: **{workspace_state.get('current_step', 1)}**")
             st.write(f"Progress state: **{workspace_state.get('progress_status', 'not_started')}**")
             st.write(f"Last saved: **{workspace_state.get('last_saved_at')}**")
-            st.write(f"Submitted state: **{'Yes' if int(workspace_state.get('submitted_state') or 0) else 'No'}**")
+            st.write(f"Submitted state: **{'Yes' if safe_int(workspace_state.get('submitted_state')) else 'No'}**")
 
     with st.container(border=True):
         st.markdown("#### Learner responses")
@@ -1923,7 +1924,7 @@ def render_module_builder(current_user: dict) -> None:
                         run.get("input_category") or "General",
                         run.get("input_difficulty") or "Beginner",
                         run.get("generated_description") or run.get("input_description") or "",
-                        f"{int(run.get('input_estimated_minutes') or 20)} min",
+                        f"{safe_int(run.get('input_estimated_minutes'), 20)} min",
                         run.get("generated_scenario_overview") or "",
                         org_id,
                         run.get("learning_objectives") or "",
@@ -2417,7 +2418,7 @@ def _qa_compact_result_entry(record: dict, include_stack_traces: bool, include_e
         "environment": record.get("environment", ""),
         "started_at": record.get("started_at", ""),
         "finished_at": record.get("last_run_at", ""),
-        "duration_ms": int(record.get("duration_ms") or 0),
+        "duration_ms": safe_int(record.get("duration_ms")),
         "description": record.get("description", ""),
         "expected_result": _qa_sanitize_text(record.get("expected_result") or "") if include_expected_actual else "",
         "actual_result": _qa_sanitize_text(record.get("actual_result") or "") if include_expected_actual else "",
@@ -2464,7 +2465,7 @@ def build_qa_report(
     warnings = sum(1 for record in run_records if record.get("status") == "warning")
     not_run = sum(1 for record in run_records if record.get("status") == "not_run")
     total_tests = len(run_records)
-    total_duration_ms = sum(int(record.get("duration_ms") or 0) for record in run_records)
+    total_duration_ms = sum(safe_int(record.get("duration_ms")) for record in run_records)
 
     failures = [collect_failure_summary(record) for record in run_records if record.get("status") == "fail"]
     warning_summary = [collect_failure_summary(record) for record in run_records if record.get("status") == "warning"]
@@ -3126,7 +3127,7 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
                 "passed": 1 if record["status"] == "pass" else 0,
                 "failed": 1 if record["status"] == "fail" else 0,
                 "warnings": 1 if record["status"] == "warning" else 0,
-                "duration_ms": int(record.get("duration_ms") or 0),
+                "duration_ms": safe_int(record.get("duration_ms")),
                 "triggered_by": current_user.get("email", "admin"),
                 "summary_snapshot": f"{record['status']} · {record['name']}",
                 "records": [record],
