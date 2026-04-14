@@ -154,6 +154,70 @@ def _module_workspace_bundle(module_id: int, organization_id: int) -> tuple[dict
     return module, actions, questions
 
 
+@st.cache_data(ttl=30, show_spinner=False)
+def _assignment_for_workspace_cached(assignment_id: int, user_id: int, organization_id: int) -> tuple[dict | None, str | None]:
+    assignment = fetch_one(
+        """
+        SELECT assignment_id, assigned_at, module_id
+        FROM assignments
+        WHERE assignment_id = ?
+          AND learner_id = ?
+          AND organization_id = ?
+          AND is_active = TRUE
+        """,
+        (assignment_id, user_id, organization_id),
+    )
+    if assignment:
+        return dict(assignment), None
+
+    exists_for_org = fetch_one(
+        """
+        SELECT assignment_id
+        FROM assignments
+        WHERE assignment_id = ?
+          AND organization_id = ?
+          AND is_active = TRUE
+        """,
+        (assignment_id, organization_id),
+    )
+    if exists_for_org:
+        return None, "unauthorized"
+    return None, "not_found"
+
+
+@st.cache_data(ttl=15, show_spinner=False)
+def _workspace_state_cached(assignment_id: int, module_id: int, user_id: int, organization_id: int) -> dict | None:
+    state = fetch_one(
+        """
+        SELECT *
+        FROM assignment_workspace_state
+        WHERE assignment_id = ?
+          AND organization_id = ?
+          AND module_id = ?
+          AND user_id = ?
+        """,
+        (assignment_id, organization_id, module_id, user_id),
+    )
+    return dict(state) if state else None
+
+
+@st.cache_data(ttl=20, show_spinner=False)
+def _existing_attempt_cached(user_id: int, module_id: int, organization_id: int, assigned_at: str):
+    return fetch_one(
+        """
+        SELECT attempt_id, total_score
+        FROM attempts
+        WHERE user_id = ?
+          AND module_id = ?
+          AND organization_id = ?
+          AND created_at >= ?
+        ORDER BY created_at DESC
+        LIMIT 1
+        """,
+        (user_id, module_id, organization_id, assigned_at),
+    )
+
+
 def render_learner_home(user: Dict) -> None:
     render_page_header("Welcome back", "Complete assigned simulations and monitor your performance over time.")
 
@@ -310,17 +374,7 @@ def render_module_library(user: Dict) -> None:
 
 
 def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user: Dict, time_limit_minutes: int) -> dict:
-    state = fetch_one(
-        """
-        SELECT *
-        FROM assignment_workspace_state
-        WHERE assignment_id = ?
-          AND organization_id = ?
-          AND module_id = ?
-          AND user_id = ?
-        """,
-        (assignment_id, user["organization_id"], module_id, user["user_id"]),
-    )
+    state = _workspace_state_cached(assignment_id, module_id, int(user["user_id"]), int(user["organization_id"]))
     if state:
         return dict(state)
 
@@ -363,17 +417,8 @@ def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user:
             end_time.isoformat(),
         ),
     )
-    return fetch_one(
-        """
-        SELECT *
-        FROM assignment_workspace_state
-        WHERE assignment_id = ?
-          AND organization_id = ?
-          AND module_id = ?
-          AND user_id = ?
-        """,
-        (assignment_id, user["organization_id"], module_id, user["user_id"]),
-    ) or {}
+    _workspace_state_cached.clear()
+    return _workspace_state_cached(assignment_id, module_id, int(user["user_id"]), int(user["organization_id"])) or {}
 
 
 def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) -> None:
@@ -417,36 +462,11 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
             user["user_id"],
         ),
     )
+    _workspace_state_cached.clear()
 
 
 def _fetch_assignment_for_workspace(*, assignment_id: int, user: Dict) -> tuple[dict | None, str | None]:
-    assignment = fetch_one(
-        """
-        SELECT assignment_id, assigned_at, module_id
-        FROM assignments
-        WHERE assignment_id = ?
-          AND learner_id = ?
-          AND organization_id = ?
-          AND is_active = TRUE
-        """,
-        (assignment_id, user["user_id"], user["organization_id"]),
-    )
-    if assignment:
-        return assignment, None
-
-    exists_for_org = fetch_one(
-        """
-        SELECT assignment_id
-        FROM assignments
-        WHERE assignment_id = ?
-          AND organization_id = ?
-          AND is_active = TRUE
-        """,
-        (assignment_id, user["organization_id"]),
-    )
-    if exists_for_org:
-        return None, "unauthorized"
-    return None, "not_found"
+    return _assignment_for_workspace_cached(int(assignment_id), int(user["user_id"]), int(user["organization_id"]))
 
 
 def _render_assignment_access_error(*, reason: str) -> None:
@@ -473,18 +493,11 @@ def render_scenario_page(user: Dict) -> None:
     module_id = int(assignment["module_id"])
     st.query_params["assignment_id"] = str(assignment_id)
 
-    existing_attempt = fetch_one(
-        """
-        SELECT attempt_id, total_score
-        FROM attempts
-        WHERE user_id = ?
-          AND module_id = ?
-          AND organization_id = ?
-          AND created_at >= ?
-        ORDER BY created_at DESC
-        LIMIT 1
-        """,
-        (user["user_id"], module_id, user["organization_id"], assignment["assigned_at"]),
+    existing_attempt = _existing_attempt_cached(
+        int(user["user_id"]),
+        module_id,
+        int(user["organization_id"]),
+        str(assignment["assigned_at"]),
     )
     if existing_attempt:
         st.success(f"You've already completed this module. Score: {existing_attempt['total_score']}%")
@@ -574,7 +587,7 @@ def render_scenario_page(user: Dict) -> None:
     already_submitted = int(persisted.get("submitted_state") or 0) == 1
     already_auto_submitted = int(persisted.get("auto_submitted_state") or 0) == 1
 
-    @st.fragment(run_every="1s" if not already_submitted else None)
+    @st.fragment(run_every="15s" if not already_submitted else None)
     def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:
         seconds_left = int(deadline_epoch - datetime.now(timezone.utc).timestamp())
         minutes = max(0, seconds_left) // 60
@@ -730,16 +743,21 @@ def render_scenario_page(user: Dict) -> None:
                             st.write(details)
                 with st.form(key=f"wizard_step2_form_{assignment_id}", clear_on_submit=False):
                     st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
+                        save_draft_clicked = st.form_submit_button("Save Draft")
+                    with c3:
                         next_clicked = st.form_submit_button("Next", type="primary")
 
                 if back_clicked:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
+                elif save_draft_clicked:
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Draft saved.")
                 elif next_clicked:
                     st.session_state[step_key] = min(5, current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
@@ -772,10 +790,12 @@ def render_scenario_page(user: Dict) -> None:
                     step_validation_error = "Please answer all assessment questions before continuing." if unanswered else None
                     if step_validation_error:
                         st.warning(step_validation_error)
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
+                        save_draft_clicked = st.form_submit_button("Save Draft")
+                    with c3:
                         next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
 
                 if back_clicked:
@@ -783,6 +803,10 @@ def render_scenario_page(user: Dict) -> None:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
+                elif save_draft_clicked:
+                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Draft saved.")
                 elif next_clicked:
                     st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
                     st.session_state[step_key] = min(5, current_step_local + 1)
@@ -791,38 +815,30 @@ def render_scenario_page(user: Dict) -> None:
                     st.rerun()
             elif current_step_local == 4:
                 st.markdown("### Final Response / Decision")
-                diagnosis_key = f"module_step_{current_step_local}_diagnosis"
-                next_steps_key = f"module_step_{current_step_local}_next_steps"
-                customer_response_key = f"module_step_{current_step_local}_customer_response"
-                escalation_key = f"module_step_{current_step_local}_escalation_decision"
-                st.session_state.setdefault(diagnosis_key, st.session_state.get(f"diagnosis_{assignment_id}", ""))
-                st.session_state.setdefault(next_steps_key, st.session_state.get(f"next_steps_{assignment_id}", ""))
-                st.session_state.setdefault(customer_response_key, st.session_state.get(f"customer_{assignment_id}", ""))
-                st.session_state.setdefault(escalation_key, st.session_state.get(f"escalation_{assignment_id}", "No escalation"))
                 with st.form(key=f"wizard_step4_form_{assignment_id}", clear_on_submit=False):
-                    diagnosis_value = st.text_area("Diagnosis", key=diagnosis_key, height=100)
-                    next_steps_value = st.text_area("Next steps", key=next_steps_key, height=120)
-                    customer_response_value = st.text_area("Customer response", key=customer_response_key, height=120)
+                    diagnosis_value = st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
+                    next_steps_value = st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
+                    customer_response_value = st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
                     st.selectbox(
                         "Escalation decision",
                         ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-                        key=escalation_key,
+                        key=f"escalation_{assignment_id}",
                     )
-                    c1, c2 = st.columns(2)
+                    c1, c2, c3 = st.columns(3)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
+                        save_draft_clicked = st.form_submit_button("Save Draft")
+                    with c3:
                         next_clicked = st.form_submit_button("Next", type="primary")
-
-                st.session_state[f"diagnosis_{assignment_id}"] = diagnosis_value or ""
-                st.session_state[f"next_steps_{assignment_id}"] = next_steps_value or ""
-                st.session_state[f"customer_{assignment_id}"] = customer_response_value or ""
-                st.session_state[f"escalation_{assignment_id}"] = st.session_state.get(escalation_key, "No escalation")
 
                 if back_clicked:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
+                elif save_draft_clicked:
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Draft saved.")
                 elif next_clicked:
                     step_validation_error = None
                     if (
