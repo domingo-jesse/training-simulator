@@ -587,7 +587,7 @@ def render_scenario_page(user: Dict) -> None:
     already_submitted = int(persisted.get("submitted_state") or 0) == 1
     already_auto_submitted = int(persisted.get("auto_submitted_state") or 0) == 1
 
-    @st.fragment(run_every="15s" if not already_submitted else None)
+    @st.fragment(run_every="1s" if not already_submitted else None)
     def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:
         seconds_left = int(deadline_epoch - datetime.now(timezone.utc).timestamp())
         minutes = max(0, seconds_left) // 60
