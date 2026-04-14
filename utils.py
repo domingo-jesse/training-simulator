@@ -279,6 +279,12 @@ def inject_styles() -> None:
             padding: 0;
             margin: 0;
         }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlockBorderWrapper"]:has([data-testid="sidebar-profile-compact"]) {
+            border: 0;
+            background: transparent;
+            padding: 0;
+            box-shadow: none;
+        }
         .sidebar-profile-compact .sidebar-profile-name {
             color: var(--text);
             font-size: 0.78rem;
