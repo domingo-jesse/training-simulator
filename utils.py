@@ -185,7 +185,7 @@ def inject_styles() -> None:
 
         .panel,
         .module-card,
-        [data-testid="stVerticalBlockBorderWrapper"],
+        .stAppViewContainer > .main [data-testid="stVerticalBlockBorderWrapper"],
         [data-testid="stDataFrame"],
         .stTabs [data-baseweb="tab-panel"] {
             background: var(--surface);
