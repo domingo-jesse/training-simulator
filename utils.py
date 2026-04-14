@@ -672,13 +672,14 @@ def _inject_app_table_styles() -> None:
             border-radius: 16px;
             padding: 10px 14px;
             width: 100%;
-            max-height: var(--app-table-max-height, 450px);
-            overflow: hidden;
         }
-        .app-table-scroll {
-            border-radius: 12px;
-            max-height: 100%;
+        .app-table-card.app-table-scroll {
+            max-height: var(--app-table-max-height, 500px);
             overflow-y: auto;
+            overflow-x: auto;
+        }
+        .app-table-inner {
+            border-radius: 12px;
             overflow-x: auto;
         }
         .app-table {
@@ -749,7 +750,7 @@ def render_app_table(
     table_subtitle: str = "",
     empty_title: str = "No data available",
     empty_message: str = "Records will appear here once data is available.",
-    table_max_height: int | str | None = 450,
+    table_max_height: int | str | None = 500,
 ) -> pd.DataFrame:
     _inject_app_table_styles()
     column_labels = column_labels or {}
@@ -799,7 +800,7 @@ def render_app_table(
             render_df[col] = render_df[col].apply(lambda x: _format_numeric_value(x, decimals))
 
     table_height = _normalize_css_size(table_max_height)
-    html = [f'<div class="app-table-card" style="--app-table-max-height:{escape(table_height)};"><div class="app-table-scroll"><table class="app-table"><thead><tr>']
+    html = [f'<div class="app-table-card app-table-scroll" style="--app-table-max-height:{escape(table_height)};"><div class="app-table-inner"><table class="app-table"><thead><tr>']
     for col in render_df.columns:
         label = column_labels.get(col, col.replace("_", " ").title())
         alignment = "right" if numeric_align.get(col) == "right" else "left"
