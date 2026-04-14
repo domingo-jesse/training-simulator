@@ -10,7 +10,7 @@ import streamlit as st
 from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
 from evaluation import evaluate_submission
 from logger import get_logger
-from utils import metric_row, parse_json_list, render_page_header, to_df
+from utils import metric_row, parse_json_list, render_page_header, safe_int, to_df
 
 learner_logger = get_logger(module="learner_views")
 WIZARD_STEPS = [
@@ -528,7 +528,7 @@ def render_scenario_page(user: Dict) -> None:
         time_limit_minutes=duration_minutes,
     )
     step_key = f"wizard_step_{assignment_id}"
-    st.session_state.setdefault(step_key, _clamp_wizard_step(int(persisted.get("current_step") or 1)))
+    st.session_state.setdefault(step_key, _clamp_wizard_step(safe_int(persisted.get("current_step"), 1)))
     st.session_state.setdefault(f"used_actions_{assignment_id}", json.loads(persisted.get("used_actions") or "[]"))
     st.session_state.setdefault(f"revealed_{assignment_id}", json.loads(persisted.get("revealed_actions") or "{}"))
     st.session_state.setdefault(f"started_at_{assignment_id}", persisted.get("started_at") or datetime.now(timezone.utc).isoformat())
@@ -538,7 +538,7 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
     st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
-    st.session_state.setdefault(f"submitted_{assignment_id}", bool(int(persisted.get("submitted_state") or 0)))
+    st.session_state.setdefault(f"submitted_{assignment_id}", bool(safe_int(persisted.get("submitted_state"))))
 
     render_page_header(module["title"], f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
@@ -557,7 +557,7 @@ def render_scenario_page(user: Dict) -> None:
         started_at_dt = datetime.now(timezone.utc)
         st.session_state[started_at_key] = started_at_dt.isoformat()
 
-    persisted_limit_minutes = int(persisted.get("time_limit_minutes") or duration_minutes)
+    persisted_limit_minutes = safe_int(persisted.get("time_limit_minutes"), duration_minutes)
     end_time_iso = persisted.get("end_time")
     try:
         end_time_dt = datetime.fromisoformat(end_time_iso) if end_time_iso else datetime.fromtimestamp(
@@ -588,8 +588,8 @@ def render_scenario_page(user: Dict) -> None:
     remaining_seconds = int(deadline - now_ts)
     timer_key = f"timer_submitted_{assignment_id}"
     st.session_state.setdefault(timer_key, False)
-    already_submitted = int(persisted.get("submitted_state") or 0) == 1
-    already_auto_submitted = int(persisted.get("auto_submitted_state") or 0) == 1
+    already_submitted = safe_int(persisted.get("submitted_state")) == 1
+    already_auto_submitted = safe_int(persisted.get("auto_submitted_state")) == 1
 
     @st.fragment(run_every="1s" if not already_submitted else None)
     def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:
@@ -896,7 +896,7 @@ def render_scenario_page(user: Dict) -> None:
 
 def _render_result_detail(attempt: Dict) -> None:
     st.markdown(f"### Result details • {attempt['title']}")
-    if int(attempt.get("timed_out") or 0) == 1 or attempt.get("attempt_state") == "time_expired":
+    if safe_int(attempt.get("timed_out")) == 1 or attempt.get("attempt_state") == "time_expired":
         st.warning("This assessment was auto-submitted because the time limit expired.")
     st.caption(
         "Time given: "
