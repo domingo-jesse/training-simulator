@@ -392,8 +392,9 @@ def render_learner_management(current_user: dict) -> None:
         org_filter = st.selectbox("Organization", ["All"] + org_options)
     filtered = apply_learner_filters(df, search_text=q, team_filter=team_filter, org_filter=org_filter)
 
-    def _render_learner_tab(tab_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
+    def _render_learner_tab(tab_df: pd.DataFrame, full_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
         scoped = filter_active_learners(tab_df) if show_active else filter_inactive_learners(tab_df)
+        scoped_all = filter_active_learners(full_df) if show_active else filter_inactive_learners(full_df)
         st.caption(f"{len(scoped)} learner(s) in {tab_name.lower()}.")
         learner_table_df = scoped[
             [
@@ -411,12 +412,18 @@ def render_learner_management(current_user: dict) -> None:
         tab_key = tab_name.lower().replace(" ", "_")
         multiselect_key = f"learner_bulk_select_{tab_key}"
         selection_state_key = f"learner_bulk_selected_ids_{tab_key}"
+        selected_ids_key = f"learner_unified_selected_ids_{tab_key}"
         learner_options = {build_learner_option_label(r): int(r["user_id"]) for _, r in scoped.iterrows()}
         option_labels = list(learner_options.keys())
+        label_by_id = {learner_id: label for label, learner_id in learner_options.items()}
+        visible_ids = {int(v) for v in scoped["user_id"].tolist()}
+        all_tab_ids = {int(v) for v in scoped_all["user_id"].tolist()}
 
-        if multiselect_key not in st.session_state:
-            st.session_state[multiselect_key] = []
-        st.session_state[multiselect_key] = [x for x in st.session_state[multiselect_key] if x in option_labels]
+        existing_ids = {
+            int(v) for v in st.session_state.get(selected_ids_key, []) if int(v) in all_tab_ids
+        }
+        st.session_state[selected_ids_key] = sorted(existing_ids)
+        st.session_state[selection_state_key] = sorted(existing_ids & visible_ids)
 
         learner_display_df = learner_table_df.rename(
             columns={
@@ -450,21 +457,27 @@ def render_learner_management(current_user: dict) -> None:
                 "Select All Filtered",
                 key=f"select_all_filtered_{tab_key}",
             ):
-                st.session_state[multiselect_key] = list(option_labels)
-                st.session_state[selection_state_key] = list(learner_options.values())
+                updated_ids = set(st.session_state.get(selected_ids_key, [])) | set(learner_options.values())
+                st.session_state[selected_ids_key] = sorted(int(v) for v in updated_ids)
+                st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
                 st.rerun()
         with c2:
             if st.button(
                 "Clear Selection",
                 key=f"clear_selection_{tab_key}",
             ):
-                st.session_state[multiselect_key] = []
+                st.session_state[selected_ids_key] = []
                 st.session_state[selection_state_key] = []
                 st.rerun()
 
         selected_id_set = {int(v) for v in selected_row_ids}
+        unified_selected_ids = (set(st.session_state.get(selected_ids_key, [])) - visible_ids) | selected_id_set
+        st.session_state[selected_ids_key] = sorted(int(v) for v in unified_selected_ids)
+        st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
         st.session_state[multiselect_key] = [
-            label for label, learner_id in learner_options.items() if learner_id in selected_id_set
+            label_by_id[learner_id]
+            for learner_id in st.session_state[selected_ids_key]
+            if learner_id in label_by_id
         ]
 
         st.markdown("##### Selected learners")
@@ -472,12 +485,18 @@ def render_learner_management(current_user: dict) -> None:
             "Selected learners",
             options=option_labels,
             key=multiselect_key,
-            help="Select from the table above. Chips reflect the current table selection.",
+            help="Selections stay synced with the table above.",
             label_visibility="collapsed",
         )
-        selected_ids = [learner_options[label] for label in selected_learners]
-        st.session_state[selection_state_key] = list(selected_ids)
-        st.caption(f"{len(selected_ids)} of {len(scoped)} filtered learners selected")
+        selected_from_multiselect = {learner_options[label] for label in selected_learners if label in learner_options}
+        unified_selected_ids = (set(st.session_state.get(selected_ids_key, [])) - visible_ids) | selected_from_multiselect
+        st.session_state[selected_ids_key] = sorted(int(v) for v in unified_selected_ids)
+        st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
+        selected_ids = sorted(int(v) for v in st.session_state[selected_ids_key])
+        visible_selected_count = len(set(selected_ids) & visible_ids)
+        st.caption(
+            f"{len(selected_ids)} total selected • {visible_selected_count} of {len(scoped)} currently visible"
+        )
 
         if show_active:
             action_label = "Archive"
@@ -529,9 +548,9 @@ def render_learner_management(current_user: dict) -> None:
 
     active_tab, inactive_tab = st.tabs(["Active Learners", "Inactive Learners"])
     with active_tab:
-        _render_learner_tab(filtered, "Active Learners", True)
+        _render_learner_tab(filtered, df, "Active Learners", True)
     with inactive_tab:
-        _render_learner_tab(filtered, "Inactive Learners", False)
+        _render_learner_tab(filtered, df, "Inactive Learners", False)
 
 
 def _render_assignment_tool(current_user: dict) -> None:
