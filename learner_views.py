@@ -780,38 +780,53 @@ def render_scenario_page(user: Dict) -> None:
                     st.rerun()
             elif current_step_local == 4:
                 st.markdown("### Final Response / Decision")
+                diagnosis_key = f"module_step_{current_step_local}_diagnosis"
+                next_steps_key = f"module_step_{current_step_local}_next_steps"
+                customer_response_key = f"module_step_{current_step_local}_customer_response"
+                escalation_key = f"module_step_{current_step_local}_escalation_decision"
+                st.session_state.setdefault(diagnosis_key, st.session_state.get(f"diagnosis_{assignment_id}", ""))
+                st.session_state.setdefault(next_steps_key, st.session_state.get(f"next_steps_{assignment_id}", ""))
+                st.session_state.setdefault(customer_response_key, st.session_state.get(f"customer_{assignment_id}", ""))
+                st.session_state.setdefault(escalation_key, st.session_state.get(f"escalation_{assignment_id}", "No escalation"))
                 with st.form(key=f"wizard_step4_form_{assignment_id}", clear_on_submit=False):
-                    st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
-                    st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
-                    st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
+                    diagnosis_value = st.text_area("Diagnosis", key=diagnosis_key, height=100)
+                    next_steps_value = st.text_area("Next steps", key=next_steps_key, height=120)
+                    customer_response_value = st.text_area("Customer response", key=customer_response_key, height=120)
                     st.selectbox(
                         "Escalation decision",
                         ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-                        key=f"escalation_{assignment_id}",
+                        key=escalation_key,
                     )
-                    step_validation_error = None
-                    if (
-                        not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
-                        or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
-                        or not st.session_state.get(f"customer_{assignment_id}", "").strip()
-                    ):
-                        step_validation_error = "Diagnosis, next steps, and customer response are required before continuing."
-                        st.warning(step_validation_error)
                     c1, c2 = st.columns(2)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
-                        next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
+                        next_clicked = st.form_submit_button("Next", type="primary")
+
+                st.session_state[f"diagnosis_{assignment_id}"] = diagnosis_value or ""
+                st.session_state[f"next_steps_{assignment_id}"] = next_steps_value or ""
+                st.session_state[f"customer_{assignment_id}"] = customer_response_value or ""
+                st.session_state[f"escalation_{assignment_id}"] = st.session_state.get(escalation_key, "No escalation")
 
                 if back_clicked:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
                 elif next_clicked:
-                    st.session_state[step_key] = min(5, current_step_local + 1)
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.toast("Progress saved.")
-                    st.rerun()
+                    step_validation_error = None
+                    if (
+                        not (diagnosis_value or "").strip()
+                        or not (next_steps_value or "").strip()
+                        or not (customer_response_value or "").strip()
+                    ):
+                        step_validation_error = "Diagnosis, next steps, and customer response are required before continuing."
+                    if step_validation_error:
+                        st.warning(step_validation_error)
+                    else:
+                        st.session_state[step_key] = min(5, current_step_local + 1)
+                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                        st.toast("Progress saved.")
+                        st.rerun()
             else:
                 st.markdown("### Review and Submit")
                 st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
