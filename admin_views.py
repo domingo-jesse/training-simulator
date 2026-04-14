@@ -1668,15 +1668,21 @@ def render_module_builder(current_user: dict) -> None:
             st.session_state[review_step_key] = 0
         if question_step_idx_key not in st.session_state:
             st.session_state[question_step_idx_key] = 0
-        wizard_labels = ["Review Scenario", "Review Questions", "Custom Questions", "Finalize"]
         review_step = int(st.session_state[review_step_key])
-        _render_named_step_indicator(review_step, wizard_labels)
 
         non_custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") != "custom_question"]
         custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") == "custom_question"]
         question_review_count = len(non_custom_questions)
-        current_q_idx = 0
+        current_q_idx = max(0, min(int(st.session_state[question_step_idx_key]), max(question_review_count - 1, 0)))
+        st.session_state[question_step_idx_key] = current_q_idx
         is_final_review_question = False
+        if review_step == 1 and question_review_count > 0:
+            wizard_labels = ["Review Scenario"] + [f"Review Question {idx + 1}" for idx in range(question_review_count)] + ["Custom Questions", "Finalize"]
+            wizard_step_index = 1 + current_q_idx
+        else:
+            wizard_labels = ["Review Scenario", "Review Questions", "Custom Questions", "Finalize"]
+            wizard_step_index = review_step
+        _render_named_step_indicator(wizard_step_index, wizard_labels)
 
         step_valid = True
         if review_step == 0:
@@ -1736,8 +1742,6 @@ def render_module_builder(current_user: dict) -> None:
                     st.info("No generated questions available.")
                     step_valid = False
                 else:
-                    current_q_idx = max(0, min(int(st.session_state[question_step_idx_key]), len(non_custom_questions) - 1))
-                    st.session_state[question_step_idx_key] = current_q_idx
                     is_final_review_question = current_q_idx == question_review_count - 1
                     q = non_custom_questions[current_q_idx]
                     st.caption(f"Question {current_q_idx + 1} of {len(non_custom_questions)}")
@@ -1895,28 +1899,33 @@ def render_module_builder(current_user: dict) -> None:
         can_finalize = bool(approved_questions) and run.get("generation_status") == "approved"
         nav_back, nav_next, nav_action = st.columns([1, 1, 2])
         reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
-        can_go_previous_question = reviewing_generated_questions and current_q_idx > 0
         can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
-        show_finalize_action = review_step == 3 or (reviewing_generated_questions and is_final_review_question)
         with nav_back:
-            back_label = "Previous" if reviewing_generated_questions else "Back"
-            back_disabled = (not can_go_previous_question) if reviewing_generated_questions else (review_step == 0)
+            back_label = "Previous Question" if reviewing_generated_questions and current_q_idx > 0 else ("Back to Scenario" if reviewing_generated_questions else "Back")
+            back_disabled = review_step == 0
             if st.button(back_label, key=f"review_back_{run_id}", disabled=back_disabled):
                 if reviewing_generated_questions:
-                    st.session_state[question_step_idx_key] = max(0, current_q_idx - 1)
+                    if current_q_idx == 0:
+                        st.session_state[review_step_key] = 0
+                    else:
+                        st.session_state[question_step_idx_key] = current_q_idx - 1
                 else:
                     st.session_state[review_step_key] = max(0, review_step - 1)
                 st.rerun()
         with nav_next:
             if reviewing_generated_questions:
-                if can_go_next_question and st.button("Next", key=f"review_next_{run_id}", disabled=not step_valid):
-                    st.session_state[question_step_idx_key] = min(question_review_count - 1, current_q_idx + 1)
+                next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
+                if st.button(next_label, key=f"review_next_{run_id}", disabled=not step_valid):
+                    if can_go_next_question:
+                        st.session_state[question_step_idx_key] = current_q_idx + 1
+                    else:
+                        st.session_state[review_step_key] = 2
                     st.rerun()
             elif st.button("Next", key=f"review_next_{run_id}", disabled=review_step >= 3 or not step_valid):
                 st.session_state[review_step_key] = min(3, review_step + 1)
                 st.rerun()
         with nav_action:
-            if show_finalize_action and st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
+            if review_step == 3 and st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
                 module_id = execute(
                     """
                     INSERT INTO modules (
