@@ -1981,14 +1981,20 @@ def render_manage_modules(current_user: dict) -> None:
                     value=bool(edit_form["quiz_required"]),
                     key=f"edit_module_quiz_required_{module_id}",
                 )
-            else:
+            elif edit_steps[edit_step]["field"] == "review":
                 st.markdown("##### Review")
                 st.json(edit_form)
-                missing_required = ["title", "description", "learning_objectives", "content_sections", "completion_requirements"]
-                missing_labels = [field for field in missing_required if not _is_present(edit_form.get(field))]
+                missing_required = [
+                    ("title", "Module title"),
+                    ("description", "Description"),
+                    ("learning_objectives", "Learning objectives"),
+                    ("content_sections", "Ordered content sections"),
+                    ("completion_requirements", "Completion requirements"),
+                ]
+                missing_labels = [label for field, label in missing_required if not _is_present(edit_form.get(field))]
                 edit_step_valid = not missing_labels
                 if missing_labels:
-                    st.error(f"Required fields missing: {', '.join(missing_labels)}")
+                    st.error("Please complete these items before saving: " + ", ".join(missing_labels) + ".")
 
             if not edit_step_valid and edit_required_message and edit_steps[edit_step]["field"] != "review":
                 st.error(edit_required_message)
