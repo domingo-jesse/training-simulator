@@ -276,23 +276,11 @@ def render_admin_dashboard(current_user: dict) -> None:
     with m4:
         render_kpi_card("Overdue", overdue_assignments, "Need follow-up")
 
-    st.markdown("#### Assignment analytics")
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        if assignments_df.empty:
-            st.info("No assignments yet.")
-        else:
-            trend = assignments_df.copy()
-            trend["assigned_at"] = pd.to_datetime(trend["assigned_at"])
-            trend = trend.groupby(trend["assigned_at"].dt.date).size().reset_index(name="count")
-            trend.columns = ["date", "count"]
-            st.line_chart(trend.set_index("date"))
-    with c2:
-        st.markdown("##### Status breakdown")
-        if assignments_df.empty:
-            st.info("No assignments yet.")
-        else:
-            st.bar_chart(assignments_df["status"].value_counts())
+    st.markdown("##### Status breakdown")
+    if assignments_df.empty:
+        st.info("No assignments yet.")
+    else:
+        st.bar_chart(assignments_df["status"].value_counts())
 
     c3, c4, c5 = st.columns(3)
     with c3:
