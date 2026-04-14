@@ -1279,9 +1279,9 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
         unsafe_allow_html=True,
     )
     st.markdown("<div class='sidebar-profile-actions'>", unsafe_allow_html=True)
-    if st.button("⚙️ Settings", use_container_width=True, key="menu_settings_btn"):
+    if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
         _navigate_to_account_page("settings")
-    if st.button("🚪 Logout", use_container_width=True, key="menu_logout_btn"):
+    if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
         logout_user()
     st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)

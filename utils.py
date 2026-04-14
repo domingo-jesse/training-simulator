@@ -267,45 +267,53 @@ def inject_styles() -> None:
             border: 1px solid var(--line);
             border-radius: 14px;
             background: #fbfcff;
-            padding: 0.85rem 0.85rem 0.7rem;
-            margin-bottom: 0.3rem;
+            padding: 0.62rem 0.68rem 0.56rem;
+            margin-bottom: 0.2rem;
         }
         .sidebar-profile-name {
             color: var(--text);
-            font-size: 1rem;
-            font-weight: 700;
-            line-height: 1.3;
-            margin-bottom: 0.2rem;
+            font-size: 0.9rem;
+            font-weight: 650;
+            line-height: 1.22;
+            margin-bottom: 0.08rem;
         }
         .sidebar-profile-label {
             color: var(--muted);
-            font-size: 0.8rem;
-            font-weight: 600;
+            font-size: 0.71rem;
+            font-weight: 500;
             letter-spacing: 0.01em;
-            margin-bottom: 0.2rem;
+            margin-bottom: 0.08rem;
         }
         .sidebar-profile-email {
-            color: #475467;
-            font-size: 0.73rem;
-            line-height: 1.25;
+            color: #667085;
+            font-size: 0.69rem;
+            line-height: 1.15;
             word-break: break-word;
         }
         .sidebar-profile-actions {
-            margin-top: 0.45rem;
-            margin-bottom: 0.1rem;
+            margin-top: 0.3rem;
+            margin-bottom: 0;
             display: flex;
             flex-direction: column;
-            gap: 0.28rem;
+            gap: 0.14rem;
         }
         .sidebar-profile-actions .stButton > button {
             width: 100%;
-            height: 1.75rem;
-            border-radius: 10px;
-            font-size: 0.74rem;
-            font-weight: 600;
-            background: #f8fafc;
+            min-height: 1.32rem;
+            border-radius: 7px;
+            font-size: 0.68rem;
+            font-weight: 500;
+            line-height: 1.1;
+            background: transparent;
+            border-color: transparent;
+            color: #667085;
             justify-content: flex-start;
-            padding-left: 0.5rem;
+            padding: 0.16rem 0.05rem;
+        }
+        .sidebar-profile-actions .stButton > button:hover {
+            background: rgba(148, 163, 184, 0.08);
+            border-color: transparent;
+            color: #475467;
         }
 
         .stButton > button {
