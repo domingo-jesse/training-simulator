@@ -33,15 +33,15 @@ def inject_styles() -> None:
         .main .block-container {
             padding-top: 1rem;
             padding-bottom: 2rem;
-            padding-left: 24px !important;
-            padding-right: 24px !important;
-            max-width: 1300px !important;
+            padding-left: 20px !important;
+            padding-right: 20px !important;
+            max-width: 1120px !important;
             margin-left: auto !important;
             margin-right: auto !important;
         }
         @media (min-width: 1600px) {
             .main .block-container {
-                max-width: 1200px !important;
+                max-width: 1120px !important;
             }
         }
         .app-page-shell {
@@ -50,20 +50,20 @@ def inject_styles() -> None:
         .app-page-container {
             margin-left: auto;
             margin-right: auto;
-            padding: 0 28px 32px 28px;
+            padding: 0 20px 32px 20px;
             width: 100%;
             box-sizing: border-box;
         }
         .app-page-container-wide {
-            max-width: 1280px;
+            max-width: 1120px;
         }
         .app-page-container-medium {
-            max-width: 1080px;
+            max-width: 980px;
         }
         .app-page-container-narrow {
-            max-width: 820px;
-            padding-left: 24px;
-            padding-right: 24px;
+            max-width: 760px;
+            padding-left: 18px;
+            padding-right: 18px;
         }
         .stApp,
         [data-testid="stAppViewContainer"] {
