@@ -238,7 +238,7 @@ def _cleanup_assignment_tracking_records(
         DELETE FROM module_assignments
         WHERE organization_id = ?
           AND user_id = (SELECT id FROM users WHERE user_id = ?)
-          AND module_id = (SELECT id FROM modules WHERE module_id = ?)
+          AND module_id = (SELECT id::uuid FROM modules WHERE module_id = ?)
         """,
         (organization_id, learner_id, module_id),
     )
