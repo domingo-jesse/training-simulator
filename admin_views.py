@@ -1218,6 +1218,12 @@ def _is_present(value: object) -> bool:
     return True
 
 
+def _normalize_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
 def _render_wizard_progress(step_index: int, total_steps: int, title: str) -> None:
     st.caption(f"Step {step_index + 1} of {total_steps}")
     st.progress((step_index + 1) / total_steps)
@@ -1288,14 +1294,17 @@ def render_module_builder(current_user: dict) -> None:
     with st.container(border=True):
         step_valid = True
         required_message = ""
+        step_errors: list[str] = []
         if step_config["field"] == "title":
             module_form["title"] = st.text_input("Title", value=module_form["title"], key="module_builder_title")
-            step_valid = _is_present(module_form["title"])
-            required_message = "Title is required."
+            title_value = _normalize_text(st.session_state.get("module_builder_title", module_form["title"]))
+            module_form["title"] = title_value
+            step_valid = bool(title_value)
+            required_message = "Please enter a module title to continue."
         elif step_config["field"] == "category":
             module_form["category"] = st.text_input("Category", value=module_form["category"], key="module_builder_category")
             step_valid = _is_present(module_form["category"])
-            required_message = "Category is required."
+            required_message = "Please enter a category to continue."
         elif step_config["field"] == "difficulty":
             difficulty_options = ["Beginner", "Intermediate", "Advanced"]
             current_difficulty = module_form["difficulty"] if module_form["difficulty"] in difficulty_options else "Beginner"
@@ -1312,7 +1321,7 @@ def render_module_builder(current_user: dict) -> None:
                 key="module_builder_role_focus",
             )
             step_valid = _is_present(module_form["role_focus"])
-            required_message = "Role focus is required."
+            required_message = "Please describe the role being simulated."
         elif step_config["field"] == "test_focus":
             module_form["test_focus"] = st.text_input(
                 "What should this module test?",
@@ -1320,11 +1329,11 @@ def render_module_builder(current_user: dict) -> None:
                 key="module_builder_test_focus",
             )
             step_valid = _is_present(module_form["test_focus"])
-            required_message = "Test focus is required."
+            required_message = "Please describe what this module should test."
         elif step_config["field"] == "description":
             module_form["description"] = st.text_area("Description", value=module_form["description"], key="module_builder_description")
             step_valid = _is_present(module_form["description"])
-            required_message = "Description is required."
+            required_message = "Please enter a description to continue."
         elif step_config["field"] == "learning_objectives":
             module_form["learning_objectives"] = st.text_area(
                 "Learning objectives (one per line)",
@@ -1332,7 +1341,7 @@ def render_module_builder(current_user: dict) -> None:
                 key="module_builder_learning_objectives",
             )
             step_valid = _is_present(module_form["learning_objectives"])
-            required_message = "Learning objectives are required."
+            required_message = "Please add at least one learning objective."
         elif step_config["field"] == "scenario_constraints":
             module_form["scenario_constraints"] = st.text_area(
                 "Scenario context / constraints",
@@ -1340,7 +1349,7 @@ def render_module_builder(current_user: dict) -> None:
                 key="module_builder_scenario_constraints",
             )
             step_valid = _is_present(module_form["scenario_constraints"])
-            required_message = "Scenario context is required."
+            required_message = "Please provide scenario context or constraints."
         elif step_config["field"] == "content_sections":
             module_form["content_sections"] = st.text_area(
                 "Ordered content sections (one per line)",
@@ -1348,7 +1357,7 @@ def render_module_builder(current_user: dict) -> None:
                 key="module_builder_content_sections",
             )
             step_valid = _is_present(module_form["content_sections"])
-            required_message = "Content sections are required."
+            required_message = "Please add at least one content section."
         elif step_config["field"] == "completion_requirements":
             module_form["completion_requirements"] = st.text_area(
                 "Completion requirements",
@@ -1356,7 +1365,7 @@ def render_module_builder(current_user: dict) -> None:
                 key="module_builder_completion_requirements",
             )
             step_valid = _is_present(module_form["completion_requirements"])
-            required_message = "Completion requirements are required."
+            required_message = "Please enter completion requirements."
         elif step_config["field"] == "assessment_settings":
             module_form["quiz_required"] = st.checkbox(
                 "Quiz required",
@@ -1386,21 +1395,25 @@ def render_module_builder(current_user: dict) -> None:
             st.markdown("##### Review")
             st.write("Please review your values before saving.")
             st.json(module_form)
-        missing_required = [
-            "title",
-            "category",
-            "role_focus",
-            "test_focus",
-            "description",
-            "learning_objectives",
-            "scenario_constraints",
-            "content_sections",
-            "completion_requirements",
-        ]
-        missing_labels = [field for field in missing_required if not _is_present(module_form.get(field))]
-        step_valid = not missing_labels
-        if missing_labels:
-            st.error(f"Required fields missing: {', '.join(missing_labels)}")
+            required_fields = [
+                ("title", "Module title"),
+                ("category", "Category"),
+                ("role_focus", "Role being simulated"),
+                ("test_focus", "What this module should test"),
+                ("description", "Description"),
+                ("learning_objectives", "Learning objectives"),
+                ("scenario_constraints", "Scenario context / constraints"),
+                ("content_sections", "Ordered content sections"),
+                ("completion_requirements", "Completion requirements"),
+            ]
+            missing_labels = [label for field, label in required_fields if not _is_present(module_form.get(field))]
+            if missing_labels:
+                step_errors.append("Please complete these items before saving: " + ", ".join(missing_labels) + ".")
+            step_valid = not step_errors
+
+        if step_errors:
+            for error in step_errors:
+                st.error(error)
 
     if not step_valid and required_message and step_config["field"] != "review":
         st.error(required_message)
