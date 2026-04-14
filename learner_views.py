@@ -19,8 +19,11 @@ WIZARD_STEPS = [
     "Assessment Questions",
     "Final Response / Decision",
     "Review and Submit",
-    "Results / Feedback",
 ]
+
+
+def _clamp_wizard_step(step_value: int) -> int:
+    return max(1, min(step_value, len(WIZARD_STEPS)))
 
 
 def _compact_text(value: str) -> str:
@@ -445,7 +448,7 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
           AND user_id = ?
         """,
         (
-            int(st.session_state.get(f"wizard_step_{assignment_id}", 1)),
+            _clamp_wizard_step(int(st.session_state.get(f"wizard_step_{assignment_id}", 1))),
             "submitted" if st.session_state.get(f"submitted_{assignment_id}") else "in_progress",
             st.session_state.get(f"notes_{assignment_id}", ""),
             st.session_state.get(f"diagnosis_{assignment_id}", ""),
@@ -525,7 +528,7 @@ def render_scenario_page(user: Dict) -> None:
         time_limit_minutes=duration_minutes,
     )
     step_key = f"wizard_step_{assignment_id}"
-    st.session_state.setdefault(step_key, int(persisted.get("current_step") or 1))
+    st.session_state.setdefault(step_key, _clamp_wizard_step(int(persisted.get("current_step") or 1)))
     st.session_state.setdefault(f"used_actions_{assignment_id}", json.loads(persisted.get("used_actions") or "[]"))
     st.session_state.setdefault(f"revealed_{assignment_id}", json.loads(persisted.get("revealed_actions") or "{}"))
     st.session_state.setdefault(f"started_at_{assignment_id}", persisted.get("started_at") or datetime.now(timezone.utc).isoformat())
@@ -539,8 +542,9 @@ def render_scenario_page(user: Dict) -> None:
 
     render_page_header(module["title"], f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
-    current_step = int(st.session_state.get(step_key, 1))
-    st.progress(current_step / len(WIZARD_STEPS), text=f"Step {current_step} of {len(WIZARD_STEPS)} • {WIZARD_STEPS[current_step - 1]}")
+    current_step = _clamp_wizard_step(int(st.session_state.get(step_key, 1)))
+    total_steps = len(WIZARD_STEPS)
+    st.progress(current_step / total_steps, text=f"Step {current_step} of {total_steps} • {WIZARD_STEPS[current_step - 1]}")
 
     used_actions_key = f"used_actions_{assignment_id}"
     revealed_key = f"revealed_{assignment_id}"
@@ -684,12 +688,12 @@ def render_scenario_page(user: Dict) -> None:
             execute(
                 """
                 UPDATE assignment_workspace_state
-                SET current_step = 6,
+                SET current_step = ?,
                     updated_at = CURRENT_TIMESTAMP,
                     last_saved_at = CURRENT_TIMESTAMP
                 WHERE assignment_id = ? AND organization_id = ? AND module_id = ? AND user_id = ?
                 """,
-                (assignment_id, user["organization_id"], module_id, user["user_id"]),
+                (total_steps, assignment_id, user["organization_id"], module_id, user["user_id"]),
             )
             if timed_out:
                 st.toast("⏰ Time ran out — we submitted your current work for grading.")
@@ -711,7 +715,7 @@ def render_scenario_page(user: Dict) -> None:
     @st.fragment
     def _render_assessment_workspace() -> None:
         # Keep interactive learner widgets in a fragment so shell/sidebar do not flicker on each interaction.
-        current_step_local = int(st.session_state.get(step_key, 1))
+        current_step_local = _clamp_wizard_step(int(st.session_state.get(step_key, 1)))
         question_answers_local: dict[str, str] = st.session_state.get(f"question_answers_{assignment_id}", {})
 
         with st.container(border=True):
@@ -759,7 +763,7 @@ def render_scenario_page(user: Dict) -> None:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.toast("Draft saved.")
                 elif next_clicked:
-                    st.session_state[step_key] = min(5, current_step_local + 1)
+                    st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.toast("Notes saved.")
                     st.rerun()
@@ -809,7 +813,7 @@ def render_scenario_page(user: Dict) -> None:
                     st.toast("Draft saved.")
                 elif next_clicked:
                     st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                    st.session_state[step_key] = min(5, current_step_local + 1)
+                    st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.toast("Progress saved.")
                     st.rerun()
@@ -850,7 +854,7 @@ def render_scenario_page(user: Dict) -> None:
                     if step_validation_error:
                         st.warning(step_validation_error)
                     else:
-                        st.session_state[step_key] = min(5, current_step_local + 1)
+                        st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
                         _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                         st.toast("Progress saved.")
                         st.rerun()
