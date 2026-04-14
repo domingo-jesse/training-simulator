@@ -471,7 +471,14 @@ def render_learner_management(current_user: dict) -> None:
 
         with st.container(border=True):
             st.caption("Actions")
-            run_bulk_action = st.button(action_label, type=action_type, key=f"bulk_action_{tab_key}", use_container_width=True)
+            _, action_col = st.columns([4, 1])
+            with action_col:
+                run_bulk_action = st.button(
+                    action_label,
+                    type=action_type,
+                    key=f"bulk_action_{tab_key}",
+                    use_container_width=True,
+                )
 
         if run_bulk_action:
             if not selected_ids:
