@@ -1137,29 +1137,6 @@ def render_create_account_view() -> None:
         return
 
 
-def render_topbar(user: dict[str, Any]) -> None:
-    header = st.container()
-    left, right = header.columns([6, 4], vertical_alignment="center")
-    with left:
-        st.markdown(
-            """
-            <div class="app-shell-header">
-                <div class="app-shell-header-title">Operations Console</div>
-                <div class="app-shell-header-subtitle">Training simulator analytics and workflow management</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with right:
-        search_col, notif_col, profile_col = st.columns([6, 1, 3], vertical_alignment="center")
-        with search_col:
-            st.text_input("Search", placeholder="Search learners, modules, assignments", key="global_search", label_visibility="collapsed")
-        with notif_col:
-            st.button("🔔", key="topbar_notifications")
-        with profile_col:
-            render_profile_menu(user)
-
-
 def _avatar_initials(full_name: str) -> str:
     tokens = [token for token in (full_name or "").strip().split() if token]
     if not tokens:
@@ -1410,8 +1387,8 @@ def render_main_app() -> None:
         user_id=user.get("id"),
         session_id=st.session_state.get("session_id"),
     )
-    render_topbar(user)
-    st.markdown("<div class='shell-divider'></div>", unsafe_allow_html=True)
+    with st.sidebar:
+        render_profile_menu(user)
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
     assignment_from_url = _read_assignment_id_from_query_params()

@@ -250,24 +250,6 @@ def inject_styles() -> None:
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
         }
-        .app-shell-header {
-            padding: 0.1rem 0 0.35rem 0;
-        }
-        .app-shell-header-title {
-            font-size: 1.32rem;
-            font-weight: 700;
-            color: var(--text);
-            line-height: 1.2;
-        }
-        .app-shell-header-subtitle {
-            margin-top: 0.2rem;
-            color: var(--muted);
-            font-size: 0.9rem;
-        }
-        .shell-divider {
-            border-bottom: 1px solid var(--line);
-            margin: 0.15rem 0 1rem 0;
-        }
         .profile-menu-anchor {
             display: flex;
             justify-content: flex-end;
