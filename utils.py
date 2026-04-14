@@ -263,57 +263,63 @@ def inject_styles() -> None:
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
         }
-        .sidebar-profile {
-            border: 1px solid var(--line);
-            border-radius: 14px;
-            background: #fbfcff;
-            padding: 0.62rem 0.68rem 0.56rem;
-            margin-bottom: 0.2rem;
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has(> [data-testid="stMarkdown"] .sidebar-profile-compact) {
+            margin-bottom: 0.2rem !important;
         }
-        .sidebar-profile-name {
+        .sidebar-profile.sidebar-profile-compact {
+            border: 1px solid #e4e7ec;
+            border-radius: 9px;
+            background: #fcfdff;
+            padding: 0.4rem 0.46rem 0.34rem;
+            margin: 0 0 0.12rem;
+        }
+        .sidebar-profile-compact .sidebar-profile-name {
             color: var(--text);
-            font-size: 0.9rem;
-            font-weight: 650;
-            line-height: 1.22;
-            margin-bottom: 0.08rem;
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.08;
+            margin: 0;
         }
-        .sidebar-profile-label {
-            color: var(--muted);
-            font-size: 0.71rem;
-            font-weight: 500;
-            letter-spacing: 0.01em;
-            margin-bottom: 0.08rem;
-        }
-        .sidebar-profile-email {
+        .sidebar-profile-compact .sidebar-profile-label {
             color: #667085;
-            font-size: 0.69rem;
-            line-height: 1.15;
+            font-size: 0.62rem;
+            font-weight: 600;
+            line-height: 1.04;
+            margin: 0.08rem 0 0;
+            letter-spacing: 0.01em;
+        }
+        .sidebar-profile-compact .sidebar-profile-email {
+            color: #98a2b3;
+            font-size: 0.58rem;
+            line-height: 1.05;
+            margin: 0.06rem 0 0;
             word-break: break-word;
         }
-        .sidebar-profile-actions {
-            margin-top: 0.3rem;
-            margin-bottom: 0;
+        .sidebar-profile-compact .sidebar-profile-actions {
+            margin: 0.16rem 0 0;
+            padding: 0;
             display: flex;
             flex-direction: column;
-            gap: 0.14rem;
+            align-items: flex-start;
+            gap: 0.03rem;
         }
-        .sidebar-profile-actions .stButton > button {
-            width: 100%;
-            min-height: 1.32rem;
-            border-radius: 7px;
-            font-size: 0.68rem;
-            font-weight: 500;
-            line-height: 1.1;
-            background: transparent;
-            border-color: transparent;
-            color: #667085;
+        .sidebar-profile-compact .sidebar-profile-action-link {
+            display: inline-flex;
+            align-items: center;
             justify-content: flex-start;
-            padding: 0.16rem 0.05rem;
+            color: #667085;
+            text-decoration: none;
+            font-size: 0.61rem;
+            font-weight: 600;
+            line-height: 1.02;
+            padding: 0.02rem 0;
+            margin: 0;
+            border-radius: 4px;
         }
-        .sidebar-profile-actions .stButton > button:hover {
-            background: rgba(148, 163, 184, 0.08);
-            border-color: transparent;
-            color: #475467;
+        .sidebar-profile-compact .sidebar-profile-action-link:hover,
+        .sidebar-profile-compact .sidebar-profile-action-link:focus-visible {
+            color: #344054;
+            text-decoration: underline;
         }
 
         .stButton > button {

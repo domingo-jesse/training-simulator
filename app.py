@@ -6,7 +6,7 @@ import sys
 from contextlib import contextmanager
 from html import escape
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import psycopg2
 import streamlit as st
@@ -1262,6 +1262,22 @@ def save_user_profile_updates(
 
 
 def render_sidebar_profile_section(user: dict[str, Any]) -> None:
+    profile_action = st.query_params.get("profile_action")
+    if profile_action == "settings":
+        st.query_params.pop("profile_action", None)
+        _navigate_to_account_page("settings")
+    if profile_action == "logout":
+        st.query_params.pop("profile_action", None)
+        logout_user()
+
+    current_query = {
+        str(key): str(value)
+        for key, value in st.query_params.items()
+        if key != "profile_action"
+    }
+    settings_href = "?" + urlencode({**current_query, "profile_action": "settings"})
+    logout_href = "?" + urlencode({**current_query, "profile_action": "logout"})
+
     display_name = user.get("full_name") or "User"
     role = str(user.get("role", "learner")).title()
     email = (user.get("email") or "").strip()
@@ -1269,22 +1285,20 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
     safe_role = escape(role)
     safe_email = escape(email)
 
-    st.markdown("<div class='sidebar-profile'>", unsafe_allow_html=True)
     st.markdown(
         f"""
-        <div class="sidebar-profile-name">{safe_display_name}</div>
-        <div class="sidebar-profile-label">{safe_role}</div>
-        {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
+        <section class="sidebar-profile sidebar-profile-compact" data-testid="sidebar-profile-compact">
+            <div class="sidebar-profile-name">{safe_display_name}</div>
+            <div class="sidebar-profile-label">{safe_role}</div>
+            {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
+            <div class="sidebar-profile-actions">
+                <a class="sidebar-profile-action-link" href="{settings_href}">Settings</a>
+                <a class="sidebar-profile-action-link" href="{logout_href}">Logout</a>
+            </div>
+        </section>
         """,
         unsafe_allow_html=True,
     )
-    st.markdown("<div class='sidebar-profile-actions'>", unsafe_allow_html=True)
-    if st.button("Settings", use_container_width=True, key="menu_settings_btn"):
-        _navigate_to_account_page("settings")
-    if st.button("Logout", use_container_width=True, key="menu_logout_btn"):
-        logout_user()
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _initialize_profile_form(profile: dict[str, Any]) -> None:
