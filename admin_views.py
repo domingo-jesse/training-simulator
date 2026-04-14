@@ -1674,6 +1674,9 @@ def render_module_builder(current_user: dict) -> None:
 
         non_custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") != "custom_question"]
         custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") == "custom_question"]
+        question_review_count = len(non_custom_questions)
+        current_q_idx = 0
+        is_final_review_question = False
 
         step_valid = True
         if review_step == 0:
@@ -1735,6 +1738,7 @@ def render_module_builder(current_user: dict) -> None:
                 else:
                     current_q_idx = max(0, min(int(st.session_state[question_step_idx_key]), len(non_custom_questions) - 1))
                     st.session_state[question_step_idx_key] = current_q_idx
+                    is_final_review_question = current_q_idx == question_review_count - 1
                     q = non_custom_questions[current_q_idx]
                     st.caption(f"Question {current_q_idx + 1} of {len(non_custom_questions)}")
                     st.text_area("Question text", value=q.get("question_text") or "", key=f"qtext_{q['generated_question_id']}", height=120)
@@ -1772,42 +1776,32 @@ def render_module_builder(current_user: dict) -> None:
                         key=f"qoptions_{q['generated_question_id']}",
                     )
                     step_valid = _is_present(st.session_state[f"qtext_{q['generated_question_id']}"])
-                    q_nav_left, q_nav_mid, q_nav_right = st.columns([1, 1, 2])
-                    with q_nav_left:
-                        if st.button("Previous Question", disabled=current_q_idx == 0, key=f"prev_generated_q_{run_id}"):
-                            st.session_state[question_step_idx_key] = max(0, current_q_idx - 1)
+                    save_col, delete_col = st.columns(2)
+                    with save_col:
+                        if st.button("Save question", key=f"save_q_{q['generated_question_id']}"):
+                            execute(
+                                """
+                                UPDATE module_generation_questions
+                                SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
+                                WHERE generated_question_id = ?
+                                """,
+                                (
+                                    st.session_state[f"qtext_{q['generated_question_id']}"],
+                                    st.session_state[f"qrationale_{q['generated_question_id']}"],
+                                    st.session_state[f"qstatus_{q['generated_question_id']}"],
+                                    st.session_state[f"qfeedback_{q['generated_question_id']}"],
+                                    st.session_state[f"qtype_{q['generated_question_id']}"],
+                                    _parse_lines(q_options) if st.session_state[f"qtype_{q['generated_question_id']}"] == "multiple_choice" else "",
+                                    q["generated_question_id"],
+                                ),
+                            )
+                            st.success("Question saved.")
                             st.rerun()
-                    with q_nav_mid:
-                        if st.button("Next Question", disabled=current_q_idx >= len(non_custom_questions) - 1, key=f"next_generated_q_{run_id}"):
-                            st.session_state[question_step_idx_key] = min(len(non_custom_questions) - 1, current_q_idx + 1)
+                    with delete_col:
+                        if st.button("Delete question", key=f"delete_q_{q['generated_question_id']}"):
+                            execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
+                            st.success("Question deleted.")
                             st.rerun()
-                    with q_nav_right:
-                        save_col, delete_col = st.columns(2)
-                        with save_col:
-                            if st.button("Save question", key=f"save_q_{q['generated_question_id']}"):
-                                execute(
-                                    """
-                                    UPDATE module_generation_questions
-                                    SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
-                                    WHERE generated_question_id = ?
-                                    """,
-                                    (
-                                        st.session_state[f"qtext_{q['generated_question_id']}"],
-                                        st.session_state[f"qrationale_{q['generated_question_id']}"],
-                                        st.session_state[f"qstatus_{q['generated_question_id']}"],
-                                        st.session_state[f"qfeedback_{q['generated_question_id']}"],
-                                        st.session_state[f"qtype_{q['generated_question_id']}"],
-                                        _parse_lines(q_options) if st.session_state[f"qtype_{q['generated_question_id']}"] == "multiple_choice" else "",
-                                        q["generated_question_id"],
-                                    ),
-                                )
-                                st.success("Question saved.")
-                                st.rerun()
-                        with delete_col:
-                            if st.button("Delete question", key=f"delete_q_{q['generated_question_id']}"):
-                                execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
-                                st.success("Question deleted.")
-                                st.rerun()
 
         elif review_step == 2:
             with st.container(border=True):
@@ -1900,16 +1894,29 @@ def render_module_builder(current_user: dict) -> None:
         approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
         can_finalize = bool(approved_questions) and run.get("generation_status") == "approved"
         nav_back, nav_next, nav_action = st.columns([1, 1, 2])
+        reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
+        can_go_previous_question = reviewing_generated_questions and current_q_idx > 0
+        can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
+        show_finalize_action = review_step == 3 or (reviewing_generated_questions and is_final_review_question)
         with nav_back:
-            if st.button("Back", key=f"review_back_{run_id}", disabled=review_step == 0):
-                st.session_state[review_step_key] = max(0, review_step - 1)
+            back_label = "Previous" if reviewing_generated_questions else "Back"
+            back_disabled = (not can_go_previous_question) if reviewing_generated_questions else (review_step == 0)
+            if st.button(back_label, key=f"review_back_{run_id}", disabled=back_disabled):
+                if reviewing_generated_questions:
+                    st.session_state[question_step_idx_key] = max(0, current_q_idx - 1)
+                else:
+                    st.session_state[review_step_key] = max(0, review_step - 1)
                 st.rerun()
         with nav_next:
-            if st.button("Next", key=f"review_next_{run_id}", disabled=review_step >= 3 or not step_valid):
+            if reviewing_generated_questions:
+                if can_go_next_question and st.button("Next", key=f"review_next_{run_id}", disabled=not step_valid):
+                    st.session_state[question_step_idx_key] = min(question_review_count - 1, current_q_idx + 1)
+                    st.rerun()
+            elif st.button("Next", key=f"review_next_{run_id}", disabled=review_step >= 3 or not step_valid):
                 st.session_state[review_step_key] = min(3, review_step + 1)
                 st.rerun()
         with nav_action:
-            if st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
+            if show_finalize_action and st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
                 module_id = execute(
                     """
                     INSERT INTO modules (
