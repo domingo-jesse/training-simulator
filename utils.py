@@ -33,9 +33,16 @@ def inject_styles() -> None:
         .main .block-container {
             padding-top: 1rem;
             padding-bottom: 2rem;
-            padding-left: 0;
-            padding-right: 0;
-            max-width: 100%;
+            padding-left: 24px !important;
+            padding-right: 24px !important;
+            max-width: 1300px !important;
+            margin-left: auto !important;
+            margin-right: auto !important;
+        }
+        @media (min-width: 1600px) {
+            .main .block-container {
+                max-width: 1200px !important;
+            }
         }
         .app-page-shell {
             width: 100%;
