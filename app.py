@@ -1270,7 +1270,6 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
     safe_email = escape(email)
 
     with st.container():
-        st.markdown('<div class="sidebar-profile-compact-marker"></div>', unsafe_allow_html=True)
         st.markdown(
             f"""
             <section class="sidebar-profile sidebar-profile-compact" data-testid="sidebar-profile-compact">
