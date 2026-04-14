@@ -600,9 +600,12 @@ def render_admin_selection_table(
     use_container_width: bool = True,
     hide_index: bool = True,
     height: int = 450,
+    empty_message: str | None = None,
 ) -> tuple[pd.DataFrame, list]:
     _inject_admin_selection_table_styles()
     if df is None or df.empty:
+        if empty_message:
+            st.info(empty_message)
         st.session_state[selection_state_key] = None if single_select else []
         return pd.DataFrame(), []
 
