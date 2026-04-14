@@ -291,16 +291,22 @@ def inject_styles() -> None:
             word-break: break-word;
         }
         .sidebar-profile-actions {
-            margin-top: 0.15rem;
+            margin-top: 0.2rem;
             margin-bottom: 0.35rem;
+            padding-left: 0.1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.32rem;
         }
         .sidebar-profile-actions .stButton > button {
             width: 100%;
-            height: 1.9rem;
+            height: 1.85rem;
             border-radius: 10px;
-            font-size: 0.78rem;
+            font-size: 0.76rem;
             font-weight: 600;
             background: #f8fafc;
+            justify-content: flex-start;
+            padding-left: 0.55rem;
         }
 
         .stButton > button {
