@@ -173,7 +173,7 @@ def render_learner_home(user: Dict) -> None:
     card_columns = st.columns(len(summary_cards))
     for col, (label, value, target_page, target_slug) in zip(card_columns, summary_cards):
         with col:
-            card_label = f"**{value}**  \n{label}  \n:view: View →"
+            card_label = f"**{value}**  \n{label}"
             if st.button(card_label, key=f"home_summary_{target_page}_{label}", use_container_width=True):
                 navigate_learner(target_page, target_slug)
 
