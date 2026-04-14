@@ -160,13 +160,22 @@ def render_learner_home(user: Dict) -> None:
     stats = _learner_stats(user)
     recent_feedback = stats["attempts"][0]["ai_feedback"] if stats["attempts"] else "No feedback yet. Complete your first module to begin."
 
-    metric_row(
-        {
-            "Assigned modules": stats["assigned_count"],
-            "Completed": stats["completed_count"],
-            "Average score": f"{stats['avg_score']}%",
-        }
-    )
+    def navigate_learner(page_key: str, page_slug: str) -> None:
+        st.session_state["learner_page"] = page_key
+        st.query_params["page"] = page_slug
+        st.rerun()
+
+    summary_cards = [
+        ("Assigned modules", stats["assigned_count"], "assigned_modules", "assigned-modules"),
+        ("Completed", stats["completed_count"], "results", "progress-results"),
+        ("Average score", f"{stats['avg_score']}%", "results", "progress-results"),
+    ]
+    card_columns = st.columns(len(summary_cards))
+    for col, (label, value, target_page, target_slug) in zip(card_columns, summary_cards):
+        with col:
+            card_label = f"**{value}**  \n{label}  \n:view: View →"
+            if st.button(card_label, key=f"home_summary_{target_page}_{label}", use_container_width=True):
+                navigate_learner(target_page, target_slug)
 
     completion_ratio = (stats["completed_count"] / stats["assigned_count"]) if stats["assigned_count"] else 0
     st.progress(completion_ratio, text=f"Assigned progress: {int(completion_ratio * 100)}%")
