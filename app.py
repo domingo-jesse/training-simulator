@@ -1269,13 +1269,12 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
     safe_role = escape(role)
     safe_email = escape(email)
 
+    st.markdown("<div class='sidebar-profile'>", unsafe_allow_html=True)
     st.markdown(
         f"""
-        <div class="sidebar-profile">
-            <div class="sidebar-profile-name">{safe_display_name}</div>
-            <div class="sidebar-profile-label">{safe_role}</div>
-            {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
-        </div>
+        <div class="sidebar-profile-name">{safe_display_name}</div>
+        <div class="sidebar-profile-label">{safe_role}</div>
+        {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
         """,
         unsafe_allow_html=True,
     )
@@ -1284,6 +1283,7 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
         _navigate_to_account_page("settings")
     if st.button("🚪 Logout", use_container_width=True, key="menu_logout_btn"):
         logout_user()
+    st.markdown("</div>", unsafe_allow_html=True)
     st.markdown("</div>", unsafe_allow_html=True)
 
 

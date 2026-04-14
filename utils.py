@@ -267,8 +267,8 @@ def inject_styles() -> None:
             border: 1px solid var(--line);
             border-radius: 14px;
             background: #fbfcff;
-            padding: 0.9rem 0.85rem 0.75rem;
-            margin-bottom: 0.25rem;
+            padding: 0.85rem 0.85rem 0.7rem;
+            margin-bottom: 0.3rem;
         }
         .sidebar-profile-name {
             color: var(--text);
@@ -282,7 +282,7 @@ def inject_styles() -> None:
             font-size: 0.8rem;
             font-weight: 600;
             letter-spacing: 0.01em;
-            margin-bottom: 0.25rem;
+            margin-bottom: 0.2rem;
         }
         .sidebar-profile-email {
             color: #475467;
@@ -291,22 +291,21 @@ def inject_styles() -> None:
             word-break: break-word;
         }
         .sidebar-profile-actions {
-            margin-top: 0.2rem;
-            margin-bottom: 0.35rem;
-            padding-left: 0.1rem;
+            margin-top: 0.45rem;
+            margin-bottom: 0.1rem;
             display: flex;
             flex-direction: column;
-            gap: 0.32rem;
+            gap: 0.28rem;
         }
         .sidebar-profile-actions .stButton > button {
             width: 100%;
-            height: 1.85rem;
+            height: 1.75rem;
             border-radius: 10px;
-            font-size: 0.76rem;
+            font-size: 0.74rem;
             font-weight: 600;
             background: #f8fafc;
             justify-content: flex-start;
-            padding-left: 0.55rem;
+            padding-left: 0.5rem;
         }
 
         .stButton > button {
