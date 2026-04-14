@@ -1370,15 +1370,14 @@ def render_module_builder(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     render_page_header("Module Builder", "Guided wizard for structured module generation and approval.")
 
-    module_builder_phase_key = "module_builder_phase"
+    module_builder_current_step_key = "module_builder_current_step"
     module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft", "Module completed"]
     module_builder_completed_module_id_key = "module_builder_completed_module_id"
-    if module_builder_phase_key not in st.session_state:
-        st.session_state[module_builder_phase_key] = 0
-    current_phase = max(0, min(int(st.session_state.get(module_builder_phase_key, 0)), len(module_builder_phase_labels) - 1))
-    st.session_state[module_builder_phase_key] = current_phase
-    if current_phase in (0, 1):
-        _render_wizard_progress(current_phase, 2, module_builder_phase_labels[current_phase])
+    if module_builder_current_step_key not in st.session_state:
+        st.session_state[module_builder_current_step_key] = 1
+    current_step = max(1, min(int(st.session_state.get(module_builder_current_step_key, 1)), len(module_builder_phase_labels)))
+    st.session_state[module_builder_current_step_key] = current_step
+    _render_wizard_progress(current_step - 1, len(module_builder_phase_labels), module_builder_phase_labels[current_step - 1])
 
     module_builder_step_key = "module_builder_step"
     module_builder_form_key = "module_builder_form"
@@ -1418,7 +1417,7 @@ def render_module_builder(current_user: dict) -> None:
         {"title": "Review and submit", "field": "review", "required": True},
     ]
 
-    if current_phase == 0:
+    if current_step == 1:
         st.markdown("#### Step 1: Enter module goals")
         current_step = int(st.session_state[module_builder_step_key])
         total_steps = len(module_builder_steps)
@@ -1637,14 +1636,14 @@ def render_module_builder(current_user: dict) -> None:
                     )
                     if warning:
                         st.warning(warning)
-                    st.session_state[module_builder_phase_key] = 1
+                    st.session_state[module_builder_current_step_key] = 2
                     st.success("Draft generated. Continue to Step 2 to review and approve.")
                     st.session_state[module_builder_step_key] = 0
                     st.rerun()
                 except Exception as exc:
                     st.error(f"Could not save module draft: {exc}")
 
-    elif current_phase == 1:
+    elif current_step == 2:
         st.markdown("#### Step 2: Review and approve generated draft")
 
         runs_df = to_df(
@@ -1991,7 +1990,7 @@ def render_module_builder(current_user: dict) -> None:
                     """,
                     (run_id, org_id),
                 )
-                st.session_state[module_builder_phase_key] = 2
+                st.session_state[module_builder_current_step_key] = 3
                 st.session_state[module_builder_completed_module_id_key] = int(module_id)
                 st.rerun()
 
@@ -2005,12 +2004,12 @@ def render_module_builder(current_user: dict) -> None:
             if st.button("Create a new module", key="module_builder_create_new", type="primary"):
                 st.session_state[module_builder_form_key] = dict(module_builder_defaults)
                 st.session_state[module_builder_step_key] = 0
-                st.session_state[module_builder_phase_key] = 0
+                st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
                 st.rerun()
         with action_col_2:
             if st.button("Go to Manage Modules", key="module_builder_go_manage"):
-                st.session_state[module_builder_phase_key] = 0
+                st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
                 st.session_state["admin_page"] = "📚 Manage Modules"
                 st.session_state["nav"] = "manage-modules"
