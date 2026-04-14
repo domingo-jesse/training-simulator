@@ -26,7 +26,6 @@ from utils import (
     filter_active_learners,
     filter_inactive_learners,
     metric_row,
-    render_admin_table,
     render_admin_selection_table,
     render_app_table,
     render_kpi_card,
@@ -398,6 +397,7 @@ def render_learner_management(current_user: dict) -> None:
         st.caption(f"{len(scoped)} learner(s) in {tab_name.lower()}.")
         learner_table_df = scoped[
             [
+                "user_id",
                 "name",
                 "team",
                 "organization_name",
@@ -410,6 +410,7 @@ def render_learner_management(current_user: dict) -> None:
 
         tab_key = tab_name.lower().replace(" ", "_")
         multiselect_key = f"learner_bulk_select_{tab_key}"
+        selection_state_key = f"learner_bulk_selected_ids_{tab_key}"
         learner_options = {build_learner_option_label(r): int(r["user_id"]) for _, r in scoped.iterrows()}
         option_labels = list(learner_options.keys())
 
@@ -419,6 +420,7 @@ def render_learner_management(current_user: dict) -> None:
 
         learner_display_df = learner_table_df.rename(
             columns={
+                "user_id": "learner_id",
                 "name": "Learner",
                 "team": "Team",
                 "organization_name": "Organization",
@@ -430,34 +432,48 @@ def render_learner_management(current_user: dict) -> None:
         )
         if "Last Activity" in learner_display_df.columns:
             learner_display_df["Last Activity"] = learner_display_df["Last Activity"].apply(_format_datetime_for_admin_grid)
-        render_admin_table(
+        _, selected_row_ids = render_admin_selection_table(
             learner_display_df,
+            row_id_col="learner_id",
+            selection_state_key=selection_state_key,
+            table_key=f"learner_management_table_{tab_key}",
+            selection_label="Select",
+            selection_help="Select learners for archive/activate actions.",
             height=520,
             empty_message="No learners match current filters. Adjust filters to display learners.",
         )
 
         c1, c2 = st.columns([1, 1])
         with c1:
-            st.button(
+            if st.button(
                 "Select All Filtered",
                 key=f"select_all_filtered_{tab_key}",
-                on_click=_select_all_filtered,
-                args=(multiselect_key, option_labels),
-            )
+            ):
+                st.session_state[multiselect_key] = list(option_labels)
+                st.session_state[selection_state_key] = list(learner_options.values())
+                st.rerun()
         with c2:
-            st.button(
+            if st.button(
                 "Clear Selection",
                 key=f"clear_selection_{tab_key}",
-                on_click=_clear_filtered_selection,
-                args=(multiselect_key,),
-            )
+            ):
+                st.session_state[multiselect_key] = []
+                st.session_state[selection_state_key] = []
+                st.rerun()
+
+        selected_id_set = {int(v) for v in selected_row_ids}
+        st.session_state[multiselect_key] = [
+            label for label, learner_id in learner_options.items() if learner_id in selected_id_set
+        ]
 
         selected_learners = st.multiselect(
             "Selected learners",
             options=option_labels,
             key=multiselect_key,
+            help="Select from the table above. Chips reflect the current table selection.",
         )
         selected_ids = [learner_options[label] for label in selected_learners]
+        st.session_state[selection_state_key] = list(selected_ids)
         st.caption(f"{len(selected_ids)} of {len(scoped)} filtered learners selected")
 
         if show_active:
@@ -469,16 +485,14 @@ def render_learner_management(current_user: dict) -> None:
             new_status = True
             action_type = "primary"
 
-        with st.container(border=True):
-            st.caption("Actions")
-            _, action_col = st.columns([4, 1])
-            with action_col:
-                run_bulk_action = st.button(
-                    action_label,
-                    type=action_type,
-                    key=f"bulk_action_{tab_key}",
-                    use_container_width=True,
-                )
+        _, _, action_col = st.columns([6, 2, 2])
+        with action_col:
+            run_bulk_action = st.button(
+                action_label,
+                type=action_type,
+                key=f"bulk_action_{tab_key}",
+                use_container_width=True,
+            )
 
         if run_bulk_action:
             if not selected_ids:
