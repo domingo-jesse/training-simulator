@@ -1910,7 +1910,14 @@ def render_module_builder(current_user: dict) -> None:
                 st.write(f"**Custom questions:** {len(custom_questions)}")
 
         approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
+        total_review_steps = 4
+        is_final_step = review_step >= total_review_steps - 1
         can_finalize = bool(approved_questions) and run.get("generation_status") == "approved"
+        finalize_validation_issues = []
+        if run.get("generation_status") != "approved":
+            finalize_validation_issues.append("Approve the scenario decision in **Review Scenario**.")
+        if not approved_questions:
+            finalize_validation_issues.append("Approve at least one question in **Review Questions**.")
         nav_back, nav_next, nav_action = st.columns([1, 1, 2])
         reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
         can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
@@ -1927,72 +1934,76 @@ def render_module_builder(current_user: dict) -> None:
                     st.session_state[review_step_key] = max(0, review_step - 1)
                 st.rerun()
         with nav_next:
-            if reviewing_generated_questions:
-                next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
-                if st.button(next_label, key=f"review_next_{run_id}", disabled=not step_valid):
-                    if can_go_next_question:
-                        st.session_state[question_step_idx_key] = current_q_idx + 1
-                    else:
-                        st.session_state[review_step_key] = 2
+            if not is_final_step:
+                if reviewing_generated_questions:
+                    next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
+                    if st.button(next_label, key=f"review_next_{run_id}", disabled=not step_valid):
+                        if can_go_next_question:
+                            st.session_state[question_step_idx_key] = current_q_idx + 1
+                        else:
+                            st.session_state[review_step_key] = 2
+                        st.rerun()
+                elif st.button("Next", key=f"review_next_{run_id}", disabled=not step_valid):
+                    st.session_state[review_step_key] = min(total_review_steps - 1, review_step + 1)
                     st.rerun()
-            elif st.button("Next", key=f"review_next_{run_id}", disabled=review_step >= 3 or not step_valid):
-                st.session_state[review_step_key] = min(3, review_step + 1)
-                st.rerun()
         with nav_action:
-            if review_step == 3 and st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
-                module_id = execute(
-                    """
-                    INSERT INTO modules (
-                        title, category, difficulty, description, estimated_time,
-                        scenario_context, organization_id, status, learning_objectives, content_sections,
-                        completion_requirements, quiz_required, created_by, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                    RETURNING module_id AS id
-                    """,
-                    (
-                        run.get("generated_title") or run.get("input_title") or "AI Draft Module",
-                        run.get("input_category") or "General",
-                        run.get("input_difficulty") or "Beginner",
-                        run.get("generated_description") or run.get("input_description") or "",
-                        f"{safe_int(run.get('input_estimated_minutes'), 20)} min",
-                        run.get("generated_scenario_overview") or "",
-                        org_id,
-                        run.get("learning_objectives") or "",
-                        run.get("input_content_sections") or "",
-                        run.get("completion_requirements") or "",
-                        1 if run.get("input_quiz_required") else 0,
-                        current_user["user_id"],
-                    ),
-                )
-                executemany(
-                    """
-                    INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
+            if is_final_step:
+                if finalize_validation_issues:
+                    st.warning("Module is not ready to create yet:\n\n- " + "\n- ".join(finalize_validation_issues))
+                if st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
+                    module_id = execute(
+                        """
+                        INSERT INTO modules (
+                            title, category, difficulty, description, estimated_time,
+                            scenario_context, organization_id, status, learning_objectives, content_sections,
+                            completion_requirements, quiz_required, created_by, updated_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        RETURNING module_id AS id
+                        """,
                         (
-                            module_id,
-                            idx + 1,
-                            q["question_text"],
-                            q.get("rationale") or q.get("admin_feedback") or "",
-                            q.get("question_type") or "open_text",
-                            q.get("options_text") or "",
-                            run_id,
-                        )
-                        for idx, q in enumerate(approved_questions)
-                    ],
-                )
-                execute(
-                    """
-                    UPDATE module_generation_runs
-                    SET generation_status = 'built', updated_at = CURRENT_TIMESTAMP
-                    WHERE run_id = ? AND organization_id = ?
-                    """,
-                    (run_id, org_id),
-                )
-                st.session_state[module_builder_current_step_key] = 3
-                st.session_state[module_builder_completed_module_id_key] = int(module_id)
-                st.rerun()
+                            run.get("generated_title") or run.get("input_title") or "AI Draft Module",
+                            run.get("input_category") or "General",
+                            run.get("input_difficulty") or "Beginner",
+                            run.get("generated_description") or run.get("input_description") or "",
+                            f"{safe_int(run.get('input_estimated_minutes'), 20)} min",
+                            run.get("generated_scenario_overview") or "",
+                            org_id,
+                            run.get("learning_objectives") or "",
+                            run.get("input_content_sections") or "",
+                            run.get("completion_requirements") or "",
+                            1 if run.get("input_quiz_required") else 0,
+                            current_user["user_id"],
+                        ),
+                    )
+                    executemany(
+                        """
+                        INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        [
+                            (
+                                module_id,
+                                idx + 1,
+                                q["question_text"],
+                                q.get("rationale") or q.get("admin_feedback") or "",
+                                q.get("question_type") or "open_text",
+                                q.get("options_text") or "",
+                                run_id,
+                            )
+                            for idx, q in enumerate(approved_questions)
+                        ],
+                    )
+                    execute(
+                        """
+                        UPDATE module_generation_runs
+                        SET generation_status = 'built', updated_at = CURRENT_TIMESTAMP
+                        WHERE run_id = ? AND organization_id = ?
+                        """,
+                        (run_id, org_id),
+                    )
+                    st.session_state[module_builder_current_step_key] = 3
+                    st.session_state[module_builder_completed_module_id_key] = int(module_id)
+                    st.rerun()
 
     else:
         completed_module_id = st.session_state.get(module_builder_completed_module_id_key)
