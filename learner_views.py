@@ -10,7 +10,7 @@ import streamlit as st
 from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
 from evaluation import evaluate_submission
 from logger import get_logger
-from utils import metric_row, parse_json_list, render_app_table, render_page_header, to_df
+from utils import metric_row, parse_json_list, render_page_header, to_df
 
 learner_logger = get_logger(module="learner_views")
 WIZARD_STEPS = [
@@ -294,7 +294,8 @@ def render_module_library(user: Dict) -> None:
                             if attempt:
                                 st.session_state.latest_attempt_id = int(attempt["attempt_id"])
                                 st.session_state.learner_page = "results"
-                                st.query_params["page"] = "results"
+                                st.session_state["learner_selected_result_assignment"] = int(module["assignment_id"])
+                                st.query_params["page"] = "progress-results"
                                 st.rerun()
 
 
@@ -483,7 +484,8 @@ def render_scenario_page(user: Dict) -> None:
             st.session_state.active_assignment_id = None
             st.session_state.latest_attempt_id = int(existing_attempt["attempt_id"])
             st.session_state.learner_page = "results"
-            st.query_params["page"] = "results"
+            st.session_state["learner_selected_result_assignment"] = int(assignment_id)
+            st.query_params["page"] = "progress-results"
             st.rerun()
         return
 
@@ -652,7 +654,8 @@ def render_scenario_page(user: Dict) -> None:
             st.session_state.latest_attempt_id = attempt_id
             st.session_state.active_assignment_id = None
             st.session_state.learner_page = "results"
-            st.query_params["page"] = "results"
+            st.session_state["learner_selected_result_assignment"] = int(assignment_id)
+            st.query_params["page"] = "progress-results"
             st.session_state.pop(started_at_key, None)
             st.session_state[timer_key] = True
             st.session_state[f"submitted_{assignment_id}"] = True
@@ -862,26 +865,8 @@ def render_scenario_page(user: Dict) -> None:
     _render_assessment_workspace()
 
 
-def render_results_page(user: Dict) -> None:
-    attempt_id = st.session_state.get("latest_attempt_id")
-    if not attempt_id:
-        st.info("Submit a scenario to view results.")
-        return
-
-    attempt = fetch_one(
-        """
-        SELECT a.*, m.title, m.lesson_takeaway, m.expected_customer_response
-        FROM attempts a
-        JOIN modules m ON a.module_id = m.module_id
-        WHERE attempt_id = ? AND a.organization_id = ?
-        """,
-        (attempt_id, user["organization_id"]),
-    )
-    if not attempt:
-        st.warning("Result not found.")
-        return
-
-    render_page_header(f"Results • {attempt['title']}", "Performance summary and coaching feedback")
+def _render_result_detail(attempt: Dict) -> None:
+    st.markdown(f"### Result details • {attempt['title']}")
     if int(attempt.get("timed_out") or 0) == 1 or attempt.get("attempt_state") == "time_expired":
         st.warning("This assessment was auto-submitted because the time limit expired.")
     st.caption(
@@ -920,47 +905,41 @@ def render_results_page(user: Dict) -> None:
         st.markdown("#### Lesson takeaway")
         st.write(attempt["takeaway_summary"] or attempt["lesson_takeaway"])
 
-    c1, c2 = st.columns(2)
+    c1, _ = st.columns(2)
     with c1:
         st.success("✅ Thank you! You've completed this module.")
-    if c2.button("Back to assignments"):
-        st.session_state.active_assignment_id = None
-        st.query_params.pop("assignment_id", None)
-        st.session_state.learner_page = "assigned_modules"
-        st.query_params["page"] = "assigned-modules"
-        st.rerun()
 
 
-def render_progress_page(user: Dict) -> None:
+def render_progress_results_page(user: Dict) -> None:
     attempts = fetch_all(
         """
-        SELECT a.*, m.title FROM attempts a
+        SELECT a.*, m.title, m.lesson_takeaway, m.expected_customer_response
+        FROM attempts a
         JOIN modules m ON a.module_id = m.module_id
         WHERE a.user_id = ?
+          AND a.organization_id = ?
         ORDER BY a.created_at
         """,
-        (user["user_id"],),
+        (user["user_id"], user["organization_id"]),
     )
 
-    render_page_header("My Progress", "Track outcomes and identify strengths over time.")
-    if not attempts:
-        st.info("No attempts yet. Start an assigned module to begin tracking progress.")
-        return
+    render_page_header("Progress & Results", "Track overall progress and review detailed module outcomes in one place.")
 
-    df = to_df(attempts)
+    df = to_df(attempts) if attempts else to_df([])
     metric_row(
         {
-            "Modules completed": df["module_id"].nunique(),
-            "Average score": f"{round(df['total_score'].mean(), 1)}%",
-            "Recent score": f"{df['total_score'].iloc[-1]}%",
+            "Modules completed": int(df["module_id"].nunique()) if not df.empty else 0,
+            "Average score": f"{round(df['total_score'].mean(), 1)}%" if not df.empty else "0%",
+            "Recent score": f"{df['total_score'].iloc[-1]}%" if not df.empty else "N/A",
         }
     )
 
     strengths = []
     misses = []
-    for _, row in df.tail(5).iterrows():
-        strengths.extend(parse_json_list(row["strengths"]))
-        misses.extend(parse_json_list(row["missed_points"]))
+    if not df.empty:
+        for _, row in df.tail(5).iterrows():
+            strengths.extend(parse_json_list(row["strengths"]))
+            misses.extend(parse_json_list(row["missed_points"]))
 
     col1, col2 = st.columns(2)
     with col1:
@@ -974,19 +953,75 @@ def render_progress_page(user: Dict) -> None:
             for item in list(dict.fromkeys(misses))[:5]:
                 st.write(f"- {item}")
 
-    st.markdown("#### Recent attempts")
-    render_app_table(
-        df[["created_at", "title", "total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]]
-        .sort_values("created_at", ascending=False)
-        .head(10),
-        datetime_columns=["created_at"],
-        numeric_formats={
-            "total_score": 1,
-            "understanding_score": 1,
-            "investigation_score": 1,
-            "solution_score": 1,
-            "communication_score": 1,
-        },
-        badge_columns={"total_score": "score"},
-        numeric_align={k: "right" for k in ["total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]},
+    assignments = _assigned_modules(user)
+    if not assignments:
+        st.info("No assignments are available yet.")
+        return
+
+    attempts_by_assignment = {
+        int(row["assignment_id"]): row
+        for row in fetch_all(
+            """
+            SELECT DISTINCT ON (a.assignment_id)
+                a.assignment_id,
+                t.*
+            FROM assignments a
+            LEFT JOIN attempts t
+                ON t.user_id = a.learner_id
+               AND t.module_id = a.module_id
+               AND t.organization_id = a.organization_id
+               AND t.created_at >= a.assigned_at
+            WHERE a.learner_id = ?
+              AND a.organization_id = ?
+              AND a.is_active = TRUE
+            ORDER BY a.assignment_id, t.created_at DESC NULLS LAST
+            """,
+            (user["user_id"], user["organization_id"]),
+        )
+        if row.get("attempt_id")
+    }
+
+    st.markdown("#### View module result")
+    assignments_sorted = sorted(
+        assignments,
+        key=lambda a: (0 if a["status"] == "Completed" else 1, -(int(a["assignment_id"]))),
     )
+    assignment_ids = [int(a["assignment_id"]) for a in assignments_sorted]
+    label_map = {
+        int(a["assignment_id"]): f"{a['title']} — {a['status']}"
+        for a in assignments_sorted
+    }
+    default_assignment_id = next((assignment_id for assignment_id in assignment_ids if assignment_id in attempts_by_assignment), assignment_ids[0])
+    if "learner_selected_result_assignment" not in st.session_state:
+        st.session_state["learner_selected_result_assignment"] = default_assignment_id
+    if st.session_state["learner_selected_result_assignment"] not in assignment_ids:
+        st.session_state["learner_selected_result_assignment"] = default_assignment_id
+
+    selected_assignment_id = st.selectbox(
+        "Select assignment",
+        options=assignment_ids,
+        format_func=lambda assignment_id: label_map[assignment_id],
+        key="learner_selected_result_assignment",
+    )
+
+    selected_attempt = attempts_by_assignment.get(int(selected_assignment_id))
+    if not selected_attempt:
+        st.info("No completed result is available for this assignment yet.")
+        return
+
+    selected_attempt_full = fetch_one(
+        """
+        SELECT a.*, m.title, m.lesson_takeaway, m.expected_customer_response
+        FROM attempts a
+        JOIN modules m ON a.module_id = m.module_id
+        WHERE a.attempt_id = ?
+          AND a.user_id = ?
+          AND a.organization_id = ?
+        """,
+        (selected_attempt["attempt_id"], user["user_id"], user["organization_id"]),
+    )
+    if not selected_attempt_full:
+        st.warning("Result not found.")
+        return
+
+    _render_result_detail(selected_attempt_full)

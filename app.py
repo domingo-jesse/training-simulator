@@ -27,9 +27,8 @@ from db import execute, fetch_all, fetch_one, get_database_debug_info, init_db
 from learner_views import (
     render_learner_home,
     render_module_library,
+    render_progress_results_page,
     render_scenario_page,
-    render_progress_page,
-    render_results_page,
 )
 from logger import get_logger
 from utils import inject_styles, page_container
@@ -130,19 +129,19 @@ LEARNER_NAV_CONFIG = {
     "home": "Home",
     "assigned_modules": "Assigned Modules",
     "module_workspace": "Module Workspace",
-    "results": "Results",
-    "progress": "My Progress",
+    "results": "Progress & Results",
 }
 LEARNER_PAGE_TO_NAV = {
     "home": "home",
     "assigned_modules": "assigned-modules",
     "module_workspace": "module-workspace",
-    "results": "results",
-    "progress": "my-progress",
+    "results": "progress-results",
     "profile": "profile",
     "settings": "settings",
 }
 NAV_TO_LEARNER_PAGE = {value: key for key, value in LEARNER_PAGE_TO_NAV.items()}
+NAV_TO_LEARNER_PAGE["results"] = "results"
+NAV_TO_LEARNER_PAGE["my-progress"] = "results"
 ADMIN_MAIN_NAV_SLUGS = {
     slug for slug in ADMIN_PAGE_TO_NAV.values() if slug not in {"profile", "settings"}
 }
@@ -1540,12 +1539,14 @@ def render_main_app() -> None:
             "📦 Assigned Modules": "assigned_modules",
             "🧪 Module Workspace": "module_workspace",
             "📝 Results": "results",
-            "📉 My Progress": "progress",
+            "📉 My Progress": "results",
+            "📊 Progress & Results": "results",
             "Home": "home",
             "Assigned Modules": "assigned_modules",
             "Module Workspace": "module_workspace",
             "Results": "results",
-            "My Progress": "progress",
+            "My Progress": "results",
+            "Progress & Results": "results",
         }.get(str(requested_page))
         if legacy_requested_page and st.session_state.get("learner_page") != legacy_requested_page:
             st.session_state["learner_page"] = legacy_requested_page
@@ -1590,7 +1591,6 @@ def render_main_app() -> None:
             "assigned_modules": "medium",
             "module_workspace": "medium",
             "results": "medium",
-            "progress": "medium",
         }.get(current_page, "medium")
         with page_container(learner_container_variant):
             if current_page == "home":
@@ -1600,9 +1600,7 @@ def render_main_app() -> None:
             elif current_page == "module_workspace":
                 render_scenario_page(user)
             elif current_page == "results":
-                render_results_page(user)
-            elif current_page == "progress":
-                render_progress_page(user)
+                render_progress_results_page(user)
             else:
                 st.warning(f"Debug warning: unknown learner_page `{current_page}`; defaulting to assigned_modules.")
                 render_branch = "assigned_modules_fallback"
