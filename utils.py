@@ -209,8 +209,21 @@ def inject_styles() -> None:
             border-radius: 16px;
             padding: 14px 16px;
         }
+        .kpi-card.kpi-card-compact {
+            padding: 10px 12px;
+            border-radius: 14px;
+        }
+        .kpi-card.kpi-card-danger {
+            border-color: rgba(180, 35, 24, 0.35);
+            background: #fff7f7;
+        }
+        .kpi-card.kpi-card-warning {
+            border-color: rgba(181, 71, 8, 0.35);
+            background: #fffaf2;
+        }
         .kpi-label { color: var(--muted); font-size: 0.82rem; font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
         .kpi-value { color: var(--text); font-size: 1.7rem; font-weight: 700; line-height: 1.1; margin-top: 6px; }
+        .kpi-card.kpi-card-compact .kpi-value { font-size: 1.95rem; margin-top: 4px; }
         .kpi-sub { color: var(--muted); font-size: 0.82rem; margin-top: 4px; }
         .status-pill {
             display: inline-block;
@@ -396,10 +409,16 @@ def render_page_header(title: str, subtitle: str = "") -> None:
     )
 
 
-def render_kpi_card(label: str, value: Any, subtext: str = "") -> None:
+def render_kpi_card(label: str, value: Any, subtext: str = "", tone: str = "default", compact: bool = False) -> None:
+    tone_class = {
+        "default": "",
+        "warning": "kpi-card-warning",
+        "danger": "kpi-card-danger",
+    }.get(tone, "")
+    compact_class = "kpi-card-compact" if compact else ""
     st.markdown(
         f"""
-        <div class="kpi-card">
+        <div class="kpi-card {tone_class} {compact_class}">
           <div class="kpi-label">{label}</div>
           <div class="kpi-value">{value}</div>
           <div class="kpi-sub">{subtext}</div>
