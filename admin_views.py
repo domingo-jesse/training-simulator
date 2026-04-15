@@ -1348,6 +1348,10 @@ def _normalize_text(value: object) -> str:
     return str(value).strip()
 
 
+def _has_session_text(key: str) -> bool:
+    return bool(str(st.session_state.get(key, "")).strip())
+
+
 def _render_wizard_progress(step_index: int, total_steps: int, title: str) -> None:
     st.caption(f"Step {step_index + 1} of {total_steps}")
     st.progress((step_index + 1) / total_steps)
@@ -1436,15 +1440,15 @@ def render_module_builder(current_user: dict) -> None:
             if step_config["field"] == "title":
                 _init_module_builder_widget_state("module_builder_title", module_form["title"])
                 st.text_input("Title", key="module_builder_title")
-                title_value = _normalize_text(st.session_state.get("module_builder_title", ""))
+                title_value = st.session_state.get("module_builder_title", "")
                 module_form["title"] = title_value
-                step_valid = bool(title_value)
+                step_valid = _has_session_text("module_builder_title")
                 required_message = "Please enter a module title to continue."
             elif step_config["field"] == "category":
                 _init_module_builder_widget_state("module_builder_category", module_form["category"])
                 st.text_input("Category", key="module_builder_category")
-                module_form["category"] = _normalize_text(st.session_state.get("module_builder_category", ""))
-                step_valid = _is_present(module_form["category"])
+                module_form["category"] = st.session_state.get("module_builder_category", "")
+                step_valid = _has_session_text("module_builder_category")
                 required_message = "Please enter a category to continue."
             elif step_config["field"] == "difficulty":
                 difficulty_options = ["Beginner", "Intermediate", "Advanced"]
@@ -1462,8 +1466,8 @@ def render_module_builder(current_user: dict) -> None:
                     "Role being simulated (e.g., Support Tier 1, Team Lead)",
                     key="module_builder_role_focus",
                 )
-                module_form["role_focus"] = _normalize_text(st.session_state.get("module_builder_role_focus", ""))
-                step_valid = _is_present(module_form["role_focus"])
+                module_form["role_focus"] = st.session_state.get("module_builder_role_focus", "")
+                step_valid = _has_session_text("module_builder_role_focus")
                 required_message = "Please describe the role being simulated."
             elif step_config["field"] == "test_focus":
                 _init_module_builder_widget_state("module_builder_test_focus", module_form["test_focus"])
@@ -1471,14 +1475,14 @@ def render_module_builder(current_user: dict) -> None:
                     "What should this module test?",
                     key="module_builder_test_focus",
                 )
-                module_form["test_focus"] = _normalize_text(st.session_state.get("module_builder_test_focus", ""))
-                step_valid = _is_present(module_form["test_focus"])
+                module_form["test_focus"] = st.session_state.get("module_builder_test_focus", "")
+                step_valid = _has_session_text("module_builder_test_focus")
                 required_message = "Please describe what this module should test."
             elif step_config["field"] == "description":
                 _init_module_builder_widget_state("module_builder_description", module_form["description"])
                 st.text_area("Description", key="module_builder_description")
                 module_form["description"] = st.session_state.get("module_builder_description", "")
-                step_valid = _is_present(module_form["description"])
+                step_valid = _has_session_text("module_builder_description")
                 required_message = "Please enter a description to continue."
             elif step_config["field"] == "learning_objectives":
                 _init_module_builder_widget_state("module_builder_learning_objectives", module_form["learning_objectives"])
@@ -1487,7 +1491,7 @@ def render_module_builder(current_user: dict) -> None:
                     key="module_builder_learning_objectives",
                 )
                 module_form["learning_objectives"] = st.session_state.get("module_builder_learning_objectives", "")
-                step_valid = _is_present(module_form["learning_objectives"])
+                step_valid = _has_session_text("module_builder_learning_objectives")
                 required_message = "Please add at least one learning objective."
             elif step_config["field"] == "scenario_constraints":
                 _init_module_builder_widget_state("module_builder_scenario_constraints", module_form["scenario_constraints"])
@@ -1496,7 +1500,7 @@ def render_module_builder(current_user: dict) -> None:
                     key="module_builder_scenario_constraints",
                 )
                 module_form["scenario_constraints"] = st.session_state.get("module_builder_scenario_constraints", "")
-                step_valid = _is_present(module_form["scenario_constraints"])
+                step_valid = _has_session_text("module_builder_scenario_constraints")
                 required_message = "Please provide scenario context or constraints."
             elif step_config["field"] == "content_sections":
                 _init_module_builder_widget_state("module_builder_content_sections", module_form["content_sections"])
@@ -1505,7 +1509,7 @@ def render_module_builder(current_user: dict) -> None:
                     key="module_builder_content_sections",
                 )
                 module_form["content_sections"] = st.session_state.get("module_builder_content_sections", "")
-                step_valid = _is_present(module_form["content_sections"])
+                step_valid = _has_session_text("module_builder_content_sections")
                 required_message = "Please add at least one content section."
             elif step_config["field"] == "completion_requirements":
                 _init_module_builder_widget_state("module_builder_completion_requirements", module_form["completion_requirements"])
@@ -1514,7 +1518,7 @@ def render_module_builder(current_user: dict) -> None:
                     key="module_builder_completion_requirements",
                 )
                 module_form["completion_requirements"] = st.session_state.get("module_builder_completion_requirements", "")
-                step_valid = _is_present(module_form["completion_requirements"])
+                step_valid = _has_session_text("module_builder_completion_requirements")
                 required_message = "Please enter completion requirements."
             elif step_config["field"] == "assessment_settings":
                 _init_module_builder_widget_state("module_builder_quiz_required", bool(module_form["quiz_required"]))
@@ -2152,36 +2156,53 @@ def render_manage_modules(current_user: dict) -> None:
             edit_step_valid = True
             edit_required_message = ""
             if edit_steps[edit_step]["field"] == "title":
-                edit_form["title"] = st.text_input("Title", value=edit_form["title"], key=f"edit_module_title_{module_id}")
-                edit_step_valid = _is_present(edit_form["title"])
+                title_key = f"edit_module_title_{module_id}"
+                if title_key not in st.session_state:
+                    st.session_state[title_key] = edit_form["title"]
+                st.text_input("Title", key=title_key)
+                edit_form["title"] = st.session_state.get(title_key, "")
+                edit_step_valid = _has_session_text(title_key)
                 edit_required_message = "Title is required."
             elif edit_steps[edit_step]["field"] == "description":
-                edit_form["description"] = st.text_area("Description", value=edit_form["description"], key=f"edit_module_description_{module_id}")
-                edit_step_valid = _is_present(edit_form["description"])
+                description_key = f"edit_module_description_{module_id}"
+                if description_key not in st.session_state:
+                    st.session_state[description_key] = edit_form["description"]
+                st.text_area("Description", key=description_key)
+                edit_form["description"] = st.session_state.get(description_key, "")
+                edit_step_valid = _has_session_text(description_key)
                 edit_required_message = "Description is required."
             elif edit_steps[edit_step]["field"] == "learning_objectives":
-                edit_form["learning_objectives"] = st.text_area(
+                objectives_key = f"edit_module_objectives_{module_id}"
+                if objectives_key not in st.session_state:
+                    st.session_state[objectives_key] = edit_form["learning_objectives"]
+                st.text_area(
                     "Learning objectives",
-                    value=edit_form["learning_objectives"],
-                    key=f"edit_module_objectives_{module_id}",
+                    key=objectives_key,
                 )
-                edit_step_valid = _is_present(edit_form["learning_objectives"])
+                edit_form["learning_objectives"] = st.session_state.get(objectives_key, "")
+                edit_step_valid = _has_session_text(objectives_key)
                 edit_required_message = "Learning objectives are required."
             elif edit_steps[edit_step]["field"] == "content_sections":
-                edit_form["content_sections"] = st.text_area(
+                sections_key = f"edit_module_sections_{module_id}"
+                if sections_key not in st.session_state:
+                    st.session_state[sections_key] = edit_form["content_sections"]
+                st.text_area(
                     "Ordered content sections",
-                    value=edit_form["content_sections"],
-                    key=f"edit_module_sections_{module_id}",
+                    key=sections_key,
                 )
-                edit_step_valid = _is_present(edit_form["content_sections"])
+                edit_form["content_sections"] = st.session_state.get(sections_key, "")
+                edit_step_valid = _has_session_text(sections_key)
                 edit_required_message = "Ordered content sections are required."
             elif edit_steps[edit_step]["field"] == "completion_requirements":
-                edit_form["completion_requirements"] = st.text_area(
+                requirements_key = f"edit_module_requirements_{module_id}"
+                if requirements_key not in st.session_state:
+                    st.session_state[requirements_key] = edit_form["completion_requirements"]
+                st.text_area(
                     "Completion requirements",
-                    value=edit_form["completion_requirements"],
-                    key=f"edit_module_requirements_{module_id}",
+                    key=requirements_key,
                 )
-                edit_step_valid = _is_present(edit_form["completion_requirements"])
+                edit_form["completion_requirements"] = st.session_state.get(requirements_key, "")
+                edit_step_valid = _has_session_text(requirements_key)
                 edit_required_message = "Completion requirements are required."
             elif edit_steps[edit_step]["field"] == "assessment":
                 edit_form["estimated_minutes"] = int(
