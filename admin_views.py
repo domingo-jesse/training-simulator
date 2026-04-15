@@ -1402,6 +1402,10 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[module_builder_form_key] = dict(module_builder_defaults)
     module_form = st.session_state[module_builder_form_key]
 
+    def _init_module_builder_widget_state(widget_key: str, fallback_value):
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = fallback_value
+
     module_builder_steps = [
         {"title": "Module title", "field": "title", "required": True},
         {"title": "Category", "field": "category", "required": True},
@@ -1430,101 +1434,112 @@ def render_module_builder(current_user: dict) -> None:
             required_message = ""
             step_errors: list[str] = []
             if step_config["field"] == "title":
-                module_form["title"] = st.text_input("Title", value=module_form["title"], key="module_builder_title")
-                title_value = _normalize_text(st.session_state.get("module_builder_title", module_form["title"]))
+                _init_module_builder_widget_state("module_builder_title", module_form["title"])
+                st.text_input("Title", key="module_builder_title")
+                title_value = _normalize_text(st.session_state.get("module_builder_title", ""))
                 module_form["title"] = title_value
                 step_valid = bool(title_value)
                 required_message = "Please enter a module title to continue."
             elif step_config["field"] == "category":
-                module_form["category"] = st.text_input("Category", value=module_form["category"], key="module_builder_category")
+                _init_module_builder_widget_state("module_builder_category", module_form["category"])
+                st.text_input("Category", key="module_builder_category")
+                module_form["category"] = _normalize_text(st.session_state.get("module_builder_category", ""))
                 step_valid = _is_present(module_form["category"])
                 required_message = "Please enter a category to continue."
             elif step_config["field"] == "difficulty":
                 difficulty_options = ["Beginner", "Intermediate", "Advanced"]
                 current_difficulty = module_form["difficulty"] if module_form["difficulty"] in difficulty_options else "Beginner"
-                module_form["difficulty"] = st.selectbox(
+                _init_module_builder_widget_state("module_builder_difficulty", current_difficulty)
+                st.selectbox(
                     "Difficulty",
                     difficulty_options,
-                    index=difficulty_options.index(current_difficulty),
                     key="module_builder_difficulty",
                 )
+                module_form["difficulty"] = st.session_state.get("module_builder_difficulty", current_difficulty)
             elif step_config["field"] == "role_focus":
-                module_form["role_focus"] = st.text_input(
+                _init_module_builder_widget_state("module_builder_role_focus", module_form["role_focus"])
+                st.text_input(
                     "Role being simulated (e.g., Support Tier 1, Team Lead)",
-                    value=module_form["role_focus"],
                     key="module_builder_role_focus",
                 )
+                module_form["role_focus"] = _normalize_text(st.session_state.get("module_builder_role_focus", ""))
                 step_valid = _is_present(module_form["role_focus"])
                 required_message = "Please describe the role being simulated."
             elif step_config["field"] == "test_focus":
-                module_form["test_focus"] = st.text_input(
+                _init_module_builder_widget_state("module_builder_test_focus", module_form["test_focus"])
+                st.text_input(
                     "What should this module test?",
-                    value=module_form["test_focus"],
                     key="module_builder_test_focus",
                 )
+                module_form["test_focus"] = _normalize_text(st.session_state.get("module_builder_test_focus", ""))
                 step_valid = _is_present(module_form["test_focus"])
                 required_message = "Please describe what this module should test."
             elif step_config["field"] == "description":
-                module_form["description"] = st.text_area("Description", value=module_form["description"], key="module_builder_description")
+                _init_module_builder_widget_state("module_builder_description", module_form["description"])
+                st.text_area("Description", key="module_builder_description")
+                module_form["description"] = st.session_state.get("module_builder_description", "")
                 step_valid = _is_present(module_form["description"])
                 required_message = "Please enter a description to continue."
             elif step_config["field"] == "learning_objectives":
-                module_form["learning_objectives"] = st.text_area(
+                _init_module_builder_widget_state("module_builder_learning_objectives", module_form["learning_objectives"])
+                st.text_area(
                     "Learning objectives (one per line)",
-                    value=module_form["learning_objectives"],
                     key="module_builder_learning_objectives",
                 )
+                module_form["learning_objectives"] = st.session_state.get("module_builder_learning_objectives", "")
                 step_valid = _is_present(module_form["learning_objectives"])
                 required_message = "Please add at least one learning objective."
             elif step_config["field"] == "scenario_constraints":
-                module_form["scenario_constraints"] = st.text_area(
+                _init_module_builder_widget_state("module_builder_scenario_constraints", module_form["scenario_constraints"])
+                st.text_area(
                     "Scenario context / constraints",
-                    value=module_form["scenario_constraints"],
                     key="module_builder_scenario_constraints",
                 )
+                module_form["scenario_constraints"] = st.session_state.get("module_builder_scenario_constraints", "")
                 step_valid = _is_present(module_form["scenario_constraints"])
                 required_message = "Please provide scenario context or constraints."
             elif step_config["field"] == "content_sections":
-                module_form["content_sections"] = st.text_area(
+                _init_module_builder_widget_state("module_builder_content_sections", module_form["content_sections"])
+                st.text_area(
                     "Ordered content sections (one per line)",
-                    value=module_form["content_sections"],
                     key="module_builder_content_sections",
                 )
+                module_form["content_sections"] = st.session_state.get("module_builder_content_sections", "")
                 step_valid = _is_present(module_form["content_sections"])
                 required_message = "Please add at least one content section."
             elif step_config["field"] == "completion_requirements":
-                module_form["completion_requirements"] = st.text_area(
+                _init_module_builder_widget_state("module_builder_completion_requirements", module_form["completion_requirements"])
+                st.text_area(
                     "Completion requirements",
-                    value=module_form["completion_requirements"],
                     key="module_builder_completion_requirements",
                 )
+                module_form["completion_requirements"] = st.session_state.get("module_builder_completion_requirements", "")
                 step_valid = _is_present(module_form["completion_requirements"])
                 required_message = "Please enter completion requirements."
             elif step_config["field"] == "assessment_settings":
-                module_form["quiz_required"] = st.checkbox(
+                _init_module_builder_widget_state("module_builder_quiz_required", bool(module_form["quiz_required"]))
+                _init_module_builder_widget_state("module_builder_estimated_minutes", int(module_form["estimated_minutes"]))
+                _init_module_builder_widget_state("module_builder_question_count", int(module_form["question_count"]))
+                st.checkbox(
                     "Quiz required",
-                    value=bool(module_form["quiz_required"]),
                     key="module_builder_quiz_required",
                 )
-                module_form["estimated_minutes"] = int(
-                    st.number_input(
-                        "Estimated assessment time (minutes)",
-                        min_value=1,
-                        max_value=240,
-                        value=int(module_form["estimated_minutes"]),
-                        step=1,
-                        key="module_builder_estimated_minutes",
-                    )
+                st.number_input(
+                    "Estimated assessment time (minutes)",
+                    min_value=1,
+                    max_value=240,
+                    step=1,
+                    key="module_builder_estimated_minutes",
                 )
-                module_form["question_count"] = int(
-                    st.slider(
-                        "AI-generated questions",
-                        min_value=5,
-                        max_value=6,
-                        value=int(module_form["question_count"]),
-                        key="module_builder_question_count",
-                    )
+                st.slider(
+                    "AI-generated questions",
+                    min_value=5,
+                    max_value=6,
+                    key="module_builder_question_count",
                 )
+                module_form["quiz_required"] = bool(st.session_state.get("module_builder_quiz_required", True))
+                module_form["estimated_minutes"] = int(st.session_state.get("module_builder_estimated_minutes", 20))
+                module_form["question_count"] = int(st.session_state.get("module_builder_question_count", 5))
             else:
                 st.markdown("##### Review")
                 st.write("Please review your values before saving.")
@@ -2017,6 +2032,22 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[module_builder_step_key] = 0
                 st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
+                for widget_key in (
+                    "module_builder_title",
+                    "module_builder_category",
+                    "module_builder_difficulty",
+                    "module_builder_role_focus",
+                    "module_builder_test_focus",
+                    "module_builder_description",
+                    "module_builder_learning_objectives",
+                    "module_builder_scenario_constraints",
+                    "module_builder_content_sections",
+                    "module_builder_completion_requirements",
+                    "module_builder_quiz_required",
+                    "module_builder_estimated_minutes",
+                    "module_builder_question_count",
+                ):
+                    st.session_state.pop(widget_key, None)
                 st.rerun()
         with action_col_2:
             if st.button("Go to Manage Modules", key="module_builder_go_manage"):
