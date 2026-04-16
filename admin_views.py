@@ -1377,6 +1377,7 @@ def render_module_builder(current_user: dict) -> None:
     module_builder_current_step_key = "module_builder_current_step"
     module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft", "Module completed"]
     module_builder_completed_module_id_key = "module_builder_completed_module_id"
+    module_builder_draft_run_id_key = "module_builder_draft_run_id"
     if module_builder_current_step_key not in st.session_state:
         st.session_state[module_builder_current_step_key] = 1
     current_step = max(1, min(int(st.session_state.get(module_builder_current_step_key, 1)), len(module_builder_phase_labels)))
@@ -1409,6 +1410,108 @@ def render_module_builder(current_user: dict) -> None:
     def _init_module_builder_widget_state(widget_key: str, fallback_value):
         if widget_key not in st.session_state:
             st.session_state[widget_key] = fallback_value
+
+    def _sync_module_builder_form_from_widgets() -> None:
+        module_form["title"] = st.session_state.get("module_builder_title", module_form.get("title", ""))
+        module_form["category"] = st.session_state.get("module_builder_category", module_form.get("category", "General"))
+        module_form["difficulty"] = st.session_state.get("module_builder_difficulty", module_form.get("difficulty", "Beginner"))
+        module_form["role_focus"] = st.session_state.get("module_builder_role_focus", module_form.get("role_focus", ""))
+        module_form["test_focus"] = st.session_state.get("module_builder_test_focus", module_form.get("test_focus", ""))
+        module_form["description"] = st.session_state.get("module_builder_description", module_form.get("description", ""))
+        module_form["learning_objectives"] = st.session_state.get(
+            "module_builder_learning_objectives",
+            module_form.get("learning_objectives", ""),
+        )
+        module_form["scenario_constraints"] = st.session_state.get(
+            "module_builder_scenario_constraints",
+            module_form.get("scenario_constraints", ""),
+        )
+        module_form["content_sections"] = st.session_state.get("module_builder_content_sections", module_form.get("content_sections", ""))
+        module_form["completion_requirements"] = st.session_state.get(
+            "module_builder_completion_requirements",
+            module_form.get("completion_requirements", ""),
+        )
+        module_form["quiz_required"] = bool(st.session_state.get("module_builder_quiz_required", module_form.get("quiz_required", True)))
+        module_form["estimated_minutes"] = int(
+            st.session_state.get("module_builder_estimated_minutes", module_form.get("estimated_minutes", 20))
+        )
+        module_form["question_count"] = int(
+            st.session_state.get("module_builder_question_count", module_form.get("question_count", 5))
+        )
+
+    def _save_module_builder_draft_to_db() -> int:
+        draft_run_id = st.session_state.get(module_builder_draft_run_id_key)
+        if draft_run_id:
+            execute(
+                """
+                UPDATE module_generation_runs
+                SET
+                    input_title = ?,
+                    input_category = ?,
+                    input_difficulty = ?,
+                    input_description = ?,
+                    role_focus = ?,
+                    test_focus = ?,
+                    learning_objectives = ?,
+                    input_content_sections = ?,
+                    scenario_constraints = ?,
+                    completion_requirements = ?,
+                    input_quiz_required = ?,
+                    requested_question_count = ?,
+                    input_estimated_minutes = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE run_id = ? AND organization_id = ? AND generation_status = 'input_draft'
+                """,
+                (
+                    module_form["title"].strip(),
+                    module_form["category"].strip() or "General",
+                    module_form["difficulty"],
+                    module_form["description"].strip(),
+                    module_form["role_focus"].strip(),
+                    module_form["test_focus"].strip(),
+                    module_form["learning_objectives"].strip(),
+                    _parse_lines(module_form["content_sections"]),
+                    module_form["scenario_constraints"].strip(),
+                    module_form["completion_requirements"].strip(),
+                    1 if module_form["quiz_required"] else 0,
+                    int(module_form["question_count"]),
+                    int(module_form["estimated_minutes"]),
+                    int(draft_run_id),
+                    org_id,
+                ),
+            )
+            return int(draft_run_id)
+
+        inserted_run_id = execute(
+            """
+            INSERT INTO module_generation_runs (
+                organization_id, created_by, input_title, input_category, input_difficulty,
+                input_description, role_focus, test_focus, learning_objectives, input_content_sections,
+                scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
+                input_estimated_minutes, generation_status, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'input_draft', CURRENT_TIMESTAMP)
+            RETURNING run_id AS id
+            """,
+            (
+                org_id,
+                current_user["user_id"],
+                module_form["title"].strip(),
+                module_form["category"].strip() or "General",
+                module_form["difficulty"],
+                module_form["description"].strip(),
+                module_form["role_focus"].strip(),
+                module_form["test_focus"].strip(),
+                module_form["learning_objectives"].strip(),
+                _parse_lines(module_form["content_sections"]),
+                module_form["scenario_constraints"].strip(),
+                module_form["completion_requirements"].strip(),
+                1 if module_form["quiz_required"] else 0,
+                int(module_form["question_count"]),
+                int(module_form["estimated_minutes"]),
+            ),
+        )
+        st.session_state[module_builder_draft_run_id_key] = int(inserted_run_id)
+        return int(inserted_run_id)
 
     module_builder_steps = [
         {"title": "Module title", "field": "title", "required": True},
@@ -1585,26 +1688,39 @@ def render_module_builder(current_user: dict) -> None:
                 for error in step_errors:
                     st.error(error)
 
+        _sync_module_builder_form_from_widgets()
+
         if not step_valid and required_message and step_config["field"] != "review":
             st.error(required_message)
 
         nav_left, nav_mid, nav_right = st.columns([1, 1, 2])
         with nav_left:
             if st.button("Previous", key="module_builder_previous", disabled=current_step == 0):
+                _sync_module_builder_form_from_widgets()
+                _save_module_builder_draft_to_db()
                 st.session_state[module_builder_step_key] = max(0, current_step - 1)
                 st.rerun()
         with nav_mid:
             if current_step < total_steps - 2:
                 if st.button("Next", key="module_builder_next", disabled=not step_valid):
+                    _sync_module_builder_form_from_widgets()
+                    _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
             elif current_step == total_steps - 2:
                 if st.button("Review", key="module_builder_review", disabled=not step_valid):
+                    _sync_module_builder_form_from_widgets()
+                    _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
         with nav_right:
+            if st.button("Save Draft", key="module_builder_save_draft"):
+                _sync_module_builder_form_from_widgets()
+                _save_module_builder_draft_to_db()
+                st.success("Draft saved.")
             if current_step == total_steps - 1:
                 if st.button("Save Module", key="module_builder_save_module", type="primary", disabled=not step_valid):
+                    _sync_module_builder_form_from_widgets()
                     payload = ModuleGenerationInput(
                     title=module_form["title"].strip(),
                     category=module_form["category"].strip() or "General",
@@ -1619,21 +1735,32 @@ def render_module_builder(current_user: dict) -> None:
                 )
                 try:
                     preview, warning = generate_module_preview(payload)
-                    run_id = execute(
+                    run_id = _save_module_builder_draft_to_db()
+                    execute(
                         """
-                        INSERT INTO module_generation_runs (
-                            organization_id, created_by, input_title, input_category, input_difficulty,
-                            input_description, role_focus, test_focus, learning_objectives, input_content_sections,
-                            scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
-                            input_estimated_minutes,
-                            generated_title, generated_description, generated_scenario_overview,
-                            generation_status, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
-                        RETURNING run_id AS id
+                        UPDATE module_generation_runs
+                        SET
+                            input_title = ?,
+                            input_category = ?,
+                            input_difficulty = ?,
+                            input_description = ?,
+                            role_focus = ?,
+                            test_focus = ?,
+                            learning_objectives = ?,
+                            input_content_sections = ?,
+                            scenario_constraints = ?,
+                            completion_requirements = ?,
+                            input_quiz_required = ?,
+                            requested_question_count = ?,
+                            input_estimated_minutes = ?,
+                            generated_title = ?,
+                            generated_description = ?,
+                            generated_scenario_overview = ?,
+                            generation_status = 'draft',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE run_id = ? AND organization_id = ?
                         """,
                         (
-                            org_id,
-                            current_user["user_id"],
                             payload.title,
                             payload.category,
                             payload.difficulty,
@@ -1650,8 +1777,11 @@ def render_module_builder(current_user: dict) -> None:
                             preview.get("title"),
                             preview.get("description"),
                             preview.get("scenario_overview"),
+                            run_id,
+                            org_id,
                         ),
                     )
+                    execute("DELETE FROM module_generation_questions WHERE run_id = ?", (run_id,))
                     executemany(
                         """
                         INSERT INTO module_generation_questions (
@@ -1686,7 +1816,7 @@ def render_module_builder(current_user: dict) -> None:
             fetch_all(
                 """
                 SELECT * FROM module_generation_runs
-                WHERE organization_id = ?
+                WHERE organization_id = ? AND generation_status <> 'input_draft'
                 ORDER BY updated_at DESC
                 """,
                 (org_id,),
@@ -2087,6 +2217,7 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[module_builder_step_key] = 0
                 st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
+                st.session_state.pop(module_builder_draft_run_id_key, None)
                 for widget_key in (
                     "module_builder_title",
                     "module_builder_category",
@@ -2108,6 +2239,7 @@ def render_module_builder(current_user: dict) -> None:
             if st.button("Go to Manage Modules", key="module_builder_go_manage"):
                 st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
+                st.session_state.pop(module_builder_draft_run_id_key, None)
                 st.session_state["admin_page"] = "📚 Manage Modules"
                 st.session_state["nav"] = "manage-modules"
                 st.rerun()
