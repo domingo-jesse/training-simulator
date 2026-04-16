@@ -1459,6 +1459,8 @@ def render_module_builder(current_user: dict) -> None:
         )
 
     def _save_module_builder_draft_to_db() -> int:
+        input_quiz_required = _normalize_bool(module_form.get("quiz_required"), default=True)
+        input_quiz_required = bool(input_quiz_required)
         draft_run_id = st.session_state.get(module_builder_draft_run_id_key)
         if draft_run_id:
             execute(
@@ -1492,7 +1494,7 @@ def render_module_builder(current_user: dict) -> None:
                     _parse_lines(module_form["content_sections"]),
                     module_form["scenario_constraints"].strip(),
                     module_form["completion_requirements"].strip(),
-                    _normalize_bool(module_form.get("quiz_required"), default=True),
+                    input_quiz_required,
                     int(module_form["question_count"]),
                     int(module_form["estimated_minutes"]),
                     int(draft_run_id),
@@ -1524,7 +1526,7 @@ def render_module_builder(current_user: dict) -> None:
                 _parse_lines(module_form["content_sections"]),
                 module_form["scenario_constraints"].strip(),
                 module_form["completion_requirements"].strip(),
-                _normalize_bool(module_form.get("quiz_required"), default=True),
+                input_quiz_required,
                 int(module_form["question_count"]),
                 int(module_form["estimated_minutes"]),
             ),
