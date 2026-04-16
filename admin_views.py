@@ -2085,12 +2085,6 @@ def render_module_builder(current_user: dict) -> None:
         approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
         total_review_steps = 4
         is_final_step = review_step >= total_review_steps - 1
-        can_finalize = bool(approved_questions) and run.get("generation_status") == "approved"
-        finalize_validation_issues = []
-        if run.get("generation_status") != "approved":
-            finalize_validation_issues.append("Approve the scenario decision in **Review Scenario**.")
-        if not approved_questions:
-            finalize_validation_issues.append("Approve at least one question in **Review Questions**.")
         nav_back, nav_spacer, nav_next, nav_action = st.columns([1, 1, 1, 1])
         reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
         can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
@@ -2161,9 +2155,7 @@ def render_module_builder(current_user: dict) -> None:
                     st.success("Question deleted.")
                     st.rerun()
             elif is_final_step:
-                if finalize_validation_issues:
-                    st.warning("Module is not ready to create yet:\n\n- " + "\n- ".join(finalize_validation_issues))
-                if st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
+                if st.button("Create module from approved draft", key=f"finalize_run_{run_id}", type="primary"):
                     module_id = execute(
                         """
                         INSERT INTO modules (
