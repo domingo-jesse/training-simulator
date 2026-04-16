@@ -1168,12 +1168,9 @@ def init_db() -> None:
                 )
         finally:
             if lock_acquired and RUNTIME_USE_POSTGRES:
+                conn.rollback()
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT pg_advisory_unlock(123456);
-                        """
-                    )
+                    cur.execute("SELECT pg_advisory_unlock(%s);", (123456,))
     db_logger.info("Database schema initialization complete.")
 
 
