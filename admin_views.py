@@ -1740,101 +1740,106 @@ def render_module_builder(current_user: dict) -> None:
                     _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
-        with nav_right:
-            if st.button("Save Draft", key="module_builder_save_draft"):
-                _sync_module_builder_form_from_widgets()
-                _save_module_builder_draft_to_db()
-                st.success("Draft saved.")
+            with nav_right:
+                if st.button("Save Draft", key="module_builder_save_draft"):
+                    _sync_module_builder_form_from_widgets()
+                    _save_module_builder_draft_to_db()
+                    st.success("Draft saved.")
             if current_step == total_steps - 1:
                 if st.button("Save Module", key="module_builder_save_module", type="primary", disabled=not step_valid):
                     _sync_module_builder_form_from_widgets()
+                    is_valid = bool(step_valid)
+                    if not is_valid:
+                        st.error("Please complete required fields")
+                        return
+
                     payload = ModuleGenerationInput(
-                    title=module_form["title"].strip(),
-                    category=module_form["category"].strip() or "General",
-                    difficulty=module_form["difficulty"],
-                    description=module_form["description"].strip(),
-                    role_focus=module_form["role_focus"].strip(),
-                    test_focus=module_form["test_focus"].strip(),
-                    learning_objectives=[line.strip() for line in module_form["learning_objectives"].splitlines() if line.strip()],
-                    scenario_constraints=module_form["scenario_constraints"].strip(),
-                    completion_requirements=module_form["completion_requirements"].strip(),
-                    question_count=int(module_form["question_count"]),
-                )
-                try:
-                    preview, warning = generate_module_preview(payload)
-                    run_id = _save_module_builder_draft_to_db()
-                    execute(
-                        """
-                        UPDATE module_generation_runs
-                        SET
-                            input_title = ?,
-                            input_category = ?,
-                            input_difficulty = ?,
-                            input_description = ?,
-                            role_focus = ?,
-                            test_focus = ?,
-                            learning_objectives = ?,
-                            input_content_sections = ?,
-                            scenario_constraints = ?,
-                            completion_requirements = ?,
-                            input_quiz_required = ?,
-                            requested_question_count = ?,
-                            input_estimated_minutes = ?,
-                            generated_title = ?,
-                            generated_description = ?,
-                            generated_scenario_overview = ?,
-                            generation_status = 'draft',
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE run_id = ? AND organization_id = ?
-                        """,
-                        (
-                            payload.title,
-                            payload.category,
-                            payload.difficulty,
-                            payload.description,
-                            payload.role_focus,
-                            payload.test_focus,
-                            "\n".join(payload.learning_objectives),
-                            _parse_lines(module_form["content_sections"]),
-                            payload.scenario_constraints,
-                            payload.completion_requirements,
-                            _normalize_bool(module_form.get("quiz_required"), default=True),
-                            payload.question_count,
-                            int(module_form["estimated_minutes"]),
-                            preview.get("title"),
-                            preview.get("description"),
-                            preview.get("scenario_overview"),
-                            run_id,
-                            org_id,
-                        ),
+                        title=module_form["title"].strip(),
+                        category=module_form["category"].strip() or "General",
+                        difficulty=module_form["difficulty"],
+                        description=module_form["description"].strip(),
+                        role_focus=module_form["role_focus"].strip(),
+                        test_focus=module_form["test_focus"].strip(),
+                        learning_objectives=[line.strip() for line in module_form["learning_objectives"].splitlines() if line.strip()],
+                        scenario_constraints=module_form["scenario_constraints"].strip(),
+                        completion_requirements=module_form["completion_requirements"].strip(),
+                        question_count=int(module_form["question_count"]),
                     )
-                    execute("DELETE FROM module_generation_questions WHERE run_id = ?", (run_id,))
-                    executemany(
-                        """
-                        INSERT INTO module_generation_questions (
-                            run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-                        """,
-                        [
+                    try:
+                        preview, warning = generate_module_preview(payload)
+                        run_id = _save_module_builder_draft_to_db()
+                        execute(
+                            """
+                            UPDATE module_generation_runs
+                            SET
+                                input_title = ?,
+                                input_category = ?,
+                                input_difficulty = ?,
+                                input_description = ?,
+                                role_focus = ?,
+                                test_focus = ?,
+                                learning_objectives = ?,
+                                input_content_sections = ?,
+                                scenario_constraints = ?,
+                                completion_requirements = ?,
+                                input_quiz_required = ?,
+                                requested_question_count = ?,
+                                input_estimated_minutes = ?,
+                                generated_title = ?,
+                                generated_description = ?,
+                                generated_scenario_overview = ?,
+                                generation_status = 'draft',
+                                updated_at = CURRENT_TIMESTAMP
+                            WHERE run_id = ? AND organization_id = ?
+                            """,
                             (
+                                payload.title,
+                                payload.category,
+                                payload.difficulty,
+                                payload.description,
+                                payload.role_focus,
+                                payload.test_focus,
+                                "\n".join(payload.learning_objectives),
+                                _parse_lines(module_form["content_sections"]),
+                                payload.scenario_constraints,
+                                payload.completion_requirements,
+                                _normalize_bool(module_form.get("quiz_required"), default=True),
+                                payload.question_count,
+                                int(module_form["estimated_minutes"]),
+                                preview.get("title"),
+                                preview.get("description"),
+                                preview.get("scenario_overview"),
                                 run_id,
-                                idx + 1,
-                                item.get("question", ""),
-                                item.get("rationale", ""),
-                                "open_text",
-                                "",
-                            )
-                            for idx, item in enumerate(preview.get("questions", []))
-                        ],
-                    )
-                    if warning:
-                        st.warning(warning)
-                    st.session_state[module_builder_current_step_key] = 2
-                    st.success("Draft generated. Continue to Step 2 to review and approve.")
-                    st.session_state[module_builder_step_key] = 0
-                    st.rerun()
-                except Exception as exc:
-                    st.error(f"Could not save module draft: {exc}")
+                                org_id,
+                            ),
+                        )
+                        execute("DELETE FROM module_generation_questions WHERE run_id = ?", (run_id,))
+                        executemany(
+                            """
+                            INSERT INTO module_generation_questions (
+                                run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
+                            """,
+                            [
+                                (
+                                    run_id,
+                                    idx + 1,
+                                    item.get("question", ""),
+                                    item.get("rationale", ""),
+                                    "open_text",
+                                    "",
+                                )
+                                for idx, item in enumerate(preview.get("questions", []))
+                            ],
+                        )
+                        if warning:
+                            st.warning(warning)
+                        st.session_state[module_builder_current_step_key] = 2
+                        st.success("Draft generated. Continue to Step 2 to review and approve.")
+                        st.session_state[module_builder_step_key] = 0
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"Could not save module draft: {exc}")
 
     elif current_step == 2:
         st.markdown("#### Step 2: Review and approve generated draft")
