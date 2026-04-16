@@ -1348,6 +1348,22 @@ def _normalize_text(value: object) -> str:
     return str(value).strip()
 
 
+def _normalize_bool(value: object, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "t", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "f", "0", "no", "n", "off"}:
+            return False
+    return default
+
+
 def _has_session_text(key: str) -> bool:
     return bool(str(st.session_state.get(key, "")).strip())
 
@@ -1431,7 +1447,10 @@ def render_module_builder(current_user: dict) -> None:
             "module_builder_completion_requirements",
             module_form.get("completion_requirements", ""),
         )
-        module_form["quiz_required"] = bool(st.session_state.get("module_builder_quiz_required", module_form.get("quiz_required", True)))
+        module_form["quiz_required"] = _normalize_bool(
+            st.session_state.get("module_builder_quiz_required", module_form.get("quiz_required", True)),
+            default=True,
+        )
         module_form["estimated_minutes"] = int(
             st.session_state.get("module_builder_estimated_minutes", module_form.get("estimated_minutes", 20))
         )
@@ -1473,7 +1492,7 @@ def render_module_builder(current_user: dict) -> None:
                     _parse_lines(module_form["content_sections"]),
                     module_form["scenario_constraints"].strip(),
                     module_form["completion_requirements"].strip(),
-                    bool(module_form["quiz_required"]),
+                    _normalize_bool(module_form.get("quiz_required"), default=True),
                     int(module_form["question_count"]),
                     int(module_form["estimated_minutes"]),
                     int(draft_run_id),
@@ -1505,7 +1524,7 @@ def render_module_builder(current_user: dict) -> None:
                 _parse_lines(module_form["content_sections"]),
                 module_form["scenario_constraints"].strip(),
                 module_form["completion_requirements"].strip(),
-                bool(module_form["quiz_required"]),
+                _normalize_bool(module_form.get("quiz_required"), default=True),
                 int(module_form["question_count"]),
                 int(module_form["estimated_minutes"]),
             ),
@@ -1641,7 +1660,10 @@ def render_module_builder(current_user: dict) -> None:
                 step_valid = bool(current_value)
                 required_message = "Please enter completion requirements."
             elif step_config["field"] == "assessment_settings":
-                _init_module_builder_widget_state("module_builder_quiz_required", bool(module_form["quiz_required"]))
+                _init_module_builder_widget_state(
+                    "module_builder_quiz_required",
+                    _normalize_bool(module_form.get("quiz_required"), default=True),
+                )
                 _init_module_builder_widget_state("module_builder_estimated_minutes", int(module_form["estimated_minutes"]))
                 _init_module_builder_widget_state("module_builder_question_count", int(module_form["question_count"]))
                 st.checkbox(
@@ -1661,7 +1683,10 @@ def render_module_builder(current_user: dict) -> None:
                     max_value=6,
                     key="module_builder_question_count",
                 )
-                module_form["quiz_required"] = bool(st.session_state.get("module_builder_quiz_required", True))
+                module_form["quiz_required"] = _normalize_bool(
+                    st.session_state.get("module_builder_quiz_required", True),
+                    default=True,
+                )
                 module_form["estimated_minutes"] = int(st.session_state.get("module_builder_estimated_minutes", 20))
                 module_form["question_count"] = int(st.session_state.get("module_builder_question_count", 5))
             else:
@@ -1771,7 +1796,7 @@ def render_module_builder(current_user: dict) -> None:
                             _parse_lines(module_form["content_sections"]),
                             payload.scenario_constraints,
                             payload.completion_requirements,
-                            bool(module_form["quiz_required"]),
+                            _normalize_bool(module_form.get("quiz_required"), default=True),
                             payload.question_count,
                             int(module_form["estimated_minutes"]),
                             preview.get("title"),
@@ -2176,7 +2201,7 @@ def render_module_builder(current_user: dict) -> None:
                             run.get("learning_objectives") or "",
                             run.get("input_content_sections") or "",
                             run.get("completion_requirements") or "",
-                            bool(run.get("input_quiz_required")),
+                            _normalize_bool(run.get("input_quiz_required"), default=False),
                             current_user["user_id"],
                         ),
                     )
