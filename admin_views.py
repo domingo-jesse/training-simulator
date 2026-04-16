@@ -1438,17 +1438,20 @@ def render_module_builder(current_user: dict) -> None:
             required_message = ""
             step_errors: list[str] = []
             if step_config["field"] == "title":
-                _init_module_builder_widget_state("module_builder_title", module_form["title"])
-                st.text_input("Title", key="module_builder_title")
-                title_value = st.session_state.get("module_builder_title", "")
-                module_form["title"] = title_value
-                step_valid = _has_session_text("module_builder_title")
+                current_key = "module_builder_title"
+                _init_module_builder_widget_state(current_key, module_form["title"])
+                st.text_input("Title", key=current_key)
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["title"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please enter a module title to continue."
             elif step_config["field"] == "category":
-                _init_module_builder_widget_state("module_builder_category", module_form["category"])
-                st.text_input("Category", key="module_builder_category")
-                module_form["category"] = st.session_state.get("module_builder_category", "")
-                step_valid = _has_session_text("module_builder_category")
+                current_key = "module_builder_category"
+                _init_module_builder_widget_state(current_key, module_form["category"])
+                st.text_input("Category", key=current_key)
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["category"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please enter a category to continue."
             elif step_config["field"] == "difficulty":
                 difficulty_options = ["Beginner", "Intermediate", "Advanced"]
@@ -1461,64 +1464,78 @@ def render_module_builder(current_user: dict) -> None:
                 )
                 module_form["difficulty"] = st.session_state.get("module_builder_difficulty", current_difficulty)
             elif step_config["field"] == "role_focus":
-                _init_module_builder_widget_state("module_builder_role_focus", module_form["role_focus"])
+                current_key = "module_builder_role_focus"
+                _init_module_builder_widget_state(current_key, module_form["role_focus"])
                 st.text_input(
                     "Role being simulated (e.g., Support Tier 1, Team Lead)",
-                    key="module_builder_role_focus",
+                    key=current_key,
                 )
-                module_form["role_focus"] = st.session_state.get("module_builder_role_focus", "")
-                step_valid = _has_session_text("module_builder_role_focus")
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["role_focus"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please describe the role being simulated."
             elif step_config["field"] == "test_focus":
-                _init_module_builder_widget_state("module_builder_test_focus", module_form["test_focus"])
+                current_key = "module_builder_test_focus"
+                _init_module_builder_widget_state(current_key, module_form["test_focus"])
                 st.text_input(
                     "What should this module test?",
-                    key="module_builder_test_focus",
+                    key=current_key,
                 )
-                module_form["test_focus"] = st.session_state.get("module_builder_test_focus", "")
-                step_valid = _has_session_text("module_builder_test_focus")
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["test_focus"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please describe what this module should test."
             elif step_config["field"] == "description":
-                _init_module_builder_widget_state("module_builder_description", module_form["description"])
-                st.text_area("Description", key="module_builder_description")
-                module_form["description"] = st.session_state.get("module_builder_description", "")
-                step_valid = _has_session_text("module_builder_description")
+                current_key = "module_builder_description"
+                _init_module_builder_widget_state(current_key, module_form["description"])
+                st.text_area("Description", key=current_key)
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["description"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please enter a description to continue."
             elif step_config["field"] == "learning_objectives":
-                _init_module_builder_widget_state("module_builder_learning_objectives", module_form["learning_objectives"])
+                current_key = "module_builder_learning_objectives"
+                _init_module_builder_widget_state(current_key, module_form["learning_objectives"])
                 st.text_area(
                     "Learning objectives (one per line)",
-                    key="module_builder_learning_objectives",
+                    key=current_key,
                 )
-                module_form["learning_objectives"] = st.session_state.get("module_builder_learning_objectives", "")
-                step_valid = _has_session_text("module_builder_learning_objectives")
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["learning_objectives"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please add at least one learning objective."
             elif step_config["field"] == "scenario_constraints":
-                _init_module_builder_widget_state("module_builder_scenario_constraints", module_form["scenario_constraints"])
+                current_key = "module_builder_scenario_constraints"
+                _init_module_builder_widget_state(current_key, module_form["scenario_constraints"])
                 st.text_area(
                     "Scenario context / constraints",
-                    key="module_builder_scenario_constraints",
+                    key=current_key,
                 )
-                module_form["scenario_constraints"] = st.session_state.get("module_builder_scenario_constraints", "")
-                step_valid = _has_session_text("module_builder_scenario_constraints")
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["scenario_constraints"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please provide scenario context or constraints."
             elif step_config["field"] == "content_sections":
-                _init_module_builder_widget_state("module_builder_content_sections", module_form["content_sections"])
+                current_key = "module_builder_content_sections"
+                _init_module_builder_widget_state(current_key, module_form["content_sections"])
                 st.text_area(
                     "Ordered content sections (one per line)",
-                    key="module_builder_content_sections",
+                    key=current_key,
                 )
-                module_form["content_sections"] = st.session_state.get("module_builder_content_sections", "")
-                step_valid = _has_session_text("module_builder_content_sections")
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["content_sections"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please add at least one content section."
             elif step_config["field"] == "completion_requirements":
-                _init_module_builder_widget_state("module_builder_completion_requirements", module_form["completion_requirements"])
+                current_key = "module_builder_completion_requirements"
+                _init_module_builder_widget_state(current_key, module_form["completion_requirements"])
                 st.text_area(
                     "Completion requirements",
-                    key="module_builder_completion_requirements",
+                    key=current_key,
                 )
-                module_form["completion_requirements"] = st.session_state.get("module_builder_completion_requirements", "")
-                step_valid = _has_session_text("module_builder_completion_requirements")
+                current_value = st.session_state.get(current_key, "").strip()
+                module_form["completion_requirements"] = st.session_state.get(current_key, "")
+                step_valid = bool(current_value)
                 required_message = "Please enter completion requirements."
             elif step_config["field"] == "assessment_settings":
                 _init_module_builder_widget_state("module_builder_quiz_required", bool(module_form["quiz_required"]))
@@ -1731,23 +1748,27 @@ def render_module_builder(current_user: dict) -> None:
                     st.session_state[run_summary_key] = run.get("generated_description") or run.get("input_description") or ""
                 if run_feedback_key not in st.session_state:
                     st.session_state[run_feedback_key] = run.get("test_focus") or ""
+                scenario_context_key = f"scenario_context_{run_id}"
+                if scenario_context_key not in st.session_state:
+                    st.session_state[scenario_context_key] = run.get("generated_scenario_overview") or ""
+                if run_status_key not in st.session_state:
+                    initial_status = run.get("generation_status", "draft")
+                    st.session_state[run_status_key] = initial_status if initial_status in {"approved", "denied", "pending"} else "pending"
 
                 st.text_input("Scenario title", key=run_title_key)
                 st.text_area("Scenario summary / metadata", key=run_summary_key, height=120)
                 st.text_area(
                     "Scenario description / context",
-                    value=run.get("generated_scenario_overview") or "",
-                    key=f"scenario_context_{run_id}",
+                    key=scenario_context_key,
                     height=180,
                 )
                 st.selectbox(
                     "Scenario decision",
                     ["approved", "denied", "pending"],
-                    index=["approved", "denied", "pending"].index(run.get("generation_status", "draft") if run.get("generation_status") in {"approved", "denied", "pending"} else "pending"),
                     key=run_status_key,
                 )
                 st.text_area("Scenario feedback", key=run_feedback_key)
-                step_valid = _is_present(st.session_state[run_title_key]) and _is_present(st.session_state[f"scenario_context_{run_id}"])
+                step_valid = bool(st.session_state.get(run_title_key, "").strip()) and bool(st.session_state.get(scenario_context_key, "").strip())
                 if st.button("Save scenario decision", key=f"save_scenario_decision_{run_id}"):
                     execute(
                         """
@@ -1760,7 +1781,7 @@ def render_module_builder(current_user: dict) -> None:
                             st.session_state[run_feedback_key],
                             st.session_state[run_title_key],
                             st.session_state[run_summary_key],
-                            st.session_state[f"scenario_context_{run_id}"],
+                            st.session_state[scenario_context_key],
                             run_id,
                             org_id,
                         ),
@@ -1777,42 +1798,62 @@ def render_module_builder(current_user: dict) -> None:
                 else:
                     is_final_review_question = current_q_idx == question_review_count - 1
                     q = non_custom_questions[current_q_idx]
+                    qtext_key = f"qtext_{q['generated_question_id']}"
+                    qrationale_key = f"qrationale_{q['generated_question_id']}"
+                    qdifficulty_key = f"qdifficulty_{q['generated_question_id']}"
+                    qpoints_key = f"qpoints_{q['generated_question_id']}"
+                    qtype_key = f"qtype_{q['generated_question_id']}"
+                    qstatus_key = f"qstatus_{q['generated_question_id']}"
+                    qfeedback_key = f"qfeedback_{q['generated_question_id']}"
+                    qoptions_key = f"qoptions_{q['generated_question_id']}"
+                    if qtext_key not in st.session_state:
+                        st.session_state[qtext_key] = q.get("question_text") or ""
+                    if qrationale_key not in st.session_state:
+                        st.session_state[qrationale_key] = q.get("rationale") or ""
+                    if qdifficulty_key not in st.session_state:
+                        level = run.get("input_difficulty") or "Beginner"
+                        st.session_state[qdifficulty_key] = level if level in {"Beginner", "Intermediate", "Advanced"} else "Beginner"
+                    if qpoints_key not in st.session_state:
+                        st.session_state[qpoints_key] = "N/A"
+                    if qtype_key not in st.session_state:
+                        st.session_state[qtype_key] = q.get("question_type") or "open_text"
+                    if qstatus_key not in st.session_state:
+                        st.session_state[qstatus_key] = q.get("approval_status") or "pending"
+                    if qfeedback_key not in st.session_state:
+                        st.session_state[qfeedback_key] = q.get("admin_feedback") or ""
+                    if qoptions_key not in st.session_state:
+                        st.session_state[qoptions_key] = q.get("options_text") or ""
                     st.caption(f"Question {current_q_idx + 1} of {len(non_custom_questions)}")
-                    st.text_area("Question text", value=q.get("question_text") or "", key=f"qtext_{q['generated_question_id']}", height=120)
-                    st.text_area("Expected / ideal answer", value=q.get("rationale") or "", key=f"qrationale_{q['generated_question_id']}", height=100)
+                    st.text_area("Question text", key=qtext_key, height=120)
+                    st.text_area("Expected / ideal answer", key=qrationale_key, height=100)
                     meta_col1, meta_col2, meta_col3 = st.columns(3)
                     with meta_col1:
                         st.selectbox(
                             "Difficulty",
                             ["Beginner", "Intermediate", "Advanced"],
-                            index=["Beginner", "Intermediate", "Advanced"].index(run.get("input_difficulty") or "Beginner")
-                            if (run.get("input_difficulty") or "Beginner") in {"Beginner", "Intermediate", "Advanced"} else 0,
-                            key=f"qdifficulty_{q['generated_question_id']}",
+                            key=qdifficulty_key,
                             disabled=True,
                         )
                     with meta_col2:
-                        st.text_input("Point value", value="N/A", key=f"qpoints_{q['generated_question_id']}", disabled=True)
+                        st.text_input("Point value", key=qpoints_key, disabled=True)
                     with meta_col3:
                         st.selectbox(
                             "Question type",
                             ["open_text", "multiple_choice"],
-                            index=0 if (q.get("question_type") or "open_text") == "open_text" else 1,
-                            key=f"qtype_{q['generated_question_id']}",
+                            key=qtype_key,
                         )
                     st.selectbox(
                         "Decision",
                         ["pending", "approved", "denied"],
-                        index=["pending", "approved", "denied"].index(q.get("approval_status") or "pending"),
-                        key=f"qstatus_{q['generated_question_id']}",
+                        key=qstatus_key,
                     )
-                    st.text_input("Admin feedback", value=q.get("admin_feedback") or "", key=f"qfeedback_{q['generated_question_id']}")
+                    st.text_input("Admin feedback", key=qfeedback_key)
                     q_options = st.text_area(
                         "Choices for this question (one per line)",
-                        value=q.get("options_text") or "",
-                        disabled=st.session_state[f"qtype_{q['generated_question_id']}"] != "multiple_choice",
-                        key=f"qoptions_{q['generated_question_id']}",
+                        disabled=st.session_state[qtype_key] != "multiple_choice",
+                        key=qoptions_key,
                     )
-                    step_valid = _is_present(st.session_state[f"qtext_{q['generated_question_id']}"])
+                    step_valid = bool(st.session_state.get(qtext_key, "").strip())
                     save_col, delete_col = st.columns(2)
                     with save_col:
                         if st.button("Save question", key=f"save_q_{q['generated_question_id']}"):
@@ -1823,12 +1864,12 @@ def render_module_builder(current_user: dict) -> None:
                                 WHERE generated_question_id = ?
                                 """,
                                 (
-                                    st.session_state[f"qtext_{q['generated_question_id']}"],
-                                    st.session_state[f"qrationale_{q['generated_question_id']}"],
-                                    st.session_state[f"qstatus_{q['generated_question_id']}"],
-                                    st.session_state[f"qfeedback_{q['generated_question_id']}"],
-                                    st.session_state[f"qtype_{q['generated_question_id']}"],
-                                    _parse_lines(q_options) if st.session_state[f"qtype_{q['generated_question_id']}"] == "multiple_choice" else "",
+                                    st.session_state[qtext_key],
+                                    st.session_state[qrationale_key],
+                                    st.session_state[qstatus_key],
+                                    st.session_state[qfeedback_key],
+                                    st.session_state[qtype_key],
+                                    _parse_lines(q_options) if st.session_state[qtype_key] == "multiple_choice" else "",
                                     q["generated_question_id"],
                                 ),
                             )
@@ -1845,20 +1886,30 @@ def render_module_builder(current_user: dict) -> None:
                 st.markdown("##### Add or Edit Custom Questions")
                 for q in custom_questions:
                     with st.container(border=True):
-                        st.text_area("Custom question text", value=q.get("question_text") or "", key=f"custom_qtext_{q['generated_question_id']}")
+                        custom_qtext_key = f"custom_qtext_{q['generated_question_id']}"
+                        custom_qtype_key = f"custom_qtype_{q['generated_question_id']}"
+                        custom_qoptions_key = f"custom_qoptions_{q['generated_question_id']}"
+                        custom_qrationale_key = f"custom_qrationale_{q['generated_question_id']}"
+                        if custom_qtext_key not in st.session_state:
+                            st.session_state[custom_qtext_key] = q.get("question_text") or ""
+                        if custom_qtype_key not in st.session_state:
+                            st.session_state[custom_qtype_key] = q.get("question_type") or "open_text"
+                        if custom_qoptions_key not in st.session_state:
+                            st.session_state[custom_qoptions_key] = q.get("options_text") or ""
+                        if custom_qrationale_key not in st.session_state:
+                            st.session_state[custom_qrationale_key] = q.get("rationale") or ""
+                        st.text_area("Custom question text", key=custom_qtext_key)
                         st.selectbox(
                             "Type",
                             ["open_text", "multiple_choice"],
-                            index=0 if (q.get("question_type") or "open_text") == "open_text" else 1,
-                            key=f"custom_qtype_{q['generated_question_id']}",
+                            key=custom_qtype_key,
                         )
                         custom_options = st.text_area(
                             "Options (one per line)",
-                            value=q.get("options_text") or "",
-                            disabled=st.session_state[f"custom_qtype_{q['generated_question_id']}"] != "multiple_choice",
-                            key=f"custom_qoptions_{q['generated_question_id']}",
+                            disabled=st.session_state[custom_qtype_key] != "multiple_choice",
+                            key=custom_qoptions_key,
                         )
-                        st.text_area("Ideal answer / rubric", value=q.get("rationale") or "", key=f"custom_qrationale_{q['generated_question_id']}")
+                        st.text_area("Ideal answer / rubric", key=custom_qrationale_key)
                         a_col, d_col = st.columns(2)
                         with a_col:
                             if st.button("Save custom question", key=f"save_custom_{q['generated_question_id']}"):
@@ -1869,10 +1920,10 @@ def render_module_builder(current_user: dict) -> None:
                                     WHERE generated_question_id = ?
                                     """,
                                     (
-                                        st.session_state[f"custom_qtext_{q['generated_question_id']}"],
-                                        st.session_state[f"custom_qrationale_{q['generated_question_id']}"],
-                                        st.session_state[f"custom_qtype_{q['generated_question_id']}"],
-                                        _parse_lines(custom_options) if st.session_state[f"custom_qtype_{q['generated_question_id']}"] == "multiple_choice" else "",
+                                        st.session_state[custom_qtext_key],
+                                        st.session_state[custom_qrationale_key],
+                                        st.session_state[custom_qtype_key],
+                                        _parse_lines(custom_options) if st.session_state[custom_qtype_key] == "multiple_choice" else "",
                                         q["generated_question_id"],
                                     ),
                                 )
