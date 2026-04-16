@@ -700,7 +700,7 @@ def _render_assignment_tool(current_user: dict) -> None:
 
         # Filter controls are grouped in a form to avoid reruns while typing/changing each control.
         with st.form("assignment_tool_filters_form", clear_on_submit=False):
-            fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
+            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2, 1, 1, 1, 1, 1])
             with fc1:
                 search_draft = st.text_input("Search learners", value=active_filters.get("search", ""))
             with fc2:
@@ -721,6 +721,10 @@ def _render_assignment_tool(current_user: dict) -> None:
                 )
             with fc4:
                 apply_filters = st.form_submit_button("Apply filters", use_container_width=True)
+            with fc5:
+                selected_filtered_learners = st.form_submit_button("Select filtered learners", use_container_width=True)
+            with fc6:
+                clear_filtered_selection = st.form_submit_button("Clear filtered selection", use_container_width=True)
 
         if apply_filters:
             st.session_state["assignment_tool_filters"] = {
@@ -733,24 +737,49 @@ def _render_assignment_tool(current_user: dict) -> None:
         team_filter = active_filters.get("team", "All")
         org_filter = active_filters.get("org", "All")
 
+        all_active_learners = filter_active_learners(learners_df)
         filtered_active_learners = apply_learner_filters(
-            filter_active_learners(learners_df),
+            all_active_learners,
             search_text=q,
             team_filter=team_filter,
             org_filter=org_filter,
         )
+        all_active_learner_map = {
+            build_learner_option_label(row): int(row["user_id"])
+            for _, row in all_active_learners.sort_values("name").iterrows()
+        }
         learner_map = {
             build_learner_option_label(row): int(row["user_id"])
             for _, row in filtered_active_learners.sort_values("name").iterrows()
         }
         learner_options = list(learner_map.keys())
+        label_by_id = {learner_id: label for label, learner_id in all_active_learner_map.items()}
         learner_multiselect_key = "assign_training_learners"
+        unified_selection_key = "assignment_tool_unified_selected_learner_ids"
+        table_selection_key = "assignment_tool_selected_learner_ids"
+        visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
+        filtered_selected_count = len(set(st.session_state.get(unified_selection_key, [])) & visible_ids)
 
         if learner_multiselect_key not in st.session_state:
             st.session_state[learner_multiselect_key] = []
-        st.session_state[learner_multiselect_key] = [
-            x for x in st.session_state[learner_multiselect_key] if x in learner_options
-        ]
+
+        existing_ids = {
+            int(v) for v in st.session_state.get(unified_selection_key, []) if int(v) in set(all_active_learners["user_id"].tolist())
+        }
+        st.session_state[unified_selection_key] = sorted(existing_ids)
+        st.session_state[table_selection_key] = sorted(existing_ids & visible_ids)
+
+        if selected_filtered_learners:
+            merged_ids = set(st.session_state.get(unified_selection_key, [])) | visible_ids
+            st.session_state[unified_selection_key] = sorted(int(v) for v in merged_ids)
+            st.session_state[table_selection_key] = sorted(set(st.session_state[unified_selection_key]) & visible_ids)
+            st.rerun()
+
+        if clear_filtered_selection:
+            remaining_ids = set(st.session_state.get(unified_selection_key, [])) - visible_ids
+            st.session_state[unified_selection_key] = sorted(int(v) for v in remaining_ids)
+            st.session_state[table_selection_key] = sorted(set(st.session_state[unified_selection_key]) & visible_ids)
+            st.rerun()
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
         assignment_learner_grid = filtered_active_learners[
@@ -766,7 +795,7 @@ def _render_assignment_tool(current_user: dict) -> None:
         _, selected_learner_ids = render_admin_selection_table(
             assignment_learner_grid,
             row_id_col="learner_id",
-            selection_state_key="assignment_tool_selected_learner_ids",
+            selection_state_key=table_selection_key,
             table_key="assignment_tool_learner_data_editor",
             selection_label="Select",
             selection_help="Select learners to assign this module.",
@@ -774,16 +803,27 @@ def _render_assignment_tool(current_user: dict) -> None:
             height=420,
         )
         selected_id_set = {int(v) for v in selected_learner_ids}
-        st.session_state[learner_multiselect_key] = [
-            label for label, learner_id in learner_map.items() if learner_id in selected_id_set
+        unified_selected_ids = (set(st.session_state.get(unified_selection_key, [])) - visible_ids) | selected_id_set
+        st.session_state[unified_selection_key] = sorted(int(v) for v in unified_selected_ids)
+        st.session_state[table_selection_key] = sorted(set(st.session_state[unified_selection_key]) & visible_ids)
+        selected_labels = [
+            label_by_id[learner_id]
+            for learner_id in st.session_state[unified_selection_key]
+            if learner_id in label_by_id
         ]
-        st.caption(f"{len(selected_id_set)} learner(s) selected from table")
+        selectbox_options = list(dict.fromkeys(learner_options + selected_labels))
+        st.session_state[learner_multiselect_key] = [
+            label for label in st.session_state.get(learner_multiselect_key, []) if label in selectbox_options
+        ]
+        st.session_state[learner_multiselect_key] = selected_labels
+        filtered_selected_count = len(set(st.session_state[unified_selection_key]) & visible_ids)
+        st.caption(f"{filtered_selected_count} filtered learners selected")
 
         with st.form("assignment_tool_submit_form", clear_on_submit=False):
             selected_module = st.selectbox("Module", list(module_map.keys()))
             selected_learners = st.multiselect(
                 "Selected learners (from table)",
-                learner_options,
+                selectbox_options,
                 key=learner_multiselect_key,
                 help="Primary selection happens in the table above.",
             )
