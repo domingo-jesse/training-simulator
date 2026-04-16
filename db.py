@@ -199,6 +199,44 @@ def _postgres_columns_need_text_migration(
     return False
 
 
+def _postgres_column_data_type(conn, table: str, column: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT data_type
+            FROM information_schema.columns
+            WHERE table_schema = 'public' AND table_name = %s AND column_name = %s
+            """,
+            (table, column),
+        )
+        row = cur.fetchone()
+        return row["data_type"] if row else None
+
+
+def _migrate_input_quiz_required_to_boolean(conn) -> None:
+    current_type = _postgres_column_data_type(conn, "module_generation_runs", "input_quiz_required")
+    if current_type in {None, "boolean"}:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            ALTER TABLE module_generation_runs
+            ALTER COLUMN input_quiz_required TYPE BOOLEAN
+            USING CASE
+              WHEN input_quiz_required IS NULL THEN NULL
+              WHEN input_quiz_required = 0 THEN FALSE
+              ELSE TRUE
+            END
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE module_generation_runs
+            ALTER COLUMN input_quiz_required SET DEFAULT FALSE
+            """
+        )
+
+
 def _sql(query: str) -> str:
     return query.replace("?", "%s")
 
@@ -476,7 +514,7 @@ def init_db() -> None:
                     input_content_sections TEXT,
                     scenario_constraints TEXT,
                     completion_requirements TEXT,
-                    input_quiz_required INTEGER DEFAULT 0,
+                    input_quiz_required BOOLEAN DEFAULT FALSE,
                     requested_question_count INTEGER DEFAULT 5,
                     input_estimated_minutes INTEGER,
                     generated_title TEXT,
@@ -964,8 +1002,15 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "scoring_config_json", "TEXT")
             _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
             _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
-            _ensure_column(conn, "module_generation_runs", "input_quiz_required", "INTEGER DEFAULT 0")
+            _ensure_column(
+                conn,
+                "module_generation_runs",
+                "input_quiz_required",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
             _ensure_column(conn, "module_generation_runs", "input_estimated_minutes", "INTEGER")
+            if RUNTIME_USE_POSTGRES:
+                _migrate_input_quiz_required_to_boolean(conn)
             _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
             _ensure_column(conn, "module_generation_questions", "question_type", "TEXT DEFAULT 'open_text'")
             _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")
