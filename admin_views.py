@@ -2091,7 +2091,7 @@ def render_module_builder(current_user: dict) -> None:
             finalize_validation_issues.append("Approve the scenario decision in **Review Scenario**.")
         if not approved_questions:
             finalize_validation_issues.append("Approve at least one question in **Review Questions**.")
-        nav_back, nav_next, nav_action = st.columns([1, 1, 1])
+        nav_back, nav_spacer, nav_next, nav_action = st.columns([1, 1, 1, 1])
         reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
         can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
 
@@ -2137,11 +2137,13 @@ def render_module_builder(current_user: dict) -> None:
                 else:
                     st.session_state[review_step_key] = max(0, review_step - 1)
                 st.rerun()
+        with nav_spacer:
+            st.write("")
         with nav_next:
             if not is_final_step:
                 if reviewing_generated_questions:
                     next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
-                    if st.button(next_label, key=f"review_next_{run_id}"):
+                    if st.button(next_label, key=f"review_next_{run_id}", type="primary"):
                         if _save_current_review_question():
                             if can_go_next_question:
                                 st.session_state[question_step_idx_key] = current_q_idx + 1
@@ -2154,7 +2156,7 @@ def render_module_builder(current_user: dict) -> None:
         with nav_action:
             if reviewing_generated_questions:
                 current_question = non_custom_questions[current_q_idx]
-                if st.button("Delete question", key=f"delete_q_{current_question['generated_question_id']}"):
+                if st.button("Delete Question", key=f"delete_q_{current_question['generated_question_id']}"):
                     execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (current_question["generated_question_id"],))
                     st.success("Question deleted.")
                     st.rerun()
