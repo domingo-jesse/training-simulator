@@ -1978,39 +1978,12 @@ def render_module_builder(current_user: dict) -> None:
                         key=qstatus_key,
                     )
                     st.text_input("Admin feedback", key=qfeedback_key)
-                    q_options = st.text_area(
+                    st.text_area(
                         "Choices for this question (one per line)",
                         disabled=st.session_state[qtype_key] != "multiple_choice",
                         key=qoptions_key,
                     )
                     step_valid = bool(st.session_state.get(qtext_key, "").strip())
-                    save_col, delete_col = st.columns(2)
-                    with save_col:
-                        if st.button("Save question", key=f"save_q_{q['generated_question_id']}"):
-                            execute(
-                                """
-                                UPDATE module_generation_questions
-                                SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
-                                WHERE generated_question_id = ?
-                                """,
-                                (
-                                    st.session_state[qtext_key],
-                                    st.session_state[qrationale_key],
-                                    st.session_state[qstatus_key],
-                                    st.session_state[qfeedback_key],
-                                    st.session_state[qtype_key],
-                                    _parse_lines(q_options) if st.session_state[qtype_key] == "multiple_choice" else "",
-                                    q["generated_question_id"],
-                                ),
-                            )
-                            st.success("Question saved.")
-                            st.rerun()
-                    with delete_col:
-                        if st.button("Delete question", key=f"delete_q_{q['generated_question_id']}"):
-                            execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
-                            st.success("Question deleted.")
-                            st.rerun()
-
         elif review_step == 2:
             with st.container(border=True):
                 st.markdown("##### Add or Edit Custom Questions")
@@ -2118,9 +2091,40 @@ def render_module_builder(current_user: dict) -> None:
             finalize_validation_issues.append("Approve the scenario decision in **Review Scenario**.")
         if not approved_questions:
             finalize_validation_issues.append("Approve at least one question in **Review Questions**.")
-        nav_back, nav_next, nav_action = st.columns([1, 1, 2])
+        nav_back, nav_next, nav_action = st.columns([1, 1, 1])
         reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
         can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
+
+        def _save_current_review_question() -> bool:
+            if not reviewing_generated_questions:
+                return True
+            current_question = non_custom_questions[current_q_idx]
+            current_qid = current_question["generated_question_id"]
+            current_qtext_key = f"qtext_{current_qid}"
+            current_qtype_key = f"qtype_{current_qid}"
+            if not st.session_state.get(current_qtext_key, "").strip():
+                st.warning("Question text is required before moving to the next question.")
+                return False
+            execute(
+                """
+                UPDATE module_generation_questions
+                SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
+                WHERE generated_question_id = ?
+                """,
+                (
+                    st.session_state[current_qtext_key],
+                    st.session_state.get(f"qrationale_{current_qid}", ""),
+                    st.session_state.get(f"qstatus_{current_qid}", "pending"),
+                    st.session_state.get(f"qfeedback_{current_qid}", ""),
+                    st.session_state.get(current_qtype_key, "open_text"),
+                    _parse_lines(st.session_state.get(f"qoptions_{current_qid}", ""))
+                    if st.session_state.get(current_qtype_key, "open_text") == "multiple_choice"
+                    else "",
+                    current_qid,
+                ),
+            )
+            return True
+
         with nav_back:
             back_label = "Previous Question" if reviewing_generated_questions and current_q_idx > 0 else ("Back to Scenario" if reviewing_generated_questions else "Back")
             back_disabled = review_step == 0
@@ -2138,16 +2142,23 @@ def render_module_builder(current_user: dict) -> None:
                 if reviewing_generated_questions:
                     next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
                     if st.button(next_label, key=f"review_next_{run_id}"):
-                        if can_go_next_question:
-                            st.session_state[question_step_idx_key] = current_q_idx + 1
-                        else:
-                            st.session_state[review_step_key] = 2
-                        st.rerun()
+                        if _save_current_review_question():
+                            if can_go_next_question:
+                                st.session_state[question_step_idx_key] = current_q_idx + 1
+                            else:
+                                st.session_state[review_step_key] = 2
+                            st.rerun()
                 elif st.button("Next", key=f"review_next_{run_id}"):
                     st.session_state[review_step_key] = min(total_review_steps - 1, review_step + 1)
                     st.rerun()
         with nav_action:
-            if is_final_step:
+            if reviewing_generated_questions:
+                current_question = non_custom_questions[current_q_idx]
+                if st.button("Delete question", key=f"delete_q_{current_question['generated_question_id']}"):
+                    execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (current_question["generated_question_id"],))
+                    st.success("Question deleted.")
+                    st.rerun()
+            elif is_final_step:
                 if finalize_validation_issues:
                     st.warning("Module is not ready to create yet:\n\n- " + "\n- ".join(finalize_validation_issues))
                 if st.button("Create module from approved draft", disabled=not can_finalize, key=f"finalize_run_{run_id}", type="primary"):
