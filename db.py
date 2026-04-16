@@ -1297,7 +1297,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("customer_response"),
             payload.get("escalation_choice"),
             payload.get("notes"),
-            int(bool(payload.get("timed_out"))),
+            bool(payload.get("timed_out")),
             payload.get("question_responses"),
             payload["category_scores"]["understanding"],
             payload["category_scores"]["investigation"],
