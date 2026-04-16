@@ -1702,13 +1702,13 @@ def render_module_builder(current_user: dict) -> None:
                 st.rerun()
         with nav_mid:
             if current_step < total_steps - 2:
-                if st.button("Next", key="module_builder_next", disabled=not step_valid):
+                if st.button("Next", key="module_builder_next"):
                     _sync_module_builder_form_from_widgets()
                     _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
             elif current_step == total_steps - 2:
-                if st.button("Review", key="module_builder_review", disabled=not step_valid):
+                if st.button("Next", key="module_builder_review"):
                     _sync_module_builder_form_from_widgets()
                     _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
@@ -2137,13 +2137,13 @@ def render_module_builder(current_user: dict) -> None:
             if not is_final_step:
                 if reviewing_generated_questions:
                     next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
-                    if st.button(next_label, key=f"review_next_{run_id}", disabled=not step_valid):
+                    if st.button(next_label, key=f"review_next_{run_id}"):
                         if can_go_next_question:
                             st.session_state[question_step_idx_key] = current_q_idx + 1
                         else:
                             st.session_state[review_step_key] = 2
                         st.rerun()
-                elif st.button("Next", key=f"review_next_{run_id}", disabled=not step_valid):
+                elif st.button("Next", key=f"review_next_{run_id}"):
                     st.session_state[review_step_key] = min(total_review_steps - 1, review_step + 1)
                     st.rerun()
         with nav_action:
@@ -2428,11 +2428,11 @@ def render_manage_modules(current_user: dict) -> None:
                     st.rerun()
             with nav_cols[1]:
                 if edit_step < len(edit_steps) - 2:
-                    if st.button("Next ➜", key=f"edit_module_next_{module_id}", disabled=not edit_step_valid, use_container_width=True):
+                    if st.button("Next", key=f"edit_module_next_{module_id}", use_container_width=True):
                         st.session_state[edit_step_key] = edit_step + 1
                         st.rerun()
                 elif edit_step == len(edit_steps) - 2:
-                    if st.button("Review", key=f"edit_module_review_{module_id}", disabled=not edit_step_valid, use_container_width=True):
+                    if st.button("Next", key=f"edit_module_review_{module_id}", use_container_width=True):
                         st.session_state[edit_step_key] = edit_step + 1
                         st.rerun()
             with nav_cols[2]:
