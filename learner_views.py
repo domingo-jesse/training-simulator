@@ -408,7 +408,7 @@ def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user:
             created_at,
             updated_at,
             last_saved_at
-        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', 0, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', FALSE, ?, ?, ?, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         """,
         (
             assignment_id,
@@ -458,7 +458,7 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
             json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
             json.dumps(st.session_state.get(f"revealed_{assignment_id}", {})),
             json.dumps(st.session_state.get(f"used_actions_{assignment_id}", [])),
-            int(bool(st.session_state.get(f"submitted_{assignment_id}"))),
+            bool(st.session_state.get(f"submitted_{assignment_id}")),
             assignment_id,
             user["organization_id"],
             module_id,
@@ -588,8 +588,16 @@ def render_scenario_page(user: Dict) -> None:
     remaining_seconds = int(deadline - now_ts)
     timer_key = f"timer_submitted_{assignment_id}"
     st.session_state.setdefault(timer_key, False)
-    already_submitted = safe_int(persisted.get("submitted_state")) == 1
-    already_auto_submitted = safe_int(persisted.get("auto_submitted_state")) == 1
+    already_submitted = (
+        persisted.get("submitted_state")
+        if isinstance(persisted.get("submitted_state"), bool)
+        else safe_int(persisted.get("submitted_state")) == 1
+    )
+    already_auto_submitted = (
+        persisted.get("auto_submitted_state")
+        if isinstance(persisted.get("auto_submitted_state"), bool)
+        else safe_int(persisted.get("auto_submitted_state")) == 1
+    )
 
     @st.fragment(run_every="1s" if not already_submitted else None)
     def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:
@@ -618,17 +626,17 @@ def render_scenario_page(user: Dict) -> None:
         submission_lock = fetch_one(
             """
             UPDATE assignment_workspace_state
-            SET submitted_state = 1,
+            SET submitted_state = TRUE,
                 progress_status = 'submitted',
                 submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP),
-                auto_submitted_state = CASE WHEN ? THEN 1 ELSE auto_submitted_state END,
+                auto_submitted_state = CASE WHEN ? THEN TRUE ELSE auto_submitted_state END,
                 updated_at = CURRENT_TIMESTAMP,
                 last_saved_at = CURRENT_TIMESTAMP
             WHERE assignment_id = ?
               AND organization_id = ?
               AND module_id = ?
               AND user_id = ?
-              AND submitted_state = 0
+              AND submitted_state = FALSE
             RETURNING assignment_id
             """,
             (timed_out, assignment_id, user["organization_id"], module_id, user["user_id"]),

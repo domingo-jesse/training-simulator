@@ -118,7 +118,7 @@ def seed_modules() -> None:
             "Identify relevant logs\nIsolate probable root cause\nCommunicate remediation",
             "Collect evidence\nValidate hypothesis\nClose the loop",
             "Submit diagnosis and next steps",
-            0,
+            False,
         ),
         (
             "Bot Login Failures After Credential Rotation",
@@ -139,7 +139,7 @@ def seed_modules() -> None:
             "Validate authentication path\nIdentify stale credentials",
             "Check auth logs\nConfirm secret alias\nPropose fix",
             "Complete scenario submission",
-            0,
+            False,
         ),
         (
             "Portal Workflow Update Broke Intake Routing",
@@ -160,7 +160,7 @@ def seed_modules() -> None:
             "Analyze workflow rules\nAccount for schema changes\nPlan preventive tests",
             "Inspect release\nCompare schema\nPatch rule",
             "Submit root cause + prevention",
-            1,
+            True,
         ),
     ]
 
@@ -366,7 +366,7 @@ def seed_assignments_and_attempts(user_ids: dict[str, int]) -> None:
 def backfill_existing_data() -> None:
     org_id = _ensure_org()
     execute("UPDATE users SET organization_id = COALESCE(organization_id, ?)", (org_id,))
-    execute("UPDATE users SET is_active = COALESCE(is_active, 1)")
+    execute("UPDATE users SET is_active = COALESCE(is_active, TRUE)")
     execute("UPDATE users SET email = LOWER(REPLACE(name, ' ', '.')) || '@acmehealth.example' WHERE email IS NULL")
     execute("UPDATE modules SET organization_id = COALESCE(organization_id, ?)", (org_id,))
     execute("UPDATE modules SET status = COALESCE(status, 'published')")
