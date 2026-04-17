@@ -1415,15 +1415,11 @@ def _render_wizard_progress(step_index: int, total_steps: int, title: str) -> No
 
 
 def _render_named_step_indicator(step_index: int, labels: list[str]) -> None:
-    cols = st.columns(len(labels))
-    for idx, (col, label) in enumerate(zip(cols, labels)):
-        state = "✅" if idx < step_index else ("🔵" if idx == step_index else "⚪")
-        style = "normal"
-        if idx == step_index:
-            style = "primary"
-        with col:
-            st.markdown(f"**{state} {label}**")
-            st.caption("Current" if style == "primary" else ("Done" if idx < step_index else "Upcoming"))
+    total_steps = len(labels)
+    clamped_step_index = max(0, min(step_index, max(total_steps - 1, 0)))
+    percent_complete = (clamped_step_index + 1) / total_steps if total_steps else 0
+    st.caption(f"Step {clamped_step_index + 1} of {total_steps}")
+    st.progress(percent_complete)
 
 
 def render_module_builder(current_user: dict) -> None:
