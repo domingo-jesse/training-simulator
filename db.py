@@ -245,8 +245,18 @@ def _migrate_submitted_state_to_boolean(conn) -> None:
         cur.execute(
             """
             ALTER TABLE assignment_workspace_state
+            ALTER COLUMN submitted_state DROP DEFAULT
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE assignment_workspace_state
             ALTER COLUMN submitted_state TYPE BOOLEAN
-            USING submitted_state::boolean
+            USING CASE
+              WHEN submitted_state IS NULL THEN FALSE
+              WHEN LOWER(BTRIM(submitted_state::text)) IN ('true', 't', '1', 'yes', 'y', 'submitted', 'complete') THEN TRUE
+              ELSE FALSE
+            END
             """
         )
         cur.execute(
