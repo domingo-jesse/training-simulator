@@ -1911,25 +1911,14 @@ def render_module_builder(current_user: dict) -> None:
             (run_id,),
         )
         review_step_key = f"module_review_step_{run_id}"
-        question_step_idx_key = f"module_generated_q_idx_{run_id}"
         if review_step_key not in st.session_state:
             st.session_state[review_step_key] = 0
-        if question_step_idx_key not in st.session_state:
-            st.session_state[question_step_idx_key] = 0
         review_step = int(st.session_state[review_step_key])
 
         non_custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") != "custom_question"]
         custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") == "custom_question"]
-        question_review_count = len(non_custom_questions)
-        current_q_idx = max(0, min(int(st.session_state[question_step_idx_key]), max(question_review_count - 1, 0)))
-        st.session_state[question_step_idx_key] = current_q_idx
-        is_final_review_question = False
-        if review_step == 1 and question_review_count > 0:
-            wizard_labels = ["Review Scenario"] + [f"Review Question {idx + 1}" for idx in range(question_review_count)] + ["Custom Questions", "Finalize"]
-            wizard_step_index = 1 + current_q_idx
-        else:
-            wizard_labels = ["Review Scenario", "Review Questions", "Custom Questions", "Finalize"]
-            wizard_step_index = review_step
+        wizard_labels = ["Review Scenario", "Review Questions", "Custom Questions", "Finalize"]
+        wizard_step_index = review_step
         _render_named_step_indicator(wizard_step_index, wizard_labels)
 
         step_valid = True
@@ -1991,67 +1980,82 @@ def render_module_builder(current_user: dict) -> None:
             with st.container(border=True):
                 st.markdown("##### Review Generated Questions")
                 if not non_custom_questions:
-                    st.info("No generated questions available.")
-                    step_valid = False
+                    st.info("No generated questions remain in this draft. Continue to the next step or add custom questions.")
                 else:
-                    is_final_review_question = current_q_idx == question_review_count - 1
-                    q = non_custom_questions[current_q_idx]
-                    qtext_key = f"qtext_{q['generated_question_id']}"
-                    qrationale_key = f"qrationale_{q['generated_question_id']}"
-                    qdifficulty_key = f"qdifficulty_{q['generated_question_id']}"
-                    qpoints_key = f"qpoints_{q['generated_question_id']}"
-                    qtype_key = f"qtype_{q['generated_question_id']}"
-                    qstatus_key = f"qstatus_{q['generated_question_id']}"
-                    qfeedback_key = f"qfeedback_{q['generated_question_id']}"
-                    qoptions_key = f"qoptions_{q['generated_question_id']}"
-                    if qtext_key not in st.session_state:
-                        st.session_state[qtext_key] = q.get("question_text") or ""
-                    if qrationale_key not in st.session_state:
-                        st.session_state[qrationale_key] = q.get("rationale") or ""
-                    if qdifficulty_key not in st.session_state:
-                        level = run.get("input_difficulty") or "Beginner"
-                        st.session_state[qdifficulty_key] = level if level in {"Beginner", "Intermediate", "Advanced"} else "Beginner"
-                    if qpoints_key not in st.session_state:
-                        st.session_state[qpoints_key] = "N/A"
-                    if qtype_key not in st.session_state:
-                        st.session_state[qtype_key] = q.get("question_type") or "open_text"
-                    if qstatus_key not in st.session_state:
-                        st.session_state[qstatus_key] = q.get("approval_status") or "pending"
-                    if qfeedback_key not in st.session_state:
-                        st.session_state[qfeedback_key] = q.get("admin_feedback") or ""
-                    if qoptions_key not in st.session_state:
-                        st.session_state[qoptions_key] = q.get("options_text") or ""
-                    st.caption(f"Question {current_q_idx + 1} of {len(non_custom_questions)}")
-                    st.text_area("Question text", key=qtext_key, height=120)
-                    st.text_area("Expected / ideal answer", key=qrationale_key, height=100)
-                    meta_col1, meta_col2, meta_col3 = st.columns(3)
-                    with meta_col1:
-                        st.selectbox(
-                            "Difficulty",
-                            ["Beginner", "Intermediate", "Advanced"],
-                            key=qdifficulty_key,
-                            disabled=True,
-                        )
-                    with meta_col2:
-                        st.text_input("Point value", key=qpoints_key, disabled=True)
-                    with meta_col3:
-                        st.selectbox(
-                            "Question type",
-                            ["open_text", "multiple_choice"],
-                            key=qtype_key,
-                        )
-                    st.selectbox(
-                        "Decision",
-                        ["pending", "approved", "denied"],
-                        key=qstatus_key,
-                    )
-                    st.text_input("Admin feedback", key=qfeedback_key)
-                    st.text_area(
-                        "Choices for this question (one per line)",
-                        disabled=st.session_state[qtype_key] != "multiple_choice",
-                        key=qoptions_key,
-                    )
-                    step_valid = bool(st.session_state.get(qtext_key, "").strip())
+                    for idx, q in enumerate(non_custom_questions, start=1):
+                        question_id = q.get("generated_question_id")
+                        if question_id is None:
+                            fallback_key = q.get("question_stable_key")
+                            if not fallback_key:
+                                fallback_key = f"temp_q_{run_id}_{q.get('question_order', idx)}_{idx}"
+                                q["question_stable_key"] = fallback_key
+                            question_identity = fallback_key
+                        else:
+                            question_identity = str(question_id)
+                        qtext_key = f"qtext_{question_identity}"
+                        qrationale_key = f"qrationale_{question_identity}"
+                        qdifficulty_key = f"qdifficulty_{question_identity}"
+                        qpoints_key = f"qpoints_{question_identity}"
+                        qtype_key = f"qtype_{question_identity}"
+                        qstatus_key = f"qstatus_{question_identity}"
+                        qfeedback_key = f"qfeedback_{question_identity}"
+                        qoptions_key = f"qoptions_{question_identity}"
+                        if qtext_key not in st.session_state:
+                            st.session_state[qtext_key] = q.get("question_text") or ""
+                        if qrationale_key not in st.session_state:
+                            st.session_state[qrationale_key] = q.get("rationale") or ""
+                        if qdifficulty_key not in st.session_state:
+                            level = run.get("input_difficulty") or "Beginner"
+                            st.session_state[qdifficulty_key] = level if level in {"Beginner", "Intermediate", "Advanced"} else "Beginner"
+                        if qpoints_key not in st.session_state:
+                            st.session_state[qpoints_key] = "N/A"
+                        if qtype_key not in st.session_state:
+                            st.session_state[qtype_key] = q.get("question_type") or "open_text"
+                        if qstatus_key not in st.session_state:
+                            st.session_state[qstatus_key] = q.get("approval_status") or "pending"
+                        if qfeedback_key not in st.session_state:
+                            st.session_state[qfeedback_key] = q.get("admin_feedback") or ""
+                        if qoptions_key not in st.session_state:
+                            st.session_state[qoptions_key] = q.get("options_text") or ""
+
+                        with st.container(border=True):
+                            st.markdown(f"###### Question {idx}")
+                            st.text_area("Question text", key=qtext_key, height=120)
+                            st.text_area("Expected / ideal answer", key=qrationale_key, height=100)
+                            meta_col1, meta_col2, meta_col3 = st.columns(3)
+                            with meta_col1:
+                                st.selectbox(
+                                    "Difficulty",
+                                    ["Beginner", "Intermediate", "Advanced"],
+                                    key=qdifficulty_key,
+                                    disabled=True,
+                                )
+                            with meta_col2:
+                                st.text_input("Point value", key=qpoints_key, disabled=True)
+                            with meta_col3:
+                                st.selectbox(
+                                    "Question type",
+                                    ["open_text", "multiple_choice"],
+                                    key=qtype_key,
+                                )
+                            st.selectbox(
+                                "Decision",
+                                ["pending", "approved", "denied"],
+                                key=qstatus_key,
+                            )
+                            st.text_input("Admin feedback", key=qfeedback_key)
+                            st.text_area(
+                                "Choices for this question (one per line)",
+                                disabled=st.session_state[qtype_key] != "multiple_choice",
+                                key=qoptions_key,
+                            )
+                            if st.button("Delete Question", key=f"delete_q_{question_identity}"):
+                                if question_id is not None:
+                                    execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (question_id,))
+                                    st.success(f"Question {idx} deleted.")
+                                else:
+                                    st.warning("Unable to delete this question because it has no identifier.")
+                                st.rerun()
         elif review_step == 2:
             with st.container(border=True):
                 st.markdown("##### Add or Edit Custom Questions")
@@ -2154,75 +2158,58 @@ def render_module_builder(current_user: dict) -> None:
         total_review_steps = 4
         is_final_step = review_step >= total_review_steps - 1
         nav_back, nav_spacer, nav_next, nav_action = st.columns([1, 1, 1, 1])
-        reviewing_generated_questions = review_step == 1 and bool(non_custom_questions)
-        can_go_next_question = reviewing_generated_questions and current_q_idx < question_review_count - 1
+        reviewing_generated_questions = review_step == 1
 
-        def _save_current_review_question() -> bool:
+        def _save_current_review_questions() -> bool:
             if not reviewing_generated_questions:
                 return True
-            current_question = non_custom_questions[current_q_idx]
-            current_qid = current_question["generated_question_id"]
-            current_qtext_key = f"qtext_{current_qid}"
-            current_qtype_key = f"qtype_{current_qid}"
-            if not st.session_state.get(current_qtext_key, "").strip():
-                st.warning("Question text is required before moving to the next question.")
-                return False
-            execute(
-                """
-                UPDATE module_generation_questions
-                SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
-                WHERE generated_question_id = ?
-                """,
-                (
-                    st.session_state[current_qtext_key],
-                    st.session_state.get(f"qrationale_{current_qid}", ""),
-                    st.session_state.get(f"qstatus_{current_qid}", "pending"),
-                    st.session_state.get(f"qfeedback_{current_qid}", ""),
-                    st.session_state.get(current_qtype_key, "open_text"),
-                    _parse_lines(st.session_state.get(f"qoptions_{current_qid}", ""))
-                    if st.session_state.get(current_qtype_key, "open_text") == "multiple_choice"
-                    else "",
-                    current_qid,
-                ),
-            )
+            for idx, q in enumerate(non_custom_questions, start=1):
+                question_id = q.get("generated_question_id")
+                if question_id is None:
+                    continue
+                question_identity = str(question_id)
+                current_qtext_key = f"qtext_{question_identity}"
+                current_qtype_key = f"qtype_{question_identity}"
+                if not st.session_state.get(current_qtext_key, "").strip():
+                    st.warning(f"Question {idx} text is required before continuing.")
+                    return False
+                execute(
+                    """
+                    UPDATE module_generation_questions
+                    SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE generated_question_id = ?
+                    """,
+                    (
+                        st.session_state[current_qtext_key],
+                        st.session_state.get(f"qrationale_{question_identity}", ""),
+                        st.session_state.get(f"qstatus_{question_identity}", "pending"),
+                        st.session_state.get(f"qfeedback_{question_identity}", ""),
+                        st.session_state.get(current_qtype_key, "open_text"),
+                        _parse_lines(st.session_state.get(f"qoptions_{question_identity}", ""))
+                        if st.session_state.get(current_qtype_key, "open_text") == "multiple_choice"
+                        else "",
+                        question_id,
+                    ),
+                )
             return True
 
         with nav_back:
-            back_label = "Previous Question" if reviewing_generated_questions and current_q_idx > 0 else ("Back to Scenario" if reviewing_generated_questions else "Back")
+            back_label = "Back to Scenario" if reviewing_generated_questions else "Back"
             back_disabled = review_step == 0
             if st.button(back_label, key=f"review_back_{run_id}", disabled=back_disabled):
-                if reviewing_generated_questions:
-                    if current_q_idx == 0:
-                        st.session_state[review_step_key] = 0
-                    else:
-                        st.session_state[question_step_idx_key] = current_q_idx - 1
-                else:
-                    st.session_state[review_step_key] = max(0, review_step - 1)
+                st.session_state[review_step_key] = max(0, review_step - 1)
                 st.rerun()
         with nav_spacer:
             st.write("")
         with nav_next:
             if not is_final_step:
-                if reviewing_generated_questions:
-                    next_label = "Next Question" if can_go_next_question else "Continue to Custom Questions"
-                    if st.button(next_label, key=f"review_next_{run_id}", type="primary"):
-                        if _save_current_review_question():
-                            if can_go_next_question:
-                                st.session_state[question_step_idx_key] = current_q_idx + 1
-                            else:
-                                st.session_state[review_step_key] = 2
-                            st.rerun()
-                elif st.button("Next", key=f"review_next_{run_id}"):
-                    st.session_state[review_step_key] = min(total_review_steps - 1, review_step + 1)
-                    st.rerun()
+                next_label = "Continue to Custom Questions" if reviewing_generated_questions else "Next"
+                if st.button(next_label, key=f"review_next_{run_id}", type="primary" if reviewing_generated_questions else "secondary"):
+                    if _save_current_review_questions():
+                        st.session_state[review_step_key] = min(total_review_steps - 1, review_step + 1)
+                        st.rerun()
         with nav_action:
-            if reviewing_generated_questions:
-                current_question = non_custom_questions[current_q_idx]
-                if st.button("Delete Question", key=f"delete_q_{current_question['generated_question_id']}"):
-                    execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (current_question["generated_question_id"],))
-                    st.success("Question deleted.")
-                    st.rerun()
-            elif is_final_step:
+            if is_final_step:
                 if st.button("Create module from approved draft", key=f"finalize_run_{run_id}", type="primary"):
                     module_id = execute(
                         """
