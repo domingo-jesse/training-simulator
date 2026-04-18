@@ -1717,8 +1717,8 @@ def render_module_builder(current_user: dict) -> None:
                 )
                 st.slider(
                     "AI-generated questions",
-                    min_value=5,
-                    max_value=6,
+                    min_value=0,
+                    max_value=10,
                     key="module_builder_question_count",
                 )
                 module_form["quiz_required"] = _normalize_bool(

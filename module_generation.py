@@ -26,7 +26,7 @@ class ModuleGenerationInput:
 
 
 def _fallback_preview(payload: ModuleGenerationInput) -> dict[str, Any]:
-    question_count = min(6, max(5, payload.question_count))
+    question_count = min(10, max(0, payload.question_count))
     objectives = payload.learning_objectives or ["Demonstrate role-specific troubleshooting judgement"]
     questions = []
     for idx in range(question_count):
@@ -100,7 +100,8 @@ def generate_module_preview(payload: ModuleGenerationInput) -> tuple[dict[str, A
             raise ValueError("questions must be a list")
 
         safe_questions = []
-        for item in questions[: max(1, payload.question_count)]:
+        requested_count = min(10, max(0, payload.question_count))
+        for item in questions[:requested_count]:
             if not isinstance(item, dict):
                 continue
             q = str(item.get("question", "")).strip()
@@ -113,7 +114,7 @@ def generate_module_preview(payload: ModuleGenerationInput) -> tuple[dict[str, A
                 }
             )
 
-        if not safe_questions:
+        if requested_count > 0 and not safe_questions:
             raise ValueError("OpenAI response did not include usable questions")
 
         output = {
