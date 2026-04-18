@@ -538,7 +538,7 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
     st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
-    st.session_state.setdefault(f"submitted_{assignment_id}", bool(safe_int(persisted.get("submitted_state"))))
+    st.session_state.setdefault(f"submitted_{assignment_id}", bool(persisted.get("submitted_state")))
 
     render_page_header(module["title"], f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
@@ -588,16 +588,8 @@ def render_scenario_page(user: Dict) -> None:
     remaining_seconds = int(deadline - now_ts)
     timer_key = f"timer_submitted_{assignment_id}"
     st.session_state.setdefault(timer_key, False)
-    already_submitted = (
-        persisted.get("submitted_state")
-        if isinstance(persisted.get("submitted_state"), bool)
-        else safe_int(persisted.get("submitted_state")) == 1
-    )
-    already_auto_submitted = (
-        persisted.get("auto_submitted_state")
-        if isinstance(persisted.get("auto_submitted_state"), bool)
-        else safe_int(persisted.get("auto_submitted_state")) == 1
-    )
+    already_submitted = bool(persisted.get("submitted_state"))
+    already_auto_submitted = bool(persisted.get("auto_submitted_state"))
 
     @st.fragment(run_every="1s" if not already_submitted else None)
     def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:

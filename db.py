@@ -237,6 +237,26 @@ def _migrate_input_quiz_required_to_boolean(conn) -> None:
         )
 
 
+def _migrate_submitted_state_to_boolean(conn) -> None:
+    current_type = _postgres_column_data_type(conn, "assignment_workspace_state", "submitted_state")
+    if current_type in {None, "boolean"}:
+        return
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            ALTER TABLE assignment_workspace_state
+            ALTER COLUMN submitted_state TYPE BOOLEAN
+            USING submitted_state::boolean
+            """
+        )
+        cur.execute(
+            """
+            ALTER TABLE assignment_workspace_state
+            ALTER COLUMN submitted_state SET DEFAULT FALSE
+            """
+        )
+
+
 def _sql(query: str) -> str:
     return query.replace("?", "%s")
 
@@ -440,7 +460,7 @@ def init_db() -> None:
                     question_responses TEXT DEFAULT '{}',
                     revealed_actions TEXT DEFAULT '{}',
                     used_actions TEXT DEFAULT '[]',
-                    submitted_state INTEGER DEFAULT 0,
+                    submitted_state BOOLEAN DEFAULT FALSE,
                     started_at TEXT,
                     submitted_at TIMESTAMPTZ,
                     last_saved_at TIMESTAMPTZ DEFAULT NOW(),
@@ -730,7 +750,7 @@ def init_db() -> None:
                 question_responses TEXT DEFAULT '{}',
                 revealed_actions TEXT DEFAULT '{}',
                 used_actions TEXT DEFAULT '[]',
-                submitted_state INTEGER DEFAULT 0,
+                submitted_state BOOLEAN DEFAULT FALSE,
                 started_at TEXT,
                 submitted_at TEXT,
                 last_saved_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -1011,6 +1031,7 @@ def init_db() -> None:
             _ensure_column(conn, "module_generation_runs", "input_estimated_minutes", "INTEGER")
             if RUNTIME_USE_POSTGRES:
                 _migrate_input_quiz_required_to_boolean(conn)
+                _migrate_submitted_state_to_boolean(conn)
             _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
             _ensure_column(conn, "module_generation_questions", "question_type", "TEXT DEFAULT 'open_text'")
             _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")

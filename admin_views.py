@@ -1294,7 +1294,7 @@ def render_admin_assignment_review(current_user: dict, assignment_id: int | None
             st.write(f"Wizard step: **{workspace_state.get('current_step', 1)}**")
             st.write(f"Progress state: **{workspace_state.get('progress_status', 'not_started')}**")
             st.write(f"Last saved: **{workspace_state.get('last_saved_at')}**")
-            st.write(f"Submitted state: **{'Yes' if safe_int(workspace_state.get('submitted_state')) else 'No'}**")
+            st.write(f"Submitted state: **{'Yes' if bool(workspace_state.get('submitted_state')) else 'No'}**")
 
     with st.container(border=True):
         st.markdown("#### Learner responses")
