@@ -1756,14 +1756,14 @@ def render_module_builder(current_user: dict) -> None:
         if not step_valid and required_message and step_config["field"] != "review":
             st.error(required_message)
 
-        nav_left, nav_mid, nav_right = st.columns([1, 1, 2])
+        nav_left, nav_right = st.columns([1, 1])
         with nav_left:
             if st.button("Previous", key="module_builder_previous", disabled=current_step == 0):
                 _sync_module_builder_form_from_widgets()
                 _save_module_builder_draft_to_db()
                 st.session_state[module_builder_step_key] = max(0, current_step - 1)
                 st.rerun()
-        with nav_mid:
+        with nav_right:
             if current_step < total_steps - 2:
                 if st.button("Next", key="module_builder_next"):
                     _sync_module_builder_form_from_widgets()
@@ -1776,11 +1776,6 @@ def render_module_builder(current_user: dict) -> None:
                     _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
-            with nav_right:
-                if st.button("Save Draft", key="module_builder_save_draft"):
-                    _sync_module_builder_form_from_widgets()
-                    _save_module_builder_draft_to_db()
-                    st.success("Draft saved.")
             if current_step == total_steps - 1:
                 if st.button("Save Module", key="module_builder_save_module", type="primary", disabled=not step_valid):
                     _sync_module_builder_form_from_widgets()
