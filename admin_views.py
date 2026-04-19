@@ -1183,6 +1183,7 @@ def render_grading_center(current_user: dict) -> None:
                 m.title AS module_title,
                 COALESCE(a.result_status, 'pending_review') AS result_status,
                 a.result_approved_at,
+                a.result_approved_by_user_id,
                 approver.name AS approved_by_name,
                 COALESCE(ss.total_score, a.total_score) AS total_score,
                 COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
@@ -1279,7 +1280,13 @@ def render_grading_center(current_user: dict) -> None:
     status_tone_class = "status-approved" if is_approved else "status-pending"
     submitted_at_label = _format_datetime_for_admin_grid(selected_attempt_row.get("created_at"))
     approved_at_label = _format_datetime_for_admin_grid(selected_attempt_row.get("result_approved_at"))
-    approved_by_label = selected_attempt_row.get("approved_by_name") or "—"
+    submitted_by_label = selected_attempt_row.get("learner_name") or "—"
+    approved_by_user_id = selected_attempt_row.get("result_approved_by_user_id")
+    approved_by_name = selected_attempt_row.get("approved_by_name")
+    if is_approved and not approved_by_user_id and not approved_by_name:
+        approved_by_label = "Legacy / Unknown"
+    else:
+        approved_by_label = approved_by_name or "—"
     st.markdown(
         f"""
         <style>
@@ -1332,9 +1339,10 @@ def render_grading_center(current_user: dict) -> None:
           <div class="approval-summary-label">Approval Status</div>
           <div class="approval-summary-status-chip {status_tone_class}">{escape(status_label)}</div>
           <div class="approval-summary-meta">
+            <div><strong>Submitted by:</strong> {escape(str(submitted_by_label))}</div>
             <div><strong>Submitted:</strong> {escape(submitted_at_label)}</div>
-            <div><strong>Approved:</strong> {escape(approved_at_label)}</div>
-            <div><strong>Approved by:</strong> {escape(str(approved_by_label))}</div>
+            <div><strong>Approved at:</strong> {escape(approved_at_label)}</div>
+            {"<div><strong>Approved by:</strong> " + escape(str(approved_by_label)) + "</div>" if is_approved else ""}
           </div>
         </div>
         """,

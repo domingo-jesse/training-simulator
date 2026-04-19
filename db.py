@@ -174,10 +174,33 @@ def _table_columns(conn, table: str) -> set[str]:
         return {r["column_name"] for r in cur.fetchall()}
 
 
-def _ensure_column(conn, table: str, column: str, definition: str) -> None:
+def _ensure_column(conn, table: str, column: str, definition: str) -> bool:
     if column not in _table_columns(conn, table):
         with conn.cursor() as cur:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+        return True
+    return False
+
+
+def _ensure_attempts_result_approver_fk_postgres(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DO $$
+            BEGIN
+              IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'attempts_result_approved_by_user_fk'
+              ) THEN
+                ALTER TABLE attempts
+                ADD CONSTRAINT attempts_result_approved_by_user_fk
+                FOREIGN KEY (result_approved_by_user_id) REFERENCES users(user_id);
+              END IF;
+            END
+            $$;
+            """
+        )
 
 
 def _postgres_columns_need_text_migration(
@@ -1067,14 +1090,14 @@ def init_db() -> None:
             _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
             _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
             _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
-            _ensure_column(
+            result_status_added = _ensure_column(
                 conn,
                 "attempts",
                 "result_status",
                 "TEXT DEFAULT 'pending_review' CHECK (result_status IN ('pending_review', 'approved'))",
             )
-            _ensure_column(conn, "attempts", "result_approved_at", "TIMESTAMPTZ")
-            _ensure_column(conn, "attempts", "result_approved_by_user_id", "BIGINT")
+            result_approved_at_added = _ensure_column(conn, "attempts", "result_approved_at", "TIMESTAMPTZ")
+            result_approved_by_added = _ensure_column(conn, "attempts", "result_approved_by_user_id", "BIGINT")
             _ensure_column(conn, "attempts", "timed_out", "INTEGER DEFAULT 0")
             _ensure_column(conn, "attempts", "question_responses", "TEXT")
             if RUNTIME_USE_POSTGRES:
@@ -1109,6 +1132,7 @@ def init_db() -> None:
                         $$;
                         """
                     )
+                _ensure_attempts_result_approver_fk_postgres(conn)
             else:
                 conn.execute(
                     """
@@ -1122,6 +1146,37 @@ def init_db() -> None:
                     END
                     """
                 )
+            should_backfill_legacy_approvals = (
+                result_status_added or result_approved_at_added or result_approved_by_added
+            )
+            if should_backfill_legacy_approvals:
+                if RUNTIME_USE_POSTGRES:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            UPDATE attempts
+                            SET result_status = 'approved',
+                                result_approved_at = CURRENT_TIMESTAMP,
+                                result_approved_by_user_id = NULL
+                            WHERE total_score IS NOT NULL
+                              AND COALESCE(result_status, 'pending_review') = 'pending_review'
+                              AND result_approved_at IS NULL
+                              AND result_approved_by_user_id IS NULL
+                            """
+                        )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE attempts
+                        SET result_status = 'approved',
+                            result_approved_at = CURRENT_TIMESTAMP,
+                            result_approved_by_user_id = NULL
+                        WHERE total_score IS NOT NULL
+                          AND COALESCE(result_status, 'pending_review') = 'pending_review'
+                          AND result_approved_at IS NULL
+                          AND result_approved_by_user_id IS NULL
+                        """
+                    )
             _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
             _ensure_column(conn, "submission_scores", "understanding_rationale", "TEXT")
             _ensure_column(conn, "submission_scores", "investigation_rationale", "TEXT")
@@ -1256,6 +1311,43 @@ def init_db() -> None:
                             lp.last_activity
                         """
                     )
+                    cur.execute(
+                        """
+                        CREATE OR REPLACE FUNCTION reset_attempt_approval_on_regrade()
+                        RETURNS TRIGGER AS $$
+                        BEGIN
+                            UPDATE attempts
+                            SET result_status = 'pending_review',
+                                result_approved_at = NULL,
+                                result_approved_by_user_id = NULL
+                            WHERE attempt_id = NEW.attempt_id
+                              AND (
+                                  COALESCE(result_status, 'pending_review') <> 'pending_review'
+                                  OR result_approved_at IS NOT NULL
+                                  OR result_approved_by_user_id IS NOT NULL
+                              );
+                            RETURN NEW;
+                        END;
+                        $$ LANGUAGE plpgsql;
+                        """
+                    )
+                    cur.execute("DROP TRIGGER IF EXISTS trg_submission_scores_reset_approval ON submission_scores")
+                    cur.execute(
+                        """
+                        CREATE TRIGGER trg_submission_scores_reset_approval
+                        AFTER UPDATE OF understanding_score, investigation_score, solution_score, communication_score, total_score
+                        ON submission_scores
+                        FOR EACH ROW
+                        WHEN (
+                            COALESCE(OLD.understanding_score, -1) <> COALESCE(NEW.understanding_score, -1)
+                            OR COALESCE(OLD.investigation_score, -1) <> COALESCE(NEW.investigation_score, -1)
+                            OR COALESCE(OLD.solution_score, -1) <> COALESCE(NEW.solution_score, -1)
+                            OR COALESCE(OLD.communication_score, -1) <> COALESCE(NEW.communication_score, -1)
+                            OR COALESCE(OLD.total_score, -1) <> COALESCE(NEW.total_score, -1)
+                        )
+                        EXECUTE FUNCTION reset_attempt_approval_on_regrade()
+                        """
+                    )
             else:
                 conn.executescript(
                     """
@@ -1315,6 +1407,31 @@ def init_db() -> None:
                   AND LOWER(TRIM(NEW.result_status)) NOT IN ('pending_review', 'approved')
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid attempts.result_status');
+                END;
+
+                DROP TRIGGER IF EXISTS trg_submission_scores_reset_approval;
+                CREATE TRIGGER trg_submission_scores_reset_approval
+                AFTER UPDATE OF understanding_score, investigation_score, solution_score, communication_score, total_score
+                ON submission_scores
+                FOR EACH ROW
+                WHEN (
+                    COALESCE(OLD.understanding_score, -1) <> COALESCE(NEW.understanding_score, -1)
+                    OR COALESCE(OLD.investigation_score, -1) <> COALESCE(NEW.investigation_score, -1)
+                    OR COALESCE(OLD.solution_score, -1) <> COALESCE(NEW.solution_score, -1)
+                    OR COALESCE(OLD.communication_score, -1) <> COALESCE(NEW.communication_score, -1)
+                    OR COALESCE(OLD.total_score, -1) <> COALESCE(NEW.total_score, -1)
+                )
+                BEGIN
+                    UPDATE attempts
+                    SET result_status = 'pending_review',
+                        result_approved_at = NULL,
+                        result_approved_by_user_id = NULL
+                    WHERE attempt_id = NEW.attempt_id
+                      AND (
+                        COALESCE(result_status, 'pending_review') <> 'pending_review'
+                        OR result_approved_at IS NOT NULL
+                        OR result_approved_by_user_id IS NOT NULL
+                      );
                 END;
 
                 CREATE VIEW IF NOT EXISTS learner_dashboard_summary AS
