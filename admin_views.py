@@ -1431,7 +1431,7 @@ def _render_review_layout_styles() -> None:
                 padding: 0.25rem 0.25rem 0.4rem;
             }
             .review-section {
-                margin-bottom: 1.45rem;
+                margin-bottom: 1.85rem;
             }
             .review-section-title {
                 display: flex;
@@ -1450,22 +1450,23 @@ def _render_review_layout_styles() -> None:
                 line-height: 1;
             }
             .review-row {
-                display: grid;
-                grid-template-columns: 205px minmax(0, 1fr);
-                gap: 0.75rem;
-                padding: 0.18rem 0;
-                align-items: start;
+                display: flex;
+                flex-wrap: wrap;
+                align-items: baseline;
+                gap: 0.35rem;
+                padding: 0.22rem 0;
             }
             .review-label {
-                color: #667085;
-                font-size: 0.84rem;
-                font-weight: 600;
-                line-height: 1.35;
+                color: #475467;
+                font-size: 0.9rem;
+                font-weight: 700;
+                line-height: 1.4;
+                white-space: nowrap;
             }
             .review-value {
                 color: #101828;
                 font-size: 0.97rem;
-                font-weight: 600;
+                font-weight: 400;
                 line-height: 1.4;
                 word-break: break-word;
             }
@@ -1538,8 +1539,8 @@ def _render_review_section(title: str, fields: list[tuple[str, object]], icon: s
     for label, raw_value in fields:
         rows_html.append(
             "<div class='review-row'>"
-            f"<div class='review-label'>{escape(label)}</div>"
-            f"<div class='review-value'>{_render_review_value_html(label, raw_value)}</div>"
+            f"<span class='review-label'>{escape(label)}:</span>"
+            f"<span class='review-value'>{_render_review_value_html(label, raw_value)}</span>"
             "</div>"
         )
     icon_html = f"<span class='review-section-icon'>{escape(icon)}</span>" if icon else ""
