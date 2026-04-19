@@ -677,20 +677,19 @@ def _inject_admin_selection_table_styles() -> None:
         .app-table-host [data-testid="stDataFrame"] {
             width: 100%;
         }
-        .app-table-host [data-testid="stDataFrame"] [role="columnheader"],
-        .app-table-host [data-testid="stDataFrame"] [role="gridcell"] {
-            min-height: 44px;
-            align-items: center !important;
-            box-sizing: border-box;
-        }
+        /*
+         * Root cause note:
+         * The data editor renders a virtualized grid where column widths are computed centrally
+         * and shared between header/body containers. Earlier CSS forced widths/padding directly on
+         * [role="columnheader"] and [role="gridcell"] (especially :first-child), which created a
+         * second width system and made the checkbox column appear detached.
+         *
+         * Keep styling non-structural here; let Streamlit's column_config own sizing so header and
+         * body remain in one synchronized column model across every table using this shared helper.
+         */
         .app-table-host [data-testid="stDataFrame"] [role="columnheader"] {
             background: #f8fafc;
             border-bottom: 1px solid #e5e7eb;
-        }
-        .app-table-host [data-testid="stDataFrame"] [role="columnheader"],
-        .app-table-host [data-testid="stDataFrame"] [role="gridcell"] {
-            padding-top: 10px !important;
-            padding-bottom: 10px !important;
         }
         .app-table-host [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
             margin: 0 !important;
@@ -698,18 +697,6 @@ def _inject_admin_selection_table_styles() -> None:
             display: flex;
             align-items: center;
             justify-content: center;
-            transform: scale(1.06);
-            transform-origin: center;
-        }
-        .app-table-host [data-testid="stDataFrame"] [role="columnheader"]:first-child,
-        .app-table-host [data-testid="stDataFrame"] [role="gridcell"]:first-child {
-            min-width: 52px !important;
-            max-width: 52px !important;
-            width: 52px !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            justify-content: center !important;
-            text-align: center !important;
         }
         [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked) {
             background: rgba(79, 70, 229, 0.14) !important;
@@ -764,6 +751,7 @@ def render_admin_selection_table(
         use_container_width=use_container_width,
         hide_index=hide_index,
         height=height,
+        row_height=44,
         column_config={
             "selected": st.column_config.CheckboxColumn(
                 selection_label,
