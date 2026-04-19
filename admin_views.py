@@ -1429,7 +1429,6 @@ def render_module_builder(current_user: dict) -> None:
     module_builder_current_step_key = "module_builder_current_step"
     module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft", "Module completed"]
     module_builder_completed_module_id_key = "module_builder_completed_module_id"
-    module_builder_draft_run_id_key = "module_builder_draft_run_id"
     if module_builder_current_step_key not in st.session_state:
         st.session_state[module_builder_current_step_key] = 1
     current_step = max(1, min(int(st.session_state.get(module_builder_current_step_key, 1)), len(module_builder_phase_labels)))
@@ -1493,82 +1492,6 @@ def render_module_builder(current_user: dict) -> None:
         module_form["question_count"] = int(
             st.session_state.get("module_builder_question_count", module_form.get("question_count", 5))
         )
-
-    def _save_module_builder_draft_to_db() -> int:
-        input_quiz_required = _normalize_bool(module_form.get("quiz_required"), default=True)
-        input_quiz_required = bool(input_quiz_required)
-        draft_run_id = st.session_state.get(module_builder_draft_run_id_key)
-        if draft_run_id:
-            execute(
-                """
-                UPDATE module_generation_runs
-                SET
-                    input_title = ?,
-                    input_category = ?,
-                    input_difficulty = ?,
-                    input_description = ?,
-                    role_focus = ?,
-                    test_focus = ?,
-                    learning_objectives = ?,
-                    input_content_sections = ?,
-                    scenario_constraints = ?,
-                    completion_requirements = ?,
-                    input_quiz_required = ?,
-                    requested_question_count = ?,
-                    input_estimated_minutes = ?,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE run_id = ? AND organization_id = ? AND generation_status = 'input_draft'
-                """,
-                (
-                    module_form["title"].strip(),
-                    module_form["category"].strip() or "General",
-                    module_form["difficulty"],
-                    module_form["description"].strip(),
-                    module_form["role_focus"].strip(),
-                    module_form["test_focus"].strip(),
-                    module_form["learning_objectives"].strip(),
-                    _parse_lines(module_form["content_sections"]),
-                    module_form["scenario_constraints"].strip(),
-                    module_form["completion_requirements"].strip(),
-                    input_quiz_required,
-                    int(module_form["question_count"]),
-                    int(module_form["estimated_minutes"]),
-                    int(draft_run_id),
-                    org_id,
-                ),
-            )
-            return int(draft_run_id)
-
-        inserted_run_id = execute(
-            """
-            INSERT INTO module_generation_runs (
-                organization_id, created_by, input_title, input_category, input_difficulty,
-                input_description, role_focus, test_focus, learning_objectives, input_content_sections,
-                scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
-                input_estimated_minutes, generation_status, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'input_draft', CURRENT_TIMESTAMP)
-            RETURNING run_id AS id
-            """,
-            (
-                org_id,
-                current_user["user_id"],
-                module_form["title"].strip(),
-                module_form["category"].strip() or "General",
-                module_form["difficulty"],
-                module_form["description"].strip(),
-                module_form["role_focus"].strip(),
-                module_form["test_focus"].strip(),
-                module_form["learning_objectives"].strip(),
-                _parse_lines(module_form["content_sections"]),
-                module_form["scenario_constraints"].strip(),
-                module_form["completion_requirements"].strip(),
-                input_quiz_required,
-                int(module_form["question_count"]),
-                int(module_form["estimated_minutes"]),
-            ),
-        )
-        st.session_state[module_builder_draft_run_id_key] = int(inserted_run_id)
-        return int(inserted_run_id)
 
     module_builder_steps = [
         {"title": "Module title", "field": "title", "required": True},
@@ -1760,20 +1683,17 @@ def render_module_builder(current_user: dict) -> None:
         with nav_left:
             if st.button("Previous", key="module_builder_previous", disabled=current_step == 0):
                 _sync_module_builder_form_from_widgets()
-                _save_module_builder_draft_to_db()
                 st.session_state[module_builder_step_key] = max(0, current_step - 1)
                 st.rerun()
         with nav_right:
             if current_step < total_steps - 2:
                 if st.button("Next", key="module_builder_next"):
                     _sync_module_builder_form_from_widgets()
-                    _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
             elif current_step == total_steps - 2:
                 if st.button("Next", key="module_builder_review"):
                     _sync_module_builder_form_from_widgets()
-                    _save_module_builder_draft_to_db()
                     st.session_state[module_builder_step_key] = current_step + 1
                     st.rerun()
             if current_step == total_steps - 1:
@@ -1798,32 +1718,20 @@ def render_module_builder(current_user: dict) -> None:
                     )
                     try:
                         preview, warning = generate_module_preview(payload)
-                        run_id = _save_module_builder_draft_to_db()
-                        execute(
+                        run_id = execute(
                             """
-                            UPDATE module_generation_runs
-                            SET
-                                input_title = ?,
-                                input_category = ?,
-                                input_difficulty = ?,
-                                input_description = ?,
-                                role_focus = ?,
-                                test_focus = ?,
-                                learning_objectives = ?,
-                                input_content_sections = ?,
-                                scenario_constraints = ?,
-                                completion_requirements = ?,
-                                input_quiz_required = ?,
-                                requested_question_count = ?,
-                                input_estimated_minutes = ?,
-                                generated_title = ?,
-                                generated_description = ?,
-                                generated_scenario_overview = ?,
-                                generation_status = 'draft',
-                                updated_at = CURRENT_TIMESTAMP
-                            WHERE run_id = ? AND organization_id = ?
+                            INSERT INTO module_generation_runs (
+                                organization_id, created_by, input_title, input_category, input_difficulty,
+                                input_description, role_focus, test_focus, learning_objectives, input_content_sections,
+                                scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
+                                input_estimated_minutes, generated_title, generated_description, generated_scenario_overview,
+                                generation_status, updated_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
+                            RETURNING run_id AS id
                             """,
                             (
+                                org_id,
+                                current_user["user_id"],
                                 payload.title,
                                 payload.category,
                                 payload.difficulty,
@@ -1840,8 +1748,6 @@ def render_module_builder(current_user: dict) -> None:
                                 preview.get("title"),
                                 preview.get("description"),
                                 preview.get("scenario_overview"),
-                                run_id,
-                                org_id,
                             ),
                         )
                         execute("DELETE FROM module_generation_questions WHERE run_id = ?", (run_id,))
@@ -1879,7 +1785,7 @@ def render_module_builder(current_user: dict) -> None:
             fetch_all(
                 """
                 SELECT * FROM module_generation_runs
-                WHERE organization_id = ? AND generation_status <> 'input_draft'
+                WHERE organization_id = ?
                 ORDER BY updated_at DESC
                 """,
                 (org_id,),
@@ -2272,7 +2178,6 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[module_builder_step_key] = 0
                 st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
-                st.session_state.pop(module_builder_draft_run_id_key, None)
                 for widget_key in (
                     "module_builder_title",
                     "module_builder_category",
@@ -2294,7 +2199,6 @@ def render_module_builder(current_user: dict) -> None:
             if st.button("Go to Manage Modules", key="module_builder_go_manage"):
                 st.session_state[module_builder_current_step_key] = 1
                 st.session_state.pop(module_builder_completed_module_id_key, None)
-                st.session_state.pop(module_builder_draft_run_id_key, None)
                 st.session_state["admin_page"] = "📚 Manage Modules"
                 st.session_state["nav"] = "manage-modules"
                 st.rerun()
