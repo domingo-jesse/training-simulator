@@ -369,6 +369,9 @@ def init_db() -> None:
                     graded_by_type TEXT,
                     graded_by_user_id BIGINT,
                     graded_at TIMESTAMPTZ,
+                    result_status TEXT NOT NULL DEFAULT 'pending_review',
+                    result_approved_at TIMESTAMPTZ,
+                    result_approved_by_user_id BIGINT,
                     diagnosis_answer TEXT,
                     next_steps_answer TEXT,
                     customer_response TEXT,
@@ -391,7 +394,8 @@ def init_db() -> None:
                     FOREIGN KEY(user_id) REFERENCES users(user_id),
                     FOREIGN KEY(module_id) REFERENCES modules(module_id),
                     FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
-                    FOREIGN KEY(graded_by_user_id) REFERENCES users(user_id)
+                    FOREIGN KEY(graded_by_user_id) REFERENCES users(user_id),
+                    FOREIGN KEY(result_approved_by_user_id) REFERENCES users(user_id)
                 );
 
                 CREATE TABLE IF NOT EXISTS action_logs (
@@ -659,6 +663,9 @@ def init_db() -> None:
                 graded_by_type TEXT,
                 graded_by_user_id INTEGER,
                 graded_at TEXT,
+                result_status TEXT NOT NULL DEFAULT 'pending_review',
+                result_approved_at TEXT,
+                result_approved_by_user_id INTEGER,
                 diagnosis_answer TEXT,
                 next_steps_answer TEXT,
                 customer_response TEXT,
@@ -681,7 +688,8 @@ def init_db() -> None:
                 FOREIGN KEY(user_id) REFERENCES users(user_id),
                 FOREIGN KEY(module_id) REFERENCES modules(module_id),
                 FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
-                FOREIGN KEY(graded_by_user_id) REFERENCES users(user_id)
+                FOREIGN KEY(graded_by_user_id) REFERENCES users(user_id),
+                FOREIGN KEY(result_approved_by_user_id) REFERENCES users(user_id)
             );
 
             CREATE TABLE IF NOT EXISTS action_logs (
@@ -1057,8 +1065,38 @@ def init_db() -> None:
             _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
             _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
             _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
+            _ensure_column(conn, "attempts", "result_status", "TEXT DEFAULT 'pending_review'")
+            _ensure_column(conn, "attempts", "result_approved_at", "TIMESTAMPTZ")
+            _ensure_column(conn, "attempts", "result_approved_by_user_id", "BIGINT")
             _ensure_column(conn, "attempts", "timed_out", "INTEGER DEFAULT 0")
             _ensure_column(conn, "attempts", "question_responses", "TEXT")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE attempts
+                        SET result_status = CASE
+                            WHEN LOWER(BTRIM(COALESCE(result_status, ''))) IN ('approved', 'pending_review')
+                                THEN LOWER(BTRIM(result_status))
+                            WHEN total_score IS NOT NULL
+                                THEN 'approved'
+                            ELSE 'pending_review'
+                        END
+                        """
+                    )
+            else:
+                conn.execute(
+                    """
+                    UPDATE attempts
+                    SET result_status = CASE
+                        WHEN LOWER(TRIM(COALESCE(result_status, ''))) IN ('approved', 'pending_review')
+                            THEN LOWER(TRIM(result_status))
+                        WHEN total_score IS NOT NULL
+                            THEN 'approved'
+                        ELSE 'pending_review'
+                    END
+                    """
+                )
             _ensure_column(conn, "submission_scores", "score_inputs_json", "TEXT")
             _ensure_column(conn, "submission_scores", "understanding_rationale", "TEXT")
             _ensure_column(conn, "submission_scores", "investigation_rationale", "TEXT")
@@ -1163,6 +1201,7 @@ def init_db() -> None:
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id)")
                     cur.execute("CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score)")
+                    cur.execute("CREATE INDEX IF NOT EXISTS idx_attempts_result_status ON attempts(result_status)")
                     cur.execute(
                         "CREATE INDEX IF NOT EXISTS idx_submission_regrade_history_attempt_id ON submission_regrade_history(attempt_id)"
                     )
@@ -1203,6 +1242,7 @@ def init_db() -> None:
                 CREATE INDEX IF NOT EXISTS idx_module_progress_completed_at ON module_progress(completed_at);
                 CREATE INDEX IF NOT EXISTS idx_submission_scores_attempt_id ON submission_scores(attempt_id);
                 CREATE INDEX IF NOT EXISTS idx_submission_scores_total_score ON submission_scores(total_score);
+                CREATE INDEX IF NOT EXISTS idx_attempts_result_status ON attempts(result_status);
                 CREATE INDEX IF NOT EXISTS idx_submission_regrade_history_attempt_id ON submission_regrade_history(attempt_id);
 
                 DROP TRIGGER IF EXISTS trg_learner_profiles_updated_at;
@@ -1404,11 +1444,12 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
         """
         INSERT INTO attempts (
             user_id, module_id, organization_id, started_at, submitted_at, elapsed_seconds, time_limit_seconds, time_remaining_seconds, attempt_state, graded_by_type, graded_by_user_id, graded_at,
+            result_status, result_approved_at, result_approved_by_user_id,
             diagnosis_answer, next_steps_answer, customer_response, escalation_choice, notes, timed_out, question_responses,
             understanding_score, investigation_score, solution_score, communication_score,
             total_score, ai_feedback, strengths, missed_points,
             best_practice_reasoning, recommended_response, takeaway_summary
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         RETURNING attempt_id AS id
         """,
         (
@@ -1424,6 +1465,9 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("graded_by_type", "system"),
             payload.get("graded_by_user_id"),
             payload.get("graded_at", payload.get("submitted_at")),
+            "pending_review",
+            None,
+            None,
             payload.get("diagnosis_answer"),
             payload.get("next_steps_answer"),
             payload.get("customer_response"),

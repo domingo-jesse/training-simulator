@@ -77,11 +77,11 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
             m.difficulty,
             m.estimated_time,
             m.description,
-            COALESCE(x.best_score, 0) AS best_score,
+            x.approved_best_score AS best_score,
             CASE
-                WHEN x.last_attempt_at IS NOT NULL THEN 'Completed'
+                WHEN x.approved_attempt_count > 0 THEN 'Completed'
+                WHEN x.attempt_count > 0 THEN 'Pending Review'
                 WHEN a.due_date IS NOT NULL AND a.due_date::date < CURRENT_DATE THEN 'Overdue'
-                WHEN x.attempt_count > 0 THEN 'In Progress'
                 ELSE 'Not Started'
             END AS status,
             x.attempt_count,
@@ -93,7 +93,18 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
                 a2.assignment_id,
                 COUNT(t.attempt_id) AS attempt_count,
                 MAX(t.created_at) AS last_attempt_at,
-                MAX(t.total_score) AS best_score
+                COUNT(
+                    CASE
+                        WHEN COALESCE(t.result_status, 'pending_review') = 'approved' THEN 1
+                        ELSE NULL
+                    END
+                ) AS approved_attempt_count,
+                MAX(
+                    CASE
+                        WHEN COALESCE(t.result_status, 'pending_review') = 'approved' THEN t.total_score
+                        ELSE NULL
+                    END
+                ) AS approved_best_score
             FROM assignments a2
             LEFT JOIN attempts t
                 ON t.user_id = a2.learner_id
@@ -126,9 +137,11 @@ def _learner_stats_cached(user_id: int, organization_id: int) -> Dict:
         SELECT a.*, m.title FROM attempts a
         JOIN modules m ON a.module_id = m.module_id
         WHERE a.user_id = ?
+          AND a.organization_id = ?
+          AND COALESCE(a.result_status, 'pending_review') = 'approved'
         ORDER BY a.created_at DESC
         """,
-        (user_id,),
+        (user_id, organization_id),
     )
     assigned_modules = _assigned_modules_cached(user_id, organization_id)
     completed_module_ids = {a["module_id"] for a in attempts}
@@ -208,7 +221,7 @@ def _workspace_state_cached(assignment_id: int, module_id: int, user_id: int, or
 def _existing_attempt_cached(user_id: int, module_id: int, organization_id: int, assigned_at: str):
     return fetch_one(
         """
-        SELECT attempt_id, total_score
+        SELECT attempt_id, total_score, COALESCE(result_status, 'pending_review') AS result_status
         FROM attempts
         WHERE user_id = ?
           AND module_id = ?
@@ -347,7 +360,9 @@ def render_module_library(user: Dict) -> None:
                         st.caption(
                             f"{module['category']} • {module['difficulty']} • Completed at: {module['last_attempt_at']}"
                         )
-                        st.success(f"Completed • Best score: {module['best_score']}%")
+                        best_score = module.get("best_score")
+                        score_display = f"{best_score}%" if best_score is not None else "Approved"
+                        st.success(f"Completed • Best score: {score_display}")
                         if st.button(
                             "View completed module",
                             key=f"view_{module['assignment_id']}_{module['module_id']}",
@@ -503,7 +518,11 @@ def render_scenario_page(user: Dict) -> None:
         str(assignment["assigned_at"]),
     )
     if existing_attempt:
-        st.success(f"You've already completed this module. Score: {existing_attempt['total_score']}%")
+        if str(existing_attempt.get("result_status") or "").strip().lower() == "approved":
+            st.success(f"You've already completed this module. Score: {existing_attempt['total_score']}%")
+        else:
+            st.success("You've already submitted this module.")
+            st.info("Your submission has been graded and is awaiting instructor approval.")
         st.info("This assignment allows one graded submission. If reassigned by your admin, you can attempt it again.")
         if st.button("View completed results", type="secondary"):
             st.session_state.active_assignment_id = None
@@ -923,6 +942,13 @@ def _render_result_detail(attempt: Dict) -> None:
         st.success("✅ Thank you! You've completed this module.")
 
 
+def _render_pending_result_state() -> None:
+    with st.container(border=True):
+        st.markdown("### Result pending approval")
+        st.info("Your submission has been graded and is awaiting instructor review.")
+        st.caption("Scores and detailed feedback will appear after admin approval.")
+
+
 def render_progress_results_page(user: Dict) -> None:
     attempts = fetch_all(
         """
@@ -931,6 +957,7 @@ def render_progress_results_page(user: Dict) -> None:
         JOIN modules m ON a.module_id = m.module_id
         WHERE a.user_id = ?
           AND a.organization_id = ?
+          AND COALESCE(a.result_status, 'pending_review') = 'approved'
         ORDER BY a.created_at
         """,
         (user["user_id"], user["organization_id"]),
@@ -1019,7 +1046,11 @@ def render_progress_results_page(user: Dict) -> None:
 
     selected_attempt = attempts_by_assignment.get(int(selected_assignment_id))
     if not selected_attempt:
-        st.info("No completed result is available for this assignment yet.")
+        st.info("No submission is available for this assignment yet.")
+        return
+
+    if str(selected_attempt.get("result_status") or "").strip().lower() != "approved":
+        _render_pending_result_state()
         return
 
     selected_attempt_full = fetch_one(
