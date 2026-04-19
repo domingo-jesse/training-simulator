@@ -59,6 +59,15 @@ def _format_duration(seconds: int | None) -> str:
     return f"{minutes}m {remainder:02d}s"
 
 
+def _state_is_submitted(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    normalized = str(value or "").strip().lower()
+    return normalized in {"1", "true", "t", "yes", "y", "submitted", "complete"}
+
+
 def _assigned_modules(user: Dict):
     return _assigned_modules_cached(int(user["user_id"]), int(user["organization_id"]))
 
@@ -82,7 +91,7 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
             x.last_attempt_at,
             x.last_result_status,
             x.last_total_score,
-            COALESCE(ws.submitted_state, FALSE) AS submitted_state,
+            COALESCE(ws.submitted_state, 0) AS submitted_state,
             COALESCE(ws.progress_status, 'not_started') AS progress_status,
             ws.current_step
         FROM assignments a
@@ -157,7 +166,7 @@ def _learner_module_status(module: Dict) -> str:
             return "Pending results"
         return "Submitted"
 
-    if bool(module.get("submitted_state")):
+    if _state_is_submitted(module.get("submitted_state")):
         return "Submitted"
 
     progress_status = str(module.get("progress_status") or "").strip().lower()
@@ -626,7 +635,7 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
     st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
-    st.session_state.setdefault(f"submitted_{assignment_id}", bool(persisted.get("submitted_state")))
+    st.session_state.setdefault(f"submitted_{assignment_id}", _state_is_submitted(persisted.get("submitted_state")))
 
     render_page_header(module["title"], f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
@@ -676,8 +685,8 @@ def render_scenario_page(user: Dict) -> None:
     remaining_seconds = int(deadline - now_ts)
     timer_key = f"timer_submitted_{assignment_id}"
     st.session_state.setdefault(timer_key, False)
-    already_submitted = bool(persisted.get("submitted_state"))
-    already_auto_submitted = bool(persisted.get("auto_submitted_state"))
+    already_submitted = _state_is_submitted(persisted.get("submitted_state"))
+    already_auto_submitted = _state_is_submitted(persisted.get("auto_submitted_state"))
 
     @st.fragment(run_every="1s" if not already_submitted else None)
     def _render_countdown(deadline_epoch: float, is_submitted: bool) -> None:
