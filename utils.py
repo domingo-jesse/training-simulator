@@ -636,10 +636,11 @@ def render_admin_table(
                 background: #ffffff;
                 border: 1px solid #e5e7eb;
                 border-radius: 16px;
-                padding: 12px;
+                padding: 0;
                 margin-top: 12px;
                 margin-bottom: 12px;
                 width: 100%;
+                overflow: hidden;
             }
             </style>
             """,
@@ -666,15 +667,55 @@ def _inject_admin_selection_table_styles() -> None:
     st.markdown(
         """
         <style>
+        .app-table-host {
+            width: 100%;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #ffffff;
+        }
+        .app-table-host [data-testid="stDataFrame"] {
+            width: 100%;
+        }
+        .app-table-host [data-testid="stDataFrame"] [role="columnheader"],
+        .app-table-host [data-testid="stDataFrame"] [role="gridcell"] {
+            min-height: 44px;
+            align-items: center !important;
+            box-sizing: border-box;
+        }
+        .app-table-host [data-testid="stDataFrame"] [role="columnheader"] {
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .app-table-host [data-testid="stDataFrame"] [role="columnheader"],
+        .app-table-host [data-testid="stDataFrame"] [role="gridcell"] {
+            padding-top: 10px !important;
+            padding-bottom: 10px !important;
+        }
+        .app-table-host [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
+            margin: 0 !important;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transform: scale(1.06);
+            transform-origin: center;
+        }
+        .app-table-host [data-testid="stDataFrame"] [role="columnheader"]:first-child,
+        .app-table-host [data-testid="stDataFrame"] [role="gridcell"]:first-child {
+            min-width: 52px !important;
+            max-width: 52px !important;
+            width: 52px !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            justify-content: center !important;
+            text-align: center !important;
+        }
         [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked) {
             background: rgba(79, 70, 229, 0.14) !important;
         }
         [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked):hover {
             background: rgba(79, 70, 229, 0.22) !important;
-        }
-        [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
-            transform: scale(1.08);
-            transform-origin: center;
         }
         </style>
         """,
@@ -716,6 +757,7 @@ def render_admin_selection_table(
     persisted_ids = {value for value in persisted_ids if value in visible_ids}
     working_df = df.copy()
     working_df.insert(0, "selected", working_df[row_id_col].isin(persisted_ids))
+    st.markdown('<div class="app-table-host">', unsafe_allow_html=True)
     edited_df = st.data_editor(
         working_df,
         key=table_key,
@@ -725,12 +767,13 @@ def render_admin_selection_table(
         column_config={
             "selected": st.column_config.CheckboxColumn(
                 selection_label,
-                width="medium",
+                width="small",
                 help=selection_help,
             )
         },
         disabled=[column for column in working_df.columns if column != "selected"],
     )
+    st.markdown("</div>", unsafe_allow_html=True)
 
     selected_ids = edited_df.loc[edited_df["selected"] == True, row_id_col].tolist()
     if single_select:
@@ -756,23 +799,25 @@ def _inject_app_table_styles() -> None:
             background: #ffffff;
             border: 1px solid #e5e7eb;
             border-radius: 16px;
-            padding: 10px 14px;
+            padding: 0;
             width: 100%;
+            overflow: hidden;
         }
         .app-table-card.app-table-scroll {
             max-height: var(--app-table-max-height, 500px);
-            overflow-y: auto;
             overflow-x: auto;
+            overflow-y: auto;
         }
         .app-table-inner {
-            border-radius: 12px;
-            overflow-x: auto;
+            width: 100%;
         }
         .app-table {
             width: 100%;
             border-collapse: collapse;
+            border-spacing: 0;
+            table-layout: auto;
             font-size: 14px;
-            min-width: 100%;
+            min-width: 640px;
         }
         .app-table thead th {
             text-align: left;
@@ -781,22 +826,32 @@ def _inject_app_table_styles() -> None:
             font-size: 12px;
             text-transform: uppercase;
             letter-spacing: 0.04em;
-            padding: 12px 14px;
+            padding: 12px 16px;
             border-bottom: 1px solid #e5e7eb;
             white-space: nowrap;
             position: sticky;
             top: 0;
             z-index: 2;
             background: #ffffff;
+            vertical-align: middle;
         }
         .app-table tbody td {
-            padding: 14px;
+            padding: 12px 16px;
             border-bottom: 1px solid #f1f5f9;
             color: #111827;
             vertical-align: middle;
+            line-height: 1.35;
+            overflow-wrap: anywhere;
         }
         .app-table tbody tr:last-child td { border-bottom: none; }
         .app-table-primary { font-weight: 600; color: #111827; }
+        .app-table-cell {
+            display: block;
+            max-width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         .app-table-pill {
             display: inline-block;
             padding: 6px 10px;
@@ -910,7 +965,7 @@ def render_app_table(
             else:
                 cell_class = "app-table-primary" if idx == 0 else ""
                 html.append(
-                    f'<td style="text-align:{alignment};"><span class="{cell_class}">{escape(str(display_value))}</span></td>'
+                    f'<td style="text-align:{alignment};"><span class="app-table-cell {cell_class}">{escape(str(display_value))}</span></td>'
                 )
         html.append("</tr>")
     html.append("</tbody></table></div></div>")

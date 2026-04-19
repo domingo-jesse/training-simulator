@@ -1061,7 +1061,9 @@ def render_current_assignments(current_user: dict) -> None:
         )
         if "Due Date" in preview_df.columns:
             preview_df["Due Date"] = preview_df["Due Date"].apply(_format_datetime_for_admin_grid)
+        st.markdown('<div class="app-table-host">', unsafe_allow_html=True)
         st.dataframe(preview_df.head(20), use_container_width=True, hide_index=True)
+        st.markdown("</div>", unsafe_allow_html=True)
         if len(preview_df) > 20:
             st.caption(f"Showing first 20 of {len(preview_df)} selected assignments.")
 
