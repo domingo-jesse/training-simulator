@@ -826,21 +826,42 @@ def _render_assignment_tool(current_user: dict) -> None:
         filtered_selected_count = len(set(st.session_state[unified_selection_key]) & visible_ids)
         st.caption(f"{filtered_selected_count} filtered learners selected")
 
-        with st.form("assignment_tool_submit_form", clear_on_submit=False):
-            selected_module = st.selectbox("Module", list(module_map.keys()))
-            selected_learners = st.multiselect(
-                "Selected learners (from table)",
-                selectbox_options,
-                key=learner_multiselect_key,
-                help="Primary selection happens in the table above.",
-            )
-            enable_due_date = st.checkbox("Set due date", value=False)
-            due_date = st.date_input("Due date", value=date.today(), disabled=not enable_due_date)
-            assign_submitted = st.form_submit_button("Send to database: Assign training", type="primary")
+        due_date_enabled_key = "assignment_tool_due_date_enabled"
+        due_date_value_key = "assignment_tool_due_date_value"
+
+        if due_date_enabled_key not in st.session_state:
+            st.session_state[due_date_enabled_key] = False
+        if due_date_value_key not in st.session_state:
+            st.session_state[due_date_value_key] = None
+
+        def _toggle_due_date() -> None:
+            if not st.session_state[due_date_enabled_key]:
+                st.session_state[due_date_value_key] = None
+
+        selected_module = st.selectbox("Module", list(module_map.keys()))
+        selected_learners = st.multiselect(
+            "Selected learners (from table)",
+            selectbox_options,
+            key=learner_multiselect_key,
+            help="Primary selection happens in the table above.",
+        )
+        st.checkbox(
+            "Set due date",
+            key=due_date_enabled_key,
+            on_change=_toggle_due_date,
+        )
+        due_date = st.date_input(
+            "Due date",
+            value=st.session_state[due_date_value_key],
+            key=due_date_value_key,
+            disabled=not st.session_state[due_date_enabled_key],
+            help="Select a due date.",
+        )
+        assign_submitted = st.button("Send to database: Assign training", type="primary")
 
         if assign_submitted:
             module_id = module_map[selected_module]
-            due_date_value = due_date.isoformat() if enable_due_date else None
+            due_date_value = due_date.isoformat() if st.session_state[due_date_enabled_key] and due_date else None
             if not selected_learners:
                 st.warning("Select at least one learner before assigning.")
                 return
