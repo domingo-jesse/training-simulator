@@ -2157,36 +2157,67 @@ def render_module_builder(current_user: dict) -> None:
                                 st.rerun()
         elif review_step == 2:
             with st.container(border=True):
-                st.markdown("##### Add or Edit Custom Questions")
-                for q in custom_questions:
-                    with st.container(border=True):
-                        custom_qtext_key = f"custom_qtext_{q['generated_question_id']}"
-                        custom_qtype_key = f"custom_qtype_{q['generated_question_id']}"
-                        custom_qoptions_key = f"custom_qoptions_{q['generated_question_id']}"
-                        custom_qrationale_key = f"custom_qrationale_{q['generated_question_id']}"
-                        if custom_qtext_key not in st.session_state:
-                            st.session_state[custom_qtext_key] = q.get("question_text") or ""
-                        if custom_qtype_key not in st.session_state:
-                            st.session_state[custom_qtype_key] = q.get("question_type") or "open_text"
-                        if custom_qoptions_key not in st.session_state:
-                            st.session_state[custom_qoptions_key] = q.get("options_text") or ""
-                        if custom_qrationale_key not in st.session_state:
-                            st.session_state[custom_qrationale_key] = q.get("rationale") or ""
-                        st.text_area("Custom question text", key=custom_qtext_key)
-                        st.selectbox(
-                            "Type",
-                            ["open_text", "multiple_choice"],
-                            key=custom_qtype_key,
+                st.markdown("##### Custom Questions")
+                custom_form_mode_key = f"custom_question_form_mode_{run_id}"
+                custom_edit_id_key = f"custom_question_edit_id_{run_id}"
+                custom_form_text_key = f"custom_form_question_text_{run_id}"
+                custom_form_type_key = f"custom_form_question_type_{run_id}"
+                custom_form_options_key = f"custom_form_question_options_{run_id}"
+                custom_form_rubric_key = f"custom_form_question_rubric_{run_id}"
+
+                if custom_form_mode_key not in st.session_state:
+                    st.session_state[custom_form_mode_key] = None
+                if custom_edit_id_key not in st.session_state:
+                    st.session_state[custom_edit_id_key] = None
+                if custom_form_text_key not in st.session_state:
+                    st.session_state[custom_form_text_key] = ""
+                if custom_form_type_key not in st.session_state:
+                    st.session_state[custom_form_type_key] = "open_text"
+                if custom_form_options_key not in st.session_state:
+                    st.session_state[custom_form_options_key] = ""
+                if custom_form_rubric_key not in st.session_state:
+                    st.session_state[custom_form_rubric_key] = ""
+
+                def _open_add_form() -> None:
+                    st.session_state[custom_form_mode_key] = "add"
+                    st.session_state[custom_edit_id_key] = None
+                    st.session_state[custom_form_text_key] = ""
+                    st.session_state[custom_form_type_key] = "open_text"
+                    st.session_state[custom_form_options_key] = ""
+                    st.session_state[custom_form_rubric_key] = ""
+
+                def _open_edit_form(question: dict) -> None:
+                    st.session_state[custom_form_mode_key] = "edit"
+                    st.session_state[custom_edit_id_key] = question["generated_question_id"]
+                    st.session_state[custom_form_text_key] = question.get("question_text") or ""
+                    st.session_state[custom_form_type_key] = question.get("question_type") or "open_text"
+                    st.session_state[custom_form_options_key] = question.get("options_text") or ""
+                    st.session_state[custom_form_rubric_key] = question.get("rationale") or ""
+
+                form_is_open = st.session_state[custom_form_mode_key] in {"add", "edit"}
+                add_button_label = "Cancel" if form_is_open else "+ Add Question"
+                if st.button(add_button_label, key=f"toggle_custom_question_form_{run_id}"):
+                    if form_is_open:
+                        st.session_state[custom_form_mode_key] = None
+                        st.session_state[custom_edit_id_key] = None
+                    else:
+                        _open_add_form()
+                    st.rerun()
+
+                if form_is_open:
+                    with st.form(f"custom_question_form_{run_id}"):
+                        st.text_area("Question text", key=custom_form_text_key)
+                        st.selectbox("Question type", ["open_text", "multiple_choice"], key=custom_form_type_key)
+                        custom_form_options = st.text_area(
+                            "Multiple choice options (one per line)",
+                            key=custom_form_options_key,
+                            disabled=st.session_state[custom_form_type_key] != "multiple_choice",
                         )
-                        custom_options = st.text_area(
-                            "Options (one per line)",
-                            disabled=st.session_state[custom_qtype_key] != "multiple_choice",
-                            key=custom_qoptions_key,
-                        )
-                        st.text_area("Ideal answer / rubric", key=custom_qrationale_key)
-                        a_col, d_col = st.columns(2)
-                        with a_col:
-                            if st.button("Save custom question", key=f"save_custom_{q['generated_question_id']}"):
+                        st.text_area("Ideal answer / rubric", key=custom_form_rubric_key)
+                        save_label = "Save Question" if st.session_state[custom_form_mode_key] == "edit" else "Add Question"
+                        save_question = st.form_submit_button(save_label)
+                        if save_question:
+                            if st.session_state[custom_form_mode_key] == "edit" and st.session_state[custom_edit_id_key]:
                                 execute(
                                     """
                                     UPDATE module_generation_questions
@@ -2194,54 +2225,60 @@ def render_module_builder(current_user: dict) -> None:
                                     WHERE generated_question_id = ?
                                     """,
                                     (
-                                        st.session_state[custom_qtext_key],
-                                        st.session_state[custom_qrationale_key],
-                                        st.session_state[custom_qtype_key],
-                                        _parse_lines(custom_options) if st.session_state[custom_qtype_key] == "multiple_choice" else "",
-                                        q["generated_question_id"],
+                                        st.session_state[custom_form_text_key].strip(),
+                                        st.session_state[custom_form_rubric_key].strip(),
+                                        st.session_state[custom_form_type_key],
+                                        _parse_lines(custom_form_options) if st.session_state[custom_form_type_key] == "multiple_choice" else "",
+                                        st.session_state[custom_edit_id_key],
                                     ),
                                 )
                                 st.success("Custom question saved.")
-                                st.rerun()
-                        with d_col:
-                            if st.button("Delete custom question", key=f"delete_custom_{q['generated_question_id']}"):
-                                execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
-                                st.success("Custom question deleted.")
-                                st.rerun()
-                with st.form(f"add_question_form_{run_id}"):
-                    st.markdown("###### Add custom question")
-                    new_question_text = st.text_area("Question text", key=f"new_question_text_{run_id}")
-                    new_question_type = st.selectbox("Question type", ["open_text", "multiple_choice"], key=f"new_question_type_{run_id}")
-                    new_question_options = st.text_area(
-                        "Multiple choice options (one per line)",
-                        key=f"new_question_options_{run_id}",
-                        disabled=new_question_type != "multiple_choice",
-                    )
-                    new_question_rubric = st.text_area("Ideal answer / rubric", key=f"new_question_rubric_{run_id}")
-                    add_question = st.form_submit_button("Add question")
-                    if add_question:
-                        max_order_row = fetch_one(
-                            "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_generation_questions WHERE run_id = ?",
-                            (run_id,),
-                        )
-                        next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
-                        execute(
-                            """
-                            INSERT INTO module_generation_questions (
-                                run_id, question_order, question_text, rationale, question_type, options_text, approval_status, admin_feedback, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, 'approved', 'custom_question', CURRENT_TIMESTAMP)
-                            """,
-                            (
-                                run_id,
-                                next_order,
-                                new_question_text.strip(),
-                                new_question_rubric.strip() or "Admin added",
-                                new_question_type,
-                                _parse_lines(new_question_options) if new_question_type == "multiple_choice" else "",
-                            ),
-                        )
-                        st.success("Question added.")
-                        st.rerun()
+                            else:
+                                max_order_row = fetch_one(
+                                    "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_generation_questions WHERE run_id = ?",
+                                    (run_id,),
+                                )
+                                next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
+                                execute(
+                                    """
+                                    INSERT INTO module_generation_questions (
+                                        run_id, question_order, question_text, rationale, question_type, options_text, approval_status, admin_feedback, updated_at
+                                    ) VALUES (?, ?, ?, ?, ?, ?, 'approved', 'custom_question', CURRENT_TIMESTAMP)
+                                    """,
+                                    (
+                                        run_id,
+                                        next_order,
+                                        st.session_state[custom_form_text_key].strip(),
+                                        st.session_state[custom_form_rubric_key].strip() or "Admin added",
+                                        st.session_state[custom_form_type_key],
+                                        _parse_lines(custom_form_options) if st.session_state[custom_form_type_key] == "multiple_choice" else "",
+                                    ),
+                                )
+                                st.success("Question added.")
+                            st.session_state[custom_form_mode_key] = None
+                            st.session_state[custom_edit_id_key] = None
+                            st.rerun()
+
+                st.markdown("###### Added Questions")
+                if not custom_questions:
+                    st.caption("No custom questions added yet.")
+                for q in custom_questions:
+                    st.markdown(f"**{q.get('question_text') or 'Untitled question'}**")
+                    st.caption(f"Type: {q.get('question_type') or 'open_text'}")
+                    edit_col, delete_col = st.columns([1, 1])
+                    with edit_col:
+                        if st.button("Edit", key=f"edit_custom_{q['generated_question_id']}"):
+                            _open_edit_form(q)
+                            st.rerun()
+                    with delete_col:
+                        if st.button("Delete", key=f"delete_custom_{q['generated_question_id']}"):
+                            execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
+                            if st.session_state[custom_edit_id_key] == q["generated_question_id"]:
+                                st.session_state[custom_form_mode_key] = None
+                                st.session_state[custom_edit_id_key] = None
+                            st.success("Custom question deleted.")
+                            st.rerun()
+                    st.markdown("")
 
         else:
             st.markdown(
