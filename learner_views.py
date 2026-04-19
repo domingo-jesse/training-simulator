@@ -747,21 +747,16 @@ def render_scenario_page(user: Dict) -> None:
                             st.write(details)
                 with st.form(key=f"wizard_step2_form_{assignment_id}", clear_on_submit=False):
                     st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
-                        save_draft_clicked = st.form_submit_button("Save Draft")
-                    with c3:
                         next_clicked = st.form_submit_button("Next", type="primary")
 
                 if back_clicked:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
-                elif save_draft_clicked:
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.toast("Draft saved.")
                 elif next_clicked:
                     st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
@@ -794,12 +789,10 @@ def render_scenario_page(user: Dict) -> None:
                     step_validation_error = "Please answer all assessment questions before continuing." if unanswered else None
                     if step_validation_error:
                         st.warning(step_validation_error)
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
-                        save_draft_clicked = st.form_submit_button("Save Draft")
-                    with c3:
                         next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
 
                 if back_clicked:
@@ -807,10 +800,6 @@ def render_scenario_page(user: Dict) -> None:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
-                elif save_draft_clicked:
-                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.toast("Draft saved.")
                 elif next_clicked:
                     st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
                     st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
@@ -828,21 +817,16 @@ def render_scenario_page(user: Dict) -> None:
                         ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
                         key=f"escalation_{assignment_id}",
                     )
-                    c1, c2, c3 = st.columns(3)
+                    c1, c2 = st.columns(2)
                     with c1:
                         back_clicked = st.form_submit_button("Back")
                     with c2:
-                        save_draft_clicked = st.form_submit_button("Save Draft")
-                    with c3:
                         next_clicked = st.form_submit_button("Next", type="primary")
 
                 if back_clicked:
                     _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
                     st.session_state[step_key] = max(1, current_step_local - 1)
                     st.rerun()
-                elif save_draft_clicked:
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.toast("Draft saved.")
                 elif next_clicked:
                     step_validation_error = None
                     if (
