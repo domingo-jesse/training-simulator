@@ -1183,6 +1183,7 @@ def render_grading_center(current_user: dict) -> None:
                 m.title AS module_title,
                 COALESCE(a.result_status, 'pending_review') AS result_status,
                 a.result_approved_at,
+                approver.name AS approved_by_name,
                 COALESCE(ss.total_score, a.total_score) AS total_score,
                 COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
                 COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
@@ -1194,6 +1195,7 @@ def render_grading_center(current_user: dict) -> None:
             JOIN users u ON u.user_id = a.user_id
             JOIN modules m ON m.module_id = a.module_id
             LEFT JOIN submission_scores ss ON ss.attempt_id = a.attempt_id
+            LEFT JOIN users approver ON approver.user_id = a.result_approved_by_user_id
             WHERE a.organization_id = ?
               AND u.is_active = TRUE
             ORDER BY a.created_at DESC
@@ -1273,10 +1275,70 @@ def render_grading_center(current_user: dict) -> None:
     )
     selected_attempt_row = filtered[filtered["attempt_id"] == selected_attempt_id].iloc[0]
     is_approved = str(selected_attempt_row.get("result_status") or "").strip().lower() == "approved"
-    st.caption(
-        "Current status: "
-        + ("Approved ✅" if is_approved else "Pending approval ⏳")
-        + f" • Submitted: {_format_datetime_for_admin_grid(selected_attempt_row.get('created_at'))}"
+    status_label = "Approved ✅" if is_approved else "Pending Review ⏳"
+    status_tone_class = "status-approved" if is_approved else "status-pending"
+    submitted_at_label = _format_datetime_for_admin_grid(selected_attempt_row.get("created_at"))
+    approved_at_label = _format_datetime_for_admin_grid(selected_attempt_row.get("result_approved_at"))
+    approved_by_label = selected_attempt_row.get("approved_by_name") or "—"
+    st.markdown(
+        f"""
+        <style>
+        .approval-summary-card {{
+            border: 1px solid rgba(148, 163, 184, 0.35);
+            border-radius: 0.85rem;
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.9) 100%);
+            padding: 1rem 1.15rem;
+            margin: 0.6rem 0 0.8rem 0;
+        }}
+        .approval-summary-label {{
+            font-size: 0.84rem;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: #475569;
+            margin-bottom: 0.45rem;
+        }}
+        .approval-summary-status-chip {{
+            display: inline-flex;
+            align-items: center;
+            padding: 0.5rem 0.85rem;
+            border-radius: 999px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            line-height: 1.25;
+            margin-bottom: 0.7rem;
+        }}
+        .approval-summary-status-chip.status-approved {{
+            color: #166534;
+            background: rgba(187, 247, 208, 0.65);
+            border: 1px solid rgba(34, 197, 94, 0.45);
+        }}
+        .approval-summary-status-chip.status-pending {{
+            color: #92400e;
+            background: rgba(254, 243, 199, 0.8);
+            border: 1px solid rgba(245, 158, 11, 0.45);
+        }}
+        .approval-summary-meta {{
+            font-size: 0.86rem;
+            color: #475569;
+            line-height: 1.5;
+        }}
+        .approval-summary-meta strong {{
+            color: #0f172a;
+            font-weight: 600;
+        }}
+        </style>
+        <div class="approval-summary-card">
+          <div class="approval-summary-label">Approval Status</div>
+          <div class="approval-summary-status-chip {status_tone_class}">{escape(status_label)}</div>
+          <div class="approval-summary-meta">
+            <div><strong>Submitted:</strong> {escape(submitted_at_label)}</div>
+            <div><strong>Approved:</strong> {escape(approved_at_label)}</div>
+            <div><strong>Approved by:</strong> {escape(str(approved_by_label))}</div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
     action_columns = st.columns([1, 1.5, 3.5])
     with action_columns[0]:
