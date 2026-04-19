@@ -98,20 +98,20 @@ def inject_styles() -> None:
             width: 250px !important;
             min-width: 250px !important;
             max-width: 250px !important;
-            padding-top: 0.8rem;
+            padding-top: 0.45rem;
             overflow: visible !important;
         }
         [data-testid="stSidebar"] .block-container {
-            padding-top: 0.35rem;
-            padding-bottom: 1rem;
-            padding-left: 0.8rem;
-            padding-right: 0.8rem;
+            padding-top: 0.2rem;
+            padding-bottom: 0.5rem;
+            padding-left: 0.52rem;
+            padding-right: 0.62rem;
             max-width: 100% !important;
             overflow: visible !important;
         }
         .sidebar-header {
-            margin: 0.1rem 0 1rem 0;
-            padding: 0.2rem 0.3rem 0.8rem 0.3rem;
+            margin: 0.05rem 0 0.4rem 0;
+            padding: 0.08rem 0.2rem 0.32rem 0.2rem;
             border-bottom: 1px solid var(--line);
         }
         .sidebar-eyebrow {
@@ -132,10 +132,13 @@ def inject_styles() -> None:
             margin-bottom: 0;
             overflow: visible !important;
         }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > [data-testid="stElementContainer"]:has(.stButton) {
+            margin-bottom: 0.38rem;
+        }
         [data-testid="stSidebar"] .stButton > button {
             width: 100% !important;
             max-width: 100% !important;
-            border-radius: 12px;
+            border-radius: 10px;
             display: flex !important;
             align-items: center;
             justify-content: flex-start;
@@ -143,15 +146,16 @@ def inject_styles() -> None:
             white-space: nowrap;
             overflow: visible !important;
             text-overflow: clip !important;
-            min-height: 2.1rem;
-            padding: 0.4rem 0.72rem;
+            min-height: 1.78rem;
+            padding: 0.22rem 0.52rem;
             font-weight: 500;
-            font-size: 0.9rem;
-            letter-spacing: 0.005em;
+            font-size: 0.84rem;
+            letter-spacing: 0;
             box-shadow: none;
             border: none !important;
             background: transparent !important;
             transition: background-color 0.14s ease, color 0.14s ease;
+            gap: 0.26rem;
         }
         [data-testid="stSidebar"] .stButton > button > div,
         [data-testid="stSidebar"] .stButton > button > div > p,
@@ -165,8 +169,9 @@ def inject_styles() -> None:
             overflow: visible !important;
             text-overflow: clip !important;
             margin: 0 !important;
-            line-height: 1.16 !important;
+            line-height: 1.08 !important;
             display: block !important;
+            font-size: 0.84rem !important;
         }
         [data-testid="stSidebar"] .stButton > button[kind="primary"] {
             background: var(--brand) !important;
