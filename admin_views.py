@@ -26,6 +26,7 @@ from utils import (
     build_learner_option_label,
     filter_active_learners,
     filter_inactive_learners,
+    format_status_display,
     metric_row,
     render_admin_selection_table,
     render_app_table,
@@ -1221,7 +1222,7 @@ def render_grading_center(current_user: dict) -> None:
     approval_filter = st.multiselect(
         "Filter approval status",
         options=["approved", "pending_review"],
-        format_func=lambda status: "Approved" if status == "approved" else "Pending approval",
+        format_func=format_status_display,
         default=[],
     )
     filtered = attempts.copy()
@@ -1240,8 +1241,11 @@ def render_grading_center(current_user: dict) -> None:
         }
     )
 
+    display_filtered = filtered.copy()
+    display_filtered["result_status"] = display_filtered["result_status"].apply(format_status_display)
+
     render_app_table(
-        filtered[
+        display_filtered[
             [
                 "created_at",
                 "learner_name",
@@ -1275,9 +1279,11 @@ def render_grading_center(current_user: dict) -> None:
         ),
     )
     selected_attempt_row = filtered[filtered["attempt_id"] == selected_attempt_id].iloc[0]
-    is_approved = str(selected_attempt_row.get("result_status") or "").strip().lower() == "approved"
-    status_label = "Approved ✅" if is_approved else "Pending Review ⏳"
-    status_tone_class = "status-approved" if is_approved else "status-pending"
+    selected_result_status = str(selected_attempt_row.get("result_status") or "").strip().lower()
+    is_approved = selected_result_status == "approved"
+    is_rejected = selected_result_status == "rejected"
+    status_label = format_status_display(selected_result_status)
+    status_tone_class = "status-approved" if is_approved else ("status-rejected" if is_rejected else "status-pending")
     submitted_at_label = _format_datetime_for_admin_grid(selected_attempt_row.get("created_at"))
     approved_at_label = _format_datetime_for_admin_grid(selected_attempt_row.get("result_approved_at"))
     submitted_by_label = selected_attempt_row.get("learner_name") or "—"
@@ -1324,6 +1330,11 @@ def render_grading_center(current_user: dict) -> None:
             color: #92400e;
             background: rgba(254, 243, 199, 0.8);
             border: 1px solid rgba(245, 158, 11, 0.45);
+        }}
+        .approval-summary-status-chip.status-rejected {{
+            color: #991b1b;
+            background: rgba(254, 226, 226, 0.85);
+            border: 1px solid rgba(248, 113, 113, 0.45);
         }}
         .approval-summary-meta {{
             font-size: 0.86rem;

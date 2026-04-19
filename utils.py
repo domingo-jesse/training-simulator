@@ -588,6 +588,26 @@ def _format_numeric_value(value: Any, decimals: int = 1) -> str:
         return "—"
 
 
+def format_status_display(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return "—"
+
+    normalized = raw.lower()
+    direct_labels = {
+        "pending_review": "Pending review",
+        "approved": "Approved",
+        "rejected": "Rejected",
+    }
+    if normalized in direct_labels:
+        return direct_labels[normalized]
+
+    humanized = normalized.replace("_", " ").strip()
+    if not humanized:
+        return "—"
+    return humanized[0].upper() + humanized[1:]
+
+
 def _badge_style(value: Any, kind: str = "neutral") -> str:
     if kind == "score":
         try:
@@ -603,11 +623,11 @@ def _badge_style(value: Any, kind: str = "neutral") -> str:
         return "background:#fef2f2;color:#991b1b;"
     if kind == "status":
         normalized = str(value).strip().lower()
-        if normalized in {"active", "completed", "success", "passed"}:
+        if normalized in {"active", "approved", "completed", "success", "passed"}:
             return "background:#ecfdf5;color:#065f46;"
-        if normalized in {"pending", "in progress", "warning", "not started"}:
+        if normalized in {"pending", "pending_review", "pending review", "in progress", "warning", "not started"}:
             return "background:#fffbeb;color:#92400e;"
-        if normalized in {"inactive", "failed", "error", "overdue", "fail"}:
+        if normalized in {"inactive", "failed", "error", "overdue", "fail", "rejected"}:
             return "background:#fef2f2;color:#991b1b;"
     return "background:#f3f4f6;color:#374151;"
 
