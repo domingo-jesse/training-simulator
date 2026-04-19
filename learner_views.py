@@ -1061,6 +1061,7 @@ def render_progress_results_page(user: Dict) -> None:
         WHERE a.attempt_id = ?
           AND a.user_id = ?
           AND a.organization_id = ?
+          AND COALESCE(a.result_status, 'pending_review') = 'approved'
         """,
         (selected_attempt["attempt_id"], user["user_id"], user["organization_id"]),
     )
