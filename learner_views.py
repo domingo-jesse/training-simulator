@@ -963,38 +963,9 @@ def render_progress_results_page(user: Dict) -> None:
         (user["user_id"], user["organization_id"]),
     )
 
-    render_page_header("Progress & Results", "Track overall progress and review detailed module outcomes in one place.")
-
-    df = to_df(attempts) if attempts else to_df([])
-    metric_row(
-        {
-            "Modules completed": int(df["module_id"].nunique()) if not df.empty else 0,
-            "Average score": f"{round(df['total_score'].mean(), 1)}%" if not df.empty else "0%",
-            "Recent score": f"{df['total_score'].iloc[-1]}%" if not df.empty else "N/A",
-        }
-    )
-
-    strengths = []
-    misses = []
-    if not df.empty:
-        for _, row in df.tail(5).iterrows():
-            strengths.extend(parse_json_list(row["strengths"]))
-            misses.extend(parse_json_list(row["missed_points"]))
-
-    col1, col2 = st.columns(2)
-    with col1:
-        with st.container(border=True):
-            st.markdown("#### Emerging strengths")
-            for item in list(dict.fromkeys(strengths))[:5]:
-                st.write(f"- {item}")
-    with col2:
-        with st.container(border=True):
-            st.markdown("#### Weakest areas")
-            for item in list(dict.fromkeys(misses))[:5]:
-                st.write(f"- {item}")
-
     assignments = _assigned_modules(user)
     if not assignments:
+        render_page_header("Progress & Results", "Track overall progress and review detailed module outcomes in one place.")
         st.info("No assignments are available yet.")
         return
 
@@ -1020,6 +991,44 @@ def render_progress_results_page(user: Dict) -> None:
         )
         if row.get("attempt_id")
     }
+    submitted_count = len(attempts_by_assignment)
+    pending_results_count = sum(
+        1
+        for row in attempts_by_assignment.values()
+        if str(row.get("result_status") or "").strip().lower() != "approved"
+    )
+
+    render_page_header("Progress & Results", "Track overall progress and review detailed module outcomes in one place.")
+
+    df = to_df(attempts) if attempts else to_df([])
+    metric_row(
+        {
+            "Completed": int(df["module_id"].nunique()) if not df.empty else 0,
+            "Submitted": submitted_count,
+            "Pending results": pending_results_count,
+            "Average score": f"{round(df['total_score'].mean(), 1)}%" if not df.empty else "0%",
+            "Recent score": f"{df['total_score'].iloc[-1]}%" if not df.empty else "N/A",
+        }
+    )
+
+    strengths = []
+    misses = []
+    if not df.empty:
+        for _, row in df.tail(5).iterrows():
+            strengths.extend(parse_json_list(row["strengths"]))
+            misses.extend(parse_json_list(row["missed_points"]))
+
+    col1, col2 = st.columns(2)
+    with col1:
+        with st.container(border=True):
+            st.markdown("#### Emerging strengths")
+            for item in list(dict.fromkeys(strengths))[:5]:
+                st.write(f"- {item}")
+    with col2:
+        with st.container(border=True):
+            st.markdown("#### Weakest areas")
+            for item in list(dict.fromkeys(misses))[:5]:
+                st.write(f"- {item}")
 
     st.markdown("#### View module result")
     assignments_sorted = sorted(
