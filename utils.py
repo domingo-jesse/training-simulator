@@ -691,6 +691,15 @@ def _inject_admin_selection_table_styles() -> None:
             background: #f8fafc;
             border-bottom: 1px solid #e5e7eb;
         }
+        .app-table-host [data-testid="stDataFrame"] [role="columnheader"][aria-colindex="1"],
+        .app-table-host [data-testid="stDataFrame"] [role="gridcell"][aria-colindex="1"] {
+            width: 56px !important;
+            min-width: 56px !important;
+            max-width: 56px !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            justify-content: center !important;
+        }
         .app-table-host [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
             margin: 0 !important;
             width: 100%;
