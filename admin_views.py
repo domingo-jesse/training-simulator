@@ -98,6 +98,7 @@ def _assignments_with_status(org_id: int, refresh_token: int = 0) -> pd.DataFram
             a.assigned_at,
             a.is_active,
             u.name AS learner_name,
+            u.email AS learner_email,
             u.team,
             u.is_active AS learner_active,
             o.name AS organization_name,
@@ -113,7 +114,7 @@ def _assignments_with_status(org_id: int, refresh_token: int = 0) -> pd.DataFram
         FROM assignments a
         JOIN users u ON u.user_id = a.learner_id
         JOIN modules m ON m.module_id = a.module_id
-        LEFT JOIN organizations o ON o.organization_id = a.organization_id
+        LEFT JOIN organizations o ON o.organization_id = u.organization_id
         LEFT JOIN (
             SELECT
                 a2.assignment_id,
@@ -1377,14 +1378,151 @@ def render_progress_tracking(current_user: dict) -> None:
         st.info("No assignments to track.")
         return
 
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Completed", int(assignments_df["status"].eq("Completed").sum()))
-    col2.metric("In Progress", int(assignments_df["status"].eq("In Progress").sum()))
-    col3.metric("Overdue", int(assignments_df["status"].eq("Overdue").sum()))
-    col4.metric("Not Started", int(assignments_df["status"].eq("Not Started").sum()))
+    filter_state_key = "progress_tracking_filters"
+    default_filters = {
+        "status": ["Completed", "In Progress", "Overdue", "Not Started"],
+        "learners": [],
+        "organizations": [],
+        "due_from": None,
+        "due_to": None,
+        "attempted_from": None,
+        "attempted_to": None,
+        "no_attempt_yet": False,
+    }
+    if filter_state_key not in st.session_state:
+        st.session_state[filter_state_key] = default_filters.copy()
 
-    status_filter = st.multiselect("Filter status", ["Completed", "In Progress", "Overdue", "Not Started"], default=["Completed", "In Progress", "Overdue", "Not Started"])
-    filtered = assignments_df[assignments_df["status"].isin(status_filter)]
+    learner_labels = sorted(
+        {
+            f"{(row.get('learner_name') or 'Unknown learner').strip()} ({(row.get('learner_email') or 'no-email')})"
+            for _, row in assignments_df.iterrows()
+        }
+    )
+    organization_options = sorted(
+        {
+            str(row.get("organization_name") or "Unassigned")
+            for _, row in assignments_df.iterrows()
+        }
+    )
+
+    with st.container(border=True):
+        st.caption("No attempt yet ignores attempted date range filters.")
+        with st.form("progress-tracking-filters", clear_on_submit=False):
+            current_filters = st.session_state[filter_state_key]
+            row_one_cols = st.columns([1.1, 1.1, 1.2, 1.2])
+            status_filter = row_one_cols[0].multiselect(
+                "Status",
+                ["Completed", "In Progress", "Overdue", "Not Started"],
+                default=current_filters.get("status", default_filters["status"]),
+            )
+            learner_filter = row_one_cols[1].multiselect(
+                "Learner",
+                learner_labels,
+                default=current_filters.get("learners", []),
+                placeholder="Search learner",
+            )
+            org_filter = row_one_cols[2].multiselect(
+                "Organization",
+                organization_options,
+                default=current_filters.get("organizations", []),
+                placeholder="Search organization",
+            )
+            no_attempt_yet = row_one_cols[3].checkbox(
+                "No attempt yet",
+                value=bool(current_filters.get("no_attempt_yet", False)),
+                help="When enabled, attempted date range is ignored and only rows with no attempt are shown.",
+            )
+
+            row_two_cols = st.columns(4)
+            due_from = row_two_cols[0].date_input(
+                "Due from",
+                value=current_filters.get("due_from"),
+                key="progress_due_from",
+            )
+            due_to = row_two_cols[1].date_input(
+                "Due to",
+                value=current_filters.get("due_to"),
+                key="progress_due_to",
+            )
+            attempted_from = row_two_cols[2].date_input(
+                "Attempted from",
+                value=current_filters.get("attempted_from"),
+                disabled=no_attempt_yet,
+                key="progress_attempted_from",
+            )
+            attempted_to = row_two_cols[3].date_input(
+                "Attempted to",
+                value=current_filters.get("attempted_to"),
+                disabled=no_attempt_yet,
+                key="progress_attempted_to",
+            )
+
+            apply_col, clear_col = st.columns([1, 1])
+            apply_pressed = apply_col.form_submit_button("Apply Filters", use_container_width=True, type="primary")
+            clear_pressed = clear_col.form_submit_button("Clear Filters", use_container_width=True)
+
+        if clear_pressed:
+            st.session_state[filter_state_key] = default_filters.copy()
+            st.session_state["progress_due_from"] = None
+            st.session_state["progress_due_to"] = None
+            st.session_state["progress_attempted_from"] = None
+            st.session_state["progress_attempted_to"] = None
+            st.rerun()
+        if apply_pressed:
+            st.session_state[filter_state_key] = {
+                "status": status_filter or default_filters["status"],
+                "learners": learner_filter,
+                "organizations": org_filter,
+                "due_from": due_from,
+                "due_to": due_to,
+                "attempted_from": None if no_attempt_yet else attempted_from,
+                "attempted_to": None if no_attempt_yet else attempted_to,
+                "no_attempt_yet": no_attempt_yet,
+            }
+
+    applied_filters = st.session_state[filter_state_key]
+
+    filtered = assignments_df.copy()
+    filtered["learner_label"] = filtered.apply(
+        lambda row: f"{(row.get('learner_name') or 'Unknown learner').strip()} ({(row.get('learner_email') or 'no-email')})",
+        axis=1,
+    )
+    filtered["organization_label"] = filtered["organization_name"].fillna("Unassigned").astype(str)
+    filtered["due_date_dt"] = pd.to_datetime(filtered["due_date"], errors="coerce").dt.date
+    filtered["attempted_dt"] = pd.to_datetime(filtered["last_attempt_at"], errors="coerce").dt.date
+
+    if applied_filters["status"]:
+        filtered = filtered[filtered["status"].isin(applied_filters["status"])]
+    if applied_filters["learners"]:
+        filtered = filtered[filtered["learner_label"].isin(applied_filters["learners"])]
+    if applied_filters["organizations"]:
+        filtered = filtered[filtered["organization_label"].isin(applied_filters["organizations"])]
+    if applied_filters["due_from"]:
+        filtered = filtered[filtered["due_date_dt"].notna() & (filtered["due_date_dt"] >= applied_filters["due_from"])]
+    if applied_filters["due_to"]:
+        filtered = filtered[filtered["due_date_dt"].notna() & (filtered["due_date_dt"] <= applied_filters["due_to"])]
+    if applied_filters["no_attempt_yet"]:
+        filtered = filtered[filtered["attempted_dt"].isna()]
+    else:
+        if applied_filters["attempted_from"]:
+            filtered = filtered[
+                filtered["attempted_dt"].notna() & (filtered["attempted_dt"] >= applied_filters["attempted_from"])
+            ]
+        if applied_filters["attempted_to"]:
+            filtered = filtered[
+                filtered["attempted_dt"].notna() & (filtered["attempted_dt"] <= applied_filters["attempted_to"])
+            ]
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Completed", int(filtered["status"].eq("Completed").sum()))
+    col2.metric("In Progress", int(filtered["status"].eq("In Progress").sum()))
+    col3.metric("Overdue", int(filtered["status"].eq("Overdue").sum()))
+    col4.metric("Not Started", int(filtered["status"].eq("Not Started").sum()))
+
+    if filtered.empty:
+        st.info("No progress records match the selected filters.")
+        return
+
     render_app_table(
         filtered[["learner_name", "module_title", "status", "due_date", "last_attempt_at"]],
         datetime_columns=["due_date", "last_attempt_at"],
