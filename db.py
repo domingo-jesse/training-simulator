@@ -260,9 +260,9 @@ def _migrate_input_quiz_required_to_boolean(conn) -> None:
         )
 
 
-def _migrate_submitted_state_to_boolean(conn) -> None:
+def _migrate_submitted_state_to_integer(conn) -> None:
     current_type = _postgres_column_data_type(conn, "assignment_workspace_state", "submitted_state")
-    if current_type in {None, "boolean"}:
+    if current_type in {None, "integer"}:
         return
     with conn.cursor() as cur:
         cur.execute(
@@ -274,18 +274,19 @@ def _migrate_submitted_state_to_boolean(conn) -> None:
         cur.execute(
             """
             ALTER TABLE assignment_workspace_state
-            ALTER COLUMN submitted_state TYPE BOOLEAN
+            ALTER COLUMN submitted_state TYPE INTEGER
             USING CASE
-              WHEN submitted_state IS NULL THEN FALSE
-              WHEN LOWER(BTRIM(submitted_state::text)) IN ('true', 't', '1', 'yes', 'y', 'submitted', 'complete') THEN TRUE
-              ELSE FALSE
+              WHEN submitted_state IS NULL THEN 0
+              WHEN LOWER(BTRIM(submitted_state::text)) IN ('approved', '2') THEN 2
+              WHEN LOWER(BTRIM(submitted_state::text)) IN ('true', 't', '1', 'yes', 'y', 'submitted', 'complete') THEN 1
+              ELSE 0
             END
             """
         )
         cur.execute(
             """
             ALTER TABLE assignment_workspace_state
-            ALTER COLUMN submitted_state SET DEFAULT FALSE
+            ALTER COLUMN submitted_state SET DEFAULT 0
             """
         )
 
@@ -498,7 +499,7 @@ def init_db() -> None:
                     question_responses TEXT DEFAULT '{}',
                     revealed_actions TEXT DEFAULT '{}',
                     used_actions TEXT DEFAULT '[]',
-                    submitted_state BOOLEAN DEFAULT FALSE,
+                    submitted_state INTEGER DEFAULT 0,
                     started_at TEXT,
                     submitted_at TIMESTAMPTZ,
                     last_saved_at TIMESTAMPTZ DEFAULT NOW(),
@@ -793,7 +794,7 @@ def init_db() -> None:
                 question_responses TEXT DEFAULT '{}',
                 revealed_actions TEXT DEFAULT '{}',
                 used_actions TEXT DEFAULT '[]',
-                submitted_state BOOLEAN DEFAULT FALSE,
+                submitted_state INTEGER DEFAULT 0,
                 started_at TEXT,
                 submitted_at TEXT,
                 last_saved_at TEXT DEFAULT CURRENT_TIMESTAMP,
@@ -1218,7 +1219,7 @@ def init_db() -> None:
             _ensure_column(conn, "module_generation_runs", "input_estimated_minutes", "INTEGER")
             if RUNTIME_USE_POSTGRES:
                 _migrate_input_quiz_required_to_boolean(conn)
-                _migrate_submitted_state_to_boolean(conn)
+                _migrate_submitted_state_to_integer(conn)
             _ensure_column(conn, "module_generation_questions", "approval_status", "TEXT DEFAULT 'pending'")
             _ensure_column(conn, "module_generation_questions", "question_type", "TEXT DEFAULT 'open_text'")
             _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")

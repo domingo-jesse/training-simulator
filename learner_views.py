@@ -21,6 +21,10 @@ WIZARD_STEPS = [
     "Review and Submit",
 ]
 
+SUBMITTED_STATE_IN_PROGRESS = 0
+SUBMITTED_STATE_SUBMITTED = 1
+SUBMITTED_STATE_APPROVED = 2
+
 
 def _clamp_wizard_step(step_value: int) -> int:
     return max(1, min(step_value, len(WIZARD_STEPS)))
@@ -66,6 +70,22 @@ def _state_is_submitted(value: object) -> bool:
         return value != 0
     normalized = str(value or "").strip().lower()
     return normalized in {"1", "true", "t", "yes", "y", "submitted", "complete"}
+
+
+def _submitted_state_value(value: object) -> int:
+    if isinstance(value, bool):
+        return SUBMITTED_STATE_SUBMITTED if value else SUBMITTED_STATE_IN_PROGRESS
+    if isinstance(value, (int, float)):
+        int_value = int(value)
+        if int_value in {SUBMITTED_STATE_IN_PROGRESS, SUBMITTED_STATE_SUBMITTED, SUBMITTED_STATE_APPROVED}:
+            return int_value
+        return SUBMITTED_STATE_SUBMITTED if int_value > 0 else SUBMITTED_STATE_IN_PROGRESS
+    normalized = str(value or "").strip().lower()
+    if normalized in {"approved", "2"}:
+        return SUBMITTED_STATE_APPROVED
+    if normalized in {"1", "true", "t", "yes", "y", "submitted", "complete"}:
+        return SUBMITTED_STATE_SUBMITTED
+    return SUBMITTED_STATE_IN_PROGRESS
 
 
 def _assigned_modules(user: Dict):
@@ -501,7 +521,7 @@ def _load_or_create_workspace_state(*, assignment_id: int, module_id: int, user:
             created_at,
             updated_at,
             last_saved_at
-        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', FALSE, ?, ?, ?, FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ) VALUES (?, ?, ?, ?, 1, 'not_started', '', '', '', '', 'No escalation', '{}', '{}', '[]', 0, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         """,
         (
             assignment_id,
@@ -551,7 +571,7 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
             json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
             json.dumps(st.session_state.get(f"revealed_{assignment_id}", {})),
             json.dumps(st.session_state.get(f"used_actions_{assignment_id}", [])),
-            bool(st.session_state.get(f"submitted_{assignment_id}")),
+            SUBMITTED_STATE_SUBMITTED if st.session_state.get(f"submitted_{assignment_id}") else SUBMITTED_STATE_IN_PROGRESS,
             assignment_id,
             user["organization_id"],
             module_id,
@@ -635,7 +655,11 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
     st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
-    st.session_state.setdefault(f"submitted_{assignment_id}", _state_is_submitted(persisted.get("submitted_state")))
+    persisted_submitted_state = _submitted_state_value(persisted.get("submitted_state"))
+    st.session_state.setdefault(
+        f"submitted_{assignment_id}",
+        persisted_submitted_state >= SUBMITTED_STATE_SUBMITTED,
+    )
 
     render_page_header(module["title"], f"Difficulty: {module['difficulty']} • Estimated time: {module['estimated_time']}")
 
@@ -715,20 +739,28 @@ def render_scenario_page(user: Dict) -> None:
         submission_lock = fetch_one(
             """
             UPDATE assignment_workspace_state
-            SET submitted_state = TRUE,
+            SET submitted_state = ?,
                 progress_status = 'submitted',
                 submitted_at = COALESCE(submitted_at, CURRENT_TIMESTAMP),
-                auto_submitted_state = CASE WHEN ? THEN TRUE ELSE auto_submitted_state END,
+                auto_submitted_state = CASE WHEN ? THEN ? ELSE auto_submitted_state END,
                 updated_at = CURRENT_TIMESTAMP,
                 last_saved_at = CURRENT_TIMESTAMP
             WHERE assignment_id = ?
               AND organization_id = ?
               AND module_id = ?
               AND user_id = ?
-              AND submitted_state = FALSE
+              AND submitted_state = 0
             RETURNING assignment_id
             """,
-            (timed_out, assignment_id, user["organization_id"], module_id, user["user_id"]),
+            (
+                SUBMITTED_STATE_SUBMITTED,
+                timed_out,
+                SUBMITTED_STATE_SUBMITTED,
+                assignment_id,
+                user["organization_id"],
+                module_id,
+                user["user_id"],
+            ),
         )
         if not submission_lock:
             scenario_logger.info("Skipping duplicate submission attempt.")
