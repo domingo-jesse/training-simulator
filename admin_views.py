@@ -1426,45 +1426,54 @@ def _render_review_layout_styles() -> None:
         """
         <style>
             .review-shell {
-                max-width: 760px;
+                max-width: 920px;
                 margin: 0 auto;
+                padding: 0.25rem 0.25rem 0.4rem;
             }
             .review-section {
-                margin-bottom: 0.9rem;
+                margin-bottom: 1.45rem;
             }
             .review-section-title {
-                font-size: 1.06rem;
-                font-weight: 700;
+                display: flex;
+                align-items: center;
+                gap: 0.55rem;
+                font-size: 1.4rem;
+                font-weight: 800;
                 color: #101828;
-                margin-bottom: 0.3rem;
-                padding-bottom: 0.3rem;
-                border-bottom: 1px solid #eaecf0;
+                margin-bottom: 0.65rem;
+                padding-bottom: 0.65rem;
+                border-bottom: 1px solid #dfe3e8;
+                line-height: 1.2;
+            }
+            .review-section-icon {
+                font-size: 1.2rem;
+                line-height: 1;
             }
             .review-row {
                 display: grid;
-                grid-template-columns: 190px minmax(0, 1fr);
-                gap: 0.5rem;
-                padding: 0.12rem 0;
+                grid-template-columns: 205px minmax(0, 1fr);
+                gap: 0.75rem;
+                padding: 0.18rem 0;
                 align-items: start;
             }
             .review-label {
                 color: #667085;
-                font-size: 0.83rem;
+                font-size: 0.84rem;
                 font-weight: 600;
-                line-height: 1.3;
+                line-height: 1.35;
             }
             .review-value {
                 color: #101828;
-                font-size: 0.88rem;
-                font-weight: 500;
-                line-height: 1.3;
+                font-size: 0.97rem;
+                font-weight: 600;
+                line-height: 1.4;
                 word-break: break-word;
             }
             .review-badge {
                 display: inline-block;
                 border-radius: 999px;
-                padding: 0.12rem 0.55rem;
-                font-size: 0.75rem;
+                padding: 0.15rem 0.62rem;
+                font-size: 0.76rem;
                 font-weight: 700;
                 border: 1px solid transparent;
             }
@@ -1517,13 +1526,14 @@ def _render_review_value_html(label: str, value: object) -> str:
         tone = "yes" if is_yes else "no"
         text = "Yes" if is_yes else "No"
         return f"<span class='review-badge review-badge-{tone}'>{text}</span>"
+    if label == "Estimated Time" and normalized != "Not provided":
+        return f"<span class='review-value-strong'>{escape(normalized)} minutes</span>"
     if label in {"Estimated Time (minutes)", "Question Count"} and normalized != "Not provided":
         return f"<span class='review-value-strong'>{escape(normalized)}</span>"
     return "<br>".join(escape(line) for line in normalized.splitlines())
 
 
 def _render_review_section(title: str, fields: list[tuple[str, object]], icon: str = "") -> None:
-    _ = icon
     rows_html: list[str] = []
     for label, raw_value in fields:
         rows_html.append(
@@ -1532,9 +1542,10 @@ def _render_review_section(title: str, fields: list[tuple[str, object]], icon: s
             f"<div class='review-value'>{_render_review_value_html(label, raw_value)}</div>"
             "</div>"
         )
+    icon_html = f"<span class='review-section-icon'>{escape(icon)}</span>" if icon else ""
     st.markdown(
         "<div class='review-section'>"
-        f"<div class='review-section-title'>{escape(title)}</div>"
+        f"<div class='review-section-title'>{icon_html}<span>{escape(title)}</span></div>"
         f"{''.join(rows_html)}"
         "</div>",
         unsafe_allow_html=True,
@@ -1551,6 +1562,7 @@ def _render_module_review_summary(module_values: dict) -> None:
             ("Category", module_values.get("category")),
             ("Difficulty", module_values.get("difficulty")),
         ],
+        icon="📌",
     )
     _render_review_section(
         "Module Details",
@@ -1559,6 +1571,7 @@ def _render_module_review_summary(module_values: dict) -> None:
             ("Test Focus", module_values.get("test_focus")),
             ("Description", module_values.get("description")),
         ],
+        icon="🧭",
     )
     _render_review_section(
         "Learning Content",
@@ -1568,14 +1581,16 @@ def _render_module_review_summary(module_values: dict) -> None:
             ("Content Sections", module_values.get("content_sections")),
             ("Completion Requirements", module_values.get("completion_requirements")),
         ],
+        icon="📚",
     )
     _render_review_section(
         "Assessment",
         [
             ("Quiz Required", module_values.get("quiz_required")),
-            ("Estimated Time (minutes)", module_values.get("estimated_minutes")),
+            ("Estimated Time", module_values.get("estimated_minutes")),
             ("Question Count", module_values.get("question_count")),
         ],
+        icon="✅",
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
