@@ -2243,54 +2243,77 @@ def render_module_builder(current_user: dict) -> None:
                     max-width: 1320px;
                     padding-top: 1.5rem;
                     padding-bottom: 2rem;
+                    padding-left: 1.5rem;
+                    padding-right: 1.5rem;
                 }
                 .review-page-title {
-                    font-size: 1.6rem;
+                    font-size: 1.8rem;
                     font-weight: 700;
-                    margin-bottom: 1rem;
+                    margin-bottom: 1.15rem;
+                }
+                .review-section {
+                    margin-bottom: 1.35rem;
+                }
+                .review-section-inner {
+                    border: 1px solid rgba(120, 120, 140, 0.2);
+                    border-radius: 12px;
+                    padding: 1rem 1.1rem;
+                    background: rgba(130, 130, 150, 0.04);
                 }
                 .review-section-title {
-                    font-size: 1.15rem;
+                    font-size: 1.22rem;
                     font-weight: 700;
-                    margin: 0.2rem 0 0.8rem 0;
+                    margin: 0 0 0.9rem 0;
                 }
                 .review-value-row {
-                    margin-bottom: 0.55rem;
+                    margin-bottom: 0.65rem;
                     line-height: 1.5;
                 }
                 .review-value-row b {
                     font-weight: 700;
+                }
+                .review-scenario-title {
+                    font-size: 1.5rem;
+                    line-height: 1.35;
+                    font-weight: 700;
+                    margin: 0 0 0.8rem 0;
                 }
                 .review-summary-panel {
                     position: sticky;
                     top: 1rem;
                     border: 1px solid rgba(120, 120, 140, 0.22);
                     border-radius: 12px;
-                    background: rgba(130, 130, 150, 0.08);
-                    padding: 1rem 1.1rem;
+                    background: rgba(130, 130, 150, 0.1);
+                    padding: 1rem 1.05rem;
                 }
                 .review-summary-title {
-                    font-size: 1rem;
+                    font-size: 1.05rem;
                     font-weight: 700;
-                    margin-bottom: 0.75rem;
+                    margin-bottom: 0.85rem;
+                }
+                .review-questions-section {
+                    margin-top: 1.1rem;
+                    border-top: 1px solid rgba(120, 120, 140, 0.18);
+                    padding-top: 1rem;
                 }
                 .review-question-block {
-                    padding: 0.75rem 0 1rem 0;
+                    padding: 0.9rem 0 1.15rem 0;
                     border-bottom: 1px solid rgba(120, 120, 140, 0.22);
                 }
                 .review-question-title {
-                    font-size: 1rem;
+                    font-size: 1.05rem;
                     font-weight: 700;
-                    margin-bottom: 0.4rem;
+                    margin-bottom: 0.45rem;
                 }
                 .review-question-text {
-                    font-size: 1.05rem;
-                    margin-bottom: 0.6rem;
+                    font-size: 1.12rem;
+                    line-height: 1.45;
+                    margin-bottom: 0.65rem;
                 }
                 .review-muted-empty {
                     text-align: center;
                     color: rgba(120, 120, 140, 0.95);
-                    padding: 1.4rem 0;
+                    padding: 1.75rem 0;
                 }
                 .review-highlight-answer {
                     background: rgba(64, 145, 108, 0.12);
@@ -2362,18 +2385,21 @@ def render_module_builder(current_user: dict) -> None:
             primary_col, summary_col = st.columns([7, 3], gap="large")
 
             with primary_col:
+                st.markdown("<div class='review-section'><div class='review-section-inner'>", unsafe_allow_html=True)
                 st.markdown("<div class='review-section-title'>Scenario Overview</div>", unsafe_allow_html=True)
-                st.markdown(f"### {_normalize_text(scenario_title) or 'Untitled'}")
+                st.markdown(f"<div class='review-scenario-title'>{_normalize_text(scenario_title) or 'Untitled'}</div>", unsafe_allow_html=True)
                 _review_value_row("Category", run.get("input_category") or "General")
                 _review_value_row("Difficulty", run.get("input_difficulty") or "Beginner")
                 _review_value_row("Target Role / Audience", run.get("role_focus"), fallback="Not specified.")
+                st.markdown("</div></div>", unsafe_allow_html=True)
 
-                st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='review-section'><div class='review-section-inner'>", unsafe_allow_html=True)
                 st.markdown("<div class='review-section-title'>Scenario Content</div>", unsafe_allow_html=True)
                 _review_value_row("Scenario Summary", scenario_summary, fallback="No summary provided.")
                 _review_value_row("Scenario Context", scenario_context, fallback="No scenario context provided.")
+                st.markdown("</div></div>", unsafe_allow_html=True)
 
-                st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='review-section'><div class='review-section-inner'>", unsafe_allow_html=True)
                 st.markdown("<div class='review-section-title'>Learning Setup</div>", unsafe_allow_html=True)
                 st.markdown("**Learning Objectives:**")
                 if learning_objectives:
@@ -2383,6 +2409,7 @@ def render_module_builder(current_user: dict) -> None:
                     st.write("No learning objectives provided.")
                 _review_value_row("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
                 _review_value_row("Time Limit", f"{estimated_minutes} minutes")
+                st.markdown("</div></div>", unsafe_allow_html=True)
 
             with summary_col:
                 st.markdown("<div class='review-summary-panel'>", unsafe_allow_html=True)
@@ -2394,7 +2421,7 @@ def render_module_builder(current_user: dict) -> None:
                 _review_value_row("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
                 st.markdown("</div>", unsafe_allow_html=True)
 
-            st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+            st.markdown("<div class='review-questions-section'>", unsafe_allow_html=True)
             st.markdown("<div class='review-section-title'>Questions Review</div>", unsafe_allow_html=True)
             if reviewed_questions:
                 for idx, question in enumerate(reviewed_questions, start=1):
@@ -2404,6 +2431,7 @@ def render_module_builder(current_user: dict) -> None:
                     "<div class='review-muted-empty'>No questions have been generated or added yet.</div>",
                     unsafe_allow_html=True,
                 )
+            st.markdown("</div>", unsafe_allow_html=True)
 
         approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
         total_review_steps = 4
