@@ -1426,42 +1426,38 @@ def _render_review_layout_styles() -> None:
         """
         <style>
             .review-shell {
-                max-width: 980px;
+                max-width: 760px;
                 margin: 0 auto;
             }
-            .review-card {
-                background: #fcfdff;
-                border: 1px solid #e4e7ec;
-                border-radius: 12px;
-                padding: 0.75rem 0.9rem;
-                min-height: 100%;
+            .review-section {
+                margin-bottom: 0.9rem;
             }
-            .review-card-title {
-                font-size: 1rem;
+            .review-section-title {
+                font-size: 1.06rem;
                 font-weight: 700;
                 color: #101828;
-                margin-bottom: 0.4rem;
-                padding-bottom: 0.35rem;
+                margin-bottom: 0.3rem;
+                padding-bottom: 0.3rem;
                 border-bottom: 1px solid #eaecf0;
             }
             .review-row {
                 display: grid;
-                grid-template-columns: 150px minmax(0, 1fr);
-                gap: 0.6rem;
-                padding: 0.2rem 0;
+                grid-template-columns: 190px minmax(0, 1fr);
+                gap: 0.5rem;
+                padding: 0.12rem 0;
                 align-items: start;
             }
             .review-label {
                 color: #667085;
-                font-size: 0.84rem;
+                font-size: 0.83rem;
                 font-weight: 600;
-                line-height: 1.35;
+                line-height: 1.3;
             }
             .review-value {
                 color: #101828;
-                font-size: 0.9rem;
+                font-size: 0.88rem;
                 font-weight: 500;
-                line-height: 1.4;
+                line-height: 1.3;
                 word-break: break-word;
             }
             .review-badge {
@@ -1527,7 +1523,7 @@ def _render_review_value_html(label: str, value: object) -> str:
 
 
 def _render_review_section(title: str, fields: list[tuple[str, object]], icon: str = "") -> None:
-    heading = f"{icon} {title}".strip()
+    _ = icon
     rows_html: list[str] = []
     for label, raw_value in fields:
         rows_html.append(
@@ -1537,8 +1533,8 @@ def _render_review_section(title: str, fields: list[tuple[str, object]], icon: s
             "</div>"
         )
     st.markdown(
-        "<div class='review-card'>"
-        f"<div class='review-card-title'>{escape(heading)}</div>"
+        "<div class='review-section'>"
+        f"<div class='review-section-title'>{escape(title)}</div>"
         f"{''.join(rows_html)}"
         "</div>",
         unsafe_allow_html=True,
@@ -1548,50 +1544,39 @@ def _render_review_section(title: str, fields: list[tuple[str, object]], icon: s
 def _render_module_review_summary(module_values: dict) -> None:
     _render_review_layout_styles()
     st.markdown("<div class='review-shell'>", unsafe_allow_html=True)
-    row_1_col_1, row_1_col_2 = st.columns(2, gap="small")
-    with row_1_col_1:
-        _render_review_section(
-            "Basic Info",
-            [
-                ("Title", module_values.get("title")),
-                ("Category", module_values.get("category")),
-                ("Difficulty", module_values.get("difficulty")),
-            ],
-            icon="🧩",
-        )
-    with row_1_col_2:
-        _render_review_section(
-            "Module Details",
-            [
-                ("Role Focus", module_values.get("role_focus")),
-                ("Test Focus", module_values.get("test_focus")),
-                ("Description", module_values.get("description")),
-            ],
-            icon="📘",
-        )
-
-    row_2_col_1, row_2_col_2 = st.columns(2, gap="small")
-    with row_2_col_1:
-        _render_review_section(
-            "Learning Content",
-            [
-                ("Learning Objectives", module_values.get("learning_objectives")),
-                ("Scenario Constraints", module_values.get("scenario_constraints")),
-                ("Content Sections", module_values.get("content_sections")),
-                ("Completion Requirements", module_values.get("completion_requirements")),
-            ],
-            icon="🧠",
-        )
-    with row_2_col_2:
-        _render_review_section(
-            "Assessment",
-            [
-                ("Quiz Required", module_values.get("quiz_required")),
-                ("Estimated Time (minutes)", module_values.get("estimated_minutes")),
-                ("Question Count", module_values.get("question_count")),
-            ],
-            icon="🧪",
-        )
+    _render_review_section(
+        "Basic Info",
+        [
+            ("Title", module_values.get("title")),
+            ("Category", module_values.get("category")),
+            ("Difficulty", module_values.get("difficulty")),
+        ],
+    )
+    _render_review_section(
+        "Module Details",
+        [
+            ("Role Focus", module_values.get("role_focus")),
+            ("Test Focus", module_values.get("test_focus")),
+            ("Description", module_values.get("description")),
+        ],
+    )
+    _render_review_section(
+        "Learning Content",
+        [
+            ("Learning Objectives", module_values.get("learning_objectives")),
+            ("Scenario Constraints", module_values.get("scenario_constraints")),
+            ("Content Sections", module_values.get("content_sections")),
+            ("Completion Requirements", module_values.get("completion_requirements")),
+        ],
+    )
+    _render_review_section(
+        "Assessment",
+        [
+            ("Quiz Required", module_values.get("quiz_required")),
+            ("Estimated Time (minutes)", module_values.get("estimated_minutes")),
+            ("Question Count", module_values.get("question_count")),
+        ],
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
 
