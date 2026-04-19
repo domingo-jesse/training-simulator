@@ -2238,12 +2238,81 @@ def render_module_builder(current_user: dict) -> None:
         else:
             with st.container(border=True):
                 st.markdown("##### Final Review and Save")
-                total_count = len(generated_questions)
-                st.write(f"**Scenario title:** {run.get('generated_title') or run.get('input_title') or 'Untitled'}")
-                st.write(f"**Scenario summary:** {run.get('generated_description') or run.get('input_description') or 'No summary yet.'}")
-                st.write(f"**Total question count:** {total_count}")
-                st.write(f"**Generated questions:** {len(non_custom_questions)}")
-                st.write(f"**Custom questions:** {len(custom_questions)}")
+
+                def _review_value(label: str, value: object, *, fallback: str = "—") -> None:
+                    normalized = _normalize_text(value)
+                    st.markdown(f"**{label}**")
+                    st.write(normalized or fallback)
+
+                def _question_type_label(value: str) -> str:
+                    return "Multiple Choice" if value == "multiple_choice" else "Open Text"
+
+                def _render_question_block(question: dict, display_index: int) -> None:
+                    question_id = question.get("generated_question_id")
+                    question_order = question.get("question_order") or display_index
+                    question_identity = str(question_id) if question_id is not None else f"temp_{run_id}_{question_order}_{display_index}"
+                    is_custom_question = (question.get("admin_feedback") or "") == "custom_question"
+                    qtext = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtext_{question_identity}", question.get("question_text") or "")
+                    qtype = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtype_{question_identity}", question.get("question_type") or "open_text")
+                    qoptions = st.session_state.get(f"{'custom_' if is_custom_question else ''}qoptions_{question_identity}", question.get("options_text") or "")
+                    qrationale = st.session_state.get(f"{'custom_' if is_custom_question else ''}qrationale_{question_identity}", question.get("rationale") or "")
+                    st.markdown(f"###### Question {display_index}")
+                    _review_value("Question text", qtext, fallback="No question text provided.")
+                    _review_value("Question type", _question_type_label(qtype))
+                    if qtype == "multiple_choice":
+                        option_lines = [line.strip() for line in _normalize_text(qoptions).splitlines() if line.strip()]
+                        st.markdown("**Answer options**")
+                        if option_lines:
+                            for option_idx, option in enumerate(option_lines, start=1):
+                                st.write(f"{option_idx}. {option}")
+                        else:
+                            st.write("No options provided.")
+                    _review_value("Correct answer", "See explanation / rubric below")
+                    _review_value("Explanation / rationale", qrationale, fallback="No rationale provided.")
+                    _review_value("Scoring / points", "N/A")
+                    st.divider()
+
+                scenario_title = st.session_state.get(f"scenario_title_{run_id}", run.get("generated_title") or run.get("input_title") or "Untitled")
+                scenario_summary = st.session_state.get(f"scenario_summary_{run_id}", run.get("generated_description") or run.get("input_description") or "")
+                scenario_context = st.session_state.get(f"scenario_context_{run_id}", run.get("generated_scenario_overview") or "")
+                learning_objectives_text = run.get("learning_objectives") or ""
+                learning_objectives = [line.strip() for line in learning_objectives_text.splitlines() if line.strip()]
+                reviewed_questions = list(generated_questions)
+                generated_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") != "custom_question"]
+                custom_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") == "custom_question"]
+                total_review_count = len(reviewed_questions)
+
+                _review_value("Scenario Title", scenario_title, fallback="Untitled")
+                _review_value("Category", run.get("input_category") or "General")
+                _review_value("Difficulty", run.get("input_difficulty") or "Beginner")
+                _review_value("Target Role / Audience", run.get("role_focus"), fallback="Not specified.")
+                _review_value("Scenario Summary", scenario_summary, fallback="No summary provided.")
+                _review_value("Scenario Context", scenario_context, fallback="No scenario context provided.")
+                st.markdown("**Learning Objectives**")
+                if learning_objectives:
+                    for objective in learning_objectives:
+                        st.write(f"- {objective}")
+                else:
+                    st.write("No learning objectives provided.")
+                _review_value("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
+                _review_value("Time Limit", f"{safe_int(run.get('input_estimated_minutes'), 20)} minutes")
+                _review_value("Question Count", str(total_review_count))
+                _review_value("Generated Questions", str(len(generated_review_questions)))
+                _review_value("Custom Questions", str(len(custom_review_questions)))
+
+                st.markdown("**Generated Questions**")
+                if generated_review_questions:
+                    for idx, question in enumerate(generated_review_questions, start=1):
+                        _render_question_block(question, idx)
+                else:
+                    st.info("No generated questions are available for this draft.")
+
+                st.markdown("**Custom Questions**")
+                if custom_review_questions:
+                    for idx, question in enumerate(custom_review_questions, start=len(generated_review_questions) + 1):
+                        _render_question_block(question, idx)
+                else:
+                    st.info("No custom questions have been added.")
 
         approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
         total_review_steps = 4
