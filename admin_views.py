@@ -1408,6 +1408,68 @@ def _has_session_text(key: str) -> bool:
     return bool(str(st.session_state.get(key, "")).strip())
 
 
+def _format_review_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "Yes" if value else "No"
+    text = _normalize_text(value)
+    if not text:
+        return "Not provided"
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    return "\n".join(lines) if lines else "Not provided"
+
+
+def _render_review_section(title: str, fields: list[tuple[str, object]]) -> None:
+    st.markdown(f"##### {title}")
+    with st.container(border=True):
+        left_col, right_col = st.columns(2)
+        for idx, (label, raw_value) in enumerate(fields):
+            value = _format_review_value(raw_value)
+            target_col = left_col if idx % 2 == 0 else right_col
+            with target_col:
+                st.markdown(f"**{label}**")
+                st.write(value)
+    st.divider()
+
+
+def _render_module_review_summary(module_values: dict) -> None:
+    _render_review_section(
+        "Basic Info",
+        [
+            ("Title", module_values.get("title")),
+            ("Category", module_values.get("category")),
+            ("Difficulty", module_values.get("difficulty")),
+        ],
+    )
+    _render_review_section(
+        "Module Details",
+        [
+            ("Role Focus", module_values.get("role_focus")),
+            ("Test Focus", module_values.get("test_focus")),
+            ("Description", module_values.get("description")),
+        ],
+    )
+    _render_review_section(
+        "Learning Content",
+        [
+            ("Learning Objectives", module_values.get("learning_objectives")),
+            ("Scenario Constraints", module_values.get("scenario_constraints")),
+            ("Content Sections", module_values.get("content_sections")),
+            ("Completion Requirements", module_values.get("completion_requirements")),
+        ],
+    )
+    st.markdown("##### Assessment")
+    with st.container(border=True):
+        left_col, right_col = st.columns(2)
+        with left_col:
+            st.markdown("**Quiz Required**")
+            st.write(_format_review_value(module_values.get("quiz_required")))
+            st.markdown("**Estimated Time (minutes)**")
+            st.write(_format_review_value(module_values.get("estimated_minutes")))
+        with right_col:
+            st.markdown("**Question Count**")
+            st.write(_format_review_value(module_values.get("question_count")))
+
+
 def _render_wizard_progress(step_index: int, total_steps: int, title: str) -> None:
     st.caption(f"Step {step_index + 1} of {total_steps}")
     st.progress((step_index + 1) / total_steps)
@@ -1653,7 +1715,7 @@ def render_module_builder(current_user: dict) -> None:
             else:
                 st.markdown("##### Review")
                 st.write("Please review your values before saving.")
-                st.json(module_form)
+                _render_module_review_summary(module_form)
                 required_fields = [
                     ("title", "Module title"),
                     ("category", "Category"),
@@ -2364,7 +2426,7 @@ def render_manage_modules(current_user: dict) -> None:
                 )
             elif edit_steps[edit_step]["field"] == "review":
                 st.markdown("##### Review")
-                st.json(edit_form)
+                _render_module_review_summary(edit_form)
                 missing_required = [
                     ("title", "Module title"),
                     ("description", "Description"),
