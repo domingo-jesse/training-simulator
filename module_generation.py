@@ -41,7 +41,7 @@ def _fallback_preview(payload: ModuleGenerationInput) -> dict[str, Any]:
     return {
         "title": payload.title or f"{payload.role_focus or 'Team'} Simulation",
         "description": payload.description
-        or "AI-assisted draft built from admin goals, objectives, and scenario constraints.",
+        or "AI-assisted preview built from admin goals, objectives, and scenario constraints.",
         "scenario_overview": (
             f"Learner acts as {payload.role_focus or 'a frontline operator'} and must satisfy: "
             f"{payload.test_focus or 'core operational goals'}. "
@@ -61,11 +61,11 @@ def _openai_headers(api_key: str) -> dict[str, str]:
 def generate_module_preview(payload: ModuleGenerationInput) -> tuple[dict[str, Any], str | None]:
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
-        return _fallback_preview(payload), "OPENAI_API_KEY is not configured, so a local fallback draft was generated."
+        return _fallback_preview(payload), "OPENAI_API_KEY is not configured, so a local fallback preview was generated."
 
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     prompt = (
-        "You are helping an LMS admin generate a training module draft. "
+        "You are helping an LMS admin generate a training module preview. "
         "Return strict JSON with keys: title, description, scenario_overview, questions. "
         "questions must be an array of objects with keys question and rationale. "
         "Generate exactly the requested number of questions, with practical scenario-based prompts.\n\n"
@@ -93,9 +93,9 @@ def generate_module_preview(payload: ModuleGenerationInput) -> tuple[dict[str, A
             raw = response.read().decode("utf-8")
         parsed = json.loads(raw)
         content = parsed["choices"][0]["message"]["content"]
-        draft = json.loads(content)
+        preview = json.loads(content)
 
-        questions = draft.get("questions") or []
+        questions = preview.get("questions") or []
         if not isinstance(questions, list):
             raise ValueError("questions must be a list")
 
@@ -118,12 +118,12 @@ def generate_module_preview(payload: ModuleGenerationInput) -> tuple[dict[str, A
             raise ValueError("OpenAI response did not include usable questions")
 
         output = {
-            "title": str(draft.get("title") or payload.title or "AI Draft Module").strip(),
-            "description": str(draft.get("description") or payload.description or "").strip(),
-            "scenario_overview": str(draft.get("scenario_overview") or "").strip(),
+            "title": str(preview.get("title") or payload.title or "AI Module").strip(),
+            "description": str(preview.get("description") or payload.description or "").strip(),
+            "scenario_overview": str(preview.get("scenario_overview") or "").strip(),
             "questions": safe_questions,
         }
         return output, None
     except (error.URLError, TimeoutError, KeyError, json.JSONDecodeError, ValueError):
         module_gen_logger.exception("Failed to generate module preview with OpenAI.")
-        return _fallback_preview(payload), "OpenAI call failed; a local fallback draft was generated."
+        return _fallback_preview(payload), "OpenAI call failed; a local fallback preview was generated."

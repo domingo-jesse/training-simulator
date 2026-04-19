@@ -108,7 +108,7 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
         WHERE a.learner_id = ?
           AND a.organization_id = ?
           AND a.is_active = TRUE
-          AND m.status = 'published'
+          AND COALESCE(m.status, 'existing') <> 'archived'
         ORDER BY a.assigned_at DESC
         """,
         (user_id, organization_id, user_id, organization_id),

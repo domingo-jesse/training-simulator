@@ -678,7 +678,7 @@ def _render_assignment_tool(current_user: dict) -> None:
         """,
         (org_id,),
     )
-    modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? ORDER BY title", (org_id,))
+    modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? AND COALESCE(status, 'existing') <> 'archived' ORDER BY title", (org_id,))
     if not learners:
         st.info("No learners available yet. Add or activate learners first.")
         return
@@ -1619,7 +1619,7 @@ def render_module_builder(current_user: dict) -> None:
     render_page_header("Module Builder", "Guided wizard for structured module generation and approval.")
 
     module_builder_current_step_key = "module_builder_current_step"
-    module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft", "Module completed"]
+    module_builder_phase_labels = ["Enter module goals", "Review and approve generated preview", "Module completed"]
     module_builder_completed_module_id_key = "module_builder_completed_module_id"
     module_builder_selected_run_id_key = "module_builder_selected_run_id"
     if module_builder_current_step_key not in st.session_state:
@@ -1919,7 +1919,7 @@ def render_module_builder(current_user: dict) -> None:
                                 scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
                                 input_estimated_minutes, generated_title, generated_description, generated_scenario_overview,
                                 generation_status, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'draft', CURRENT_TIMESTAMP)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
                             RETURNING run_id AS id
                             """,
                             (
@@ -1966,14 +1966,14 @@ def render_module_builder(current_user: dict) -> None:
                             st.warning(warning)
                         st.session_state[module_builder_current_step_key] = 2
                         st.session_state[module_builder_selected_run_id_key] = int(run_id)
-                        st.success("Draft generated. Continue to Step 2 to review and approve.")
+                        st.success("Preview generated. Continue to Step 2 to review and approve.")
                         st.session_state[module_builder_step_key] = 0
                         st.rerun()
                     except Exception as exc:
-                        st.error(f"Could not save module draft: {exc}")
+                        st.error(f"Could not save module preview: {exc}")
 
     elif current_step == 2:
-        st.markdown("#### Step 2: Review and approve generated draft")
+        st.markdown("#### Step 2: Review and approve generated preview")
 
         runs_df = to_df(
             fetch_all(
@@ -1986,7 +1986,7 @@ def render_module_builder(current_user: dict) -> None:
             )
         )
         if runs_df.empty:
-            st.info("No AI drafts yet. Complete Step 1 first.")
+            st.info("No AI previews yet. Complete Step 1 first.")
             return
 
         ordered_run_ids = [int(row["run_id"]) for _, row in runs_df.iterrows()]
@@ -1997,10 +1997,10 @@ def render_module_builder(current_user: dict) -> None:
         run_id = int(selected_run_id)
         run = fetch_one("SELECT * FROM module_generation_runs WHERE run_id = ? AND organization_id = ?", (run_id, org_id))
         if not run:
-            st.info("No accessible draft found for final review.")
+            st.info("No accessible preview found for final review.")
             return
         run_title = run.get("generated_title") or run.get("input_title") or "Untitled"
-        st.markdown(f"**Reviewing Draft:** {run_title}")
+        st.markdown(f"**Reviewing Preview:** {run_title}")
         generated_questions = fetch_all(
             """
             SELECT * FROM module_generation_questions
@@ -2038,7 +2038,7 @@ def render_module_builder(current_user: dict) -> None:
                 if scenario_context_key not in st.session_state:
                     st.session_state[scenario_context_key] = run.get("generated_scenario_overview") or ""
                 if run_status_key not in st.session_state:
-                    initial_status = run.get("generation_status", "draft")
+                    initial_status = run.get("generation_status", "pending")
                     st.session_state[run_status_key] = initial_status if initial_status in {"approved", "denied", "pending"} else "pending"
 
                 st.text_input("Scenario title", key=run_title_key)
@@ -2079,7 +2079,7 @@ def render_module_builder(current_user: dict) -> None:
             with st.container(border=True):
                 st.markdown("##### Review Generated Questions")
                 if not non_custom_questions:
-                    st.info("No generated questions remain in this draft. Continue to the next step or add custom questions.")
+                    st.info("No generated questions remain in this preview. Continue to the next step or add custom questions.")
                 else:
                     for idx, q in enumerate(non_custom_questions, start=1):
                         question_id = q.get("generated_question_id")
@@ -2504,11 +2504,11 @@ def render_module_builder(current_user: dict) -> None:
                             title, category, difficulty, description, estimated_time,
                             scenario_context, organization_id, status, learning_objectives, content_sections,
                             completion_requirements, quiz_required, created_by, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'existing', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
                         RETURNING module_id AS id
                         """,
                         (
-                            run.get("generated_title") or run.get("input_title") or "AI Draft Module",
+                            run.get("generated_title") or run.get("input_title") or "AI Module",
                             run.get("input_category") or "General",
                             run.get("input_difficulty") or "Beginner",
                             run.get("generated_description") or run.get("input_description") or "",
@@ -2593,205 +2593,208 @@ def render_module_builder(current_user: dict) -> None:
 def render_manage_modules(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     st.subheader("Manage Modules")
-    st.caption("Browse your module library, then edit the selected module in a focused workflow.")
+    st.caption("Browse existing and archived modules in separate tabs, then edit a selected module.")
 
-    modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ? ORDER BY updated_at DESC", (org_id,)))
+    modules_df = to_df(
+        fetch_all(
+            """
+            SELECT *
+            FROM modules
+            WHERE organization_id = ?
+            ORDER BY updated_at DESC
+            """,
+            (org_id,),
+        )
+    )
     if modules_df.empty:
         st.info("No modules yet.")
         return
 
-    st.markdown("### Existing Modules")
-    with st.container(border=True):
-        library_df = modules_df[["module_id", "title", "status", "difficulty", "updated_at"]].copy()
-        if "updated_at" in library_df.columns:
-            library_df["updated_at"] = library_df["updated_at"].apply(_format_datetime_for_admin_grid)
-        _, selected_module_ids = render_admin_selection_table(
-            library_df,
-            row_id_col="module_id",
-            selection_state_key="manage_modules_selected_module_id",
-            table_key="manage_modules_data_editor",
-            selection_label="Select",
-            selection_help="Select the module you want to edit.",
-            single_select=True,
-            height=450,
+    modules_df["status"] = modules_df["status"].fillna("existing").astype(str).str.lower()
+    modules_df.loc[~modules_df["status"].isin(["existing", "archived"]), "status"] = "existing"
+
+    def _render_module_management_tab(tab_df: pd.DataFrame, tab_label: str, state_prefix: str) -> None:
+        if tab_df.empty:
+            st.info(f"No modules in {tab_label.lower()}.")
+            return
+
+        with st.container(border=True):
+            library_df = tab_df[["module_id", "title", "status", "difficulty", "updated_at"]].copy()
+            if "updated_at" in library_df.columns:
+                library_df["updated_at"] = library_df["updated_at"].apply(_format_datetime_for_admin_grid)
+            _, selected_module_ids = render_admin_selection_table(
+                library_df,
+                row_id_col="module_id",
+                selection_state_key=f"manage_modules_selected_module_id_{state_prefix}",
+                table_key=f"manage_modules_data_editor_{state_prefix}",
+                selection_label="Select",
+                selection_help="Select the module you want to edit.",
+                single_select=True,
+                height=400,
+            )
+
+        if not selected_module_ids:
+            fallback_module_id = int(tab_df.iloc[0]["module_id"])
+            st.session_state[f"manage_modules_selected_module_id_{state_prefix}"] = fallback_module_id
+            selected_module_ids = [fallback_module_id]
+
+        module_id = int(selected_module_ids[0])
+        module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+        module_questions = fetch_all(
+            "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
+            (module_id,),
         )
-    if not selected_module_ids:
-        fallback_module_id = int(modules_df.iloc[0]["module_id"])
-        st.session_state["manage_modules_selected_module_id"] = fallback_module_id
-        selected_module_ids = [fallback_module_id]
-    module_id = int(selected_module_ids[0])
-    module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
-    module_questions = fetch_all(
-        "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
-        (module_id,),
-    )
 
-    st.markdown("### Edit Selected Module")
-    with st.container(border=True):
-        st.markdown(f"**Editing:** {module.get('title') or 'Untitled module'}")
-        meta_col_1, meta_col_2, meta_col_3, meta_col_4 = st.columns(4)
-        meta_col_1.metric("Module ID", int(module["module_id"]))
-        meta_col_2.metric("Status", str(module.get("status") or "draft").title())
-        meta_col_3.metric("Difficulty", str(module.get("difficulty") or "Not set").title())
-        meta_col_4.metric("Questions", len(module_questions))
-        st.caption(f"Last updated: {_format_datetime_for_admin_grid(module.get('updated_at'))}")
+        st.markdown("### Edit Selected Module")
+        with st.container(border=True):
+            st.markdown(f"**Editing:** {module.get('title') or 'Untitled module'}")
+            meta_col_1, meta_col_2, meta_col_3, meta_col_4 = st.columns(4)
+            meta_col_1.metric("Module ID", int(module["module_id"]))
+            meta_col_2.metric("State", "Archived" if str(module.get("status") or "existing").lower() == "archived" else "Existing")
+            meta_col_3.metric("Difficulty", str(module.get("difficulty") or "Not set").title())
+            meta_col_4.metric("Questions", len(module_questions))
+            st.caption(f"Last updated: {_format_datetime_for_admin_grid(module.get('updated_at'))}")
 
-    edit_form_key = f"edit_module_form_{module_id}"
-    edit_step_key = f"edit_module_step_{module_id}"
-    selected_module_tracker = "edit_module_selected_module_id"
-    if st.session_state.get(selected_module_tracker) != module_id:
-        st.session_state[selected_module_tracker] = module_id
-        st.session_state[edit_form_key] = {
-            "title": module["title"] or "",
-            "description": module["description"] or "",
-            "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
-            "learning_objectives": module["learning_objectives"] or "",
-            "content_sections": module["content_sections"] or "",
-            "completion_requirements": module["completion_requirements"] or "",
-            "quiz_required": bool(module["quiz_required"]),
-        }
-        st.session_state[edit_step_key] = 0
-    if edit_form_key not in st.session_state:
-        st.session_state[edit_form_key] = {
-            "title": module["title"] or "",
-            "description": module["description"] or "",
-            "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
-            "learning_objectives": module["learning_objectives"] or "",
-            "content_sections": module["content_sections"] or "",
-            "completion_requirements": module["completion_requirements"] or "",
-            "quiz_required": bool(module["quiz_required"]),
-        }
-    if edit_step_key not in st.session_state:
-        st.session_state[edit_step_key] = 0
+        edit_form_key = f"edit_module_form_{state_prefix}_{module_id}"
+        edit_step_key = f"edit_module_step_{state_prefix}_{module_id}"
+        selected_module_tracker = f"edit_module_selected_module_id_{state_prefix}"
+        if st.session_state.get(selected_module_tracker) != module_id:
+            st.session_state[selected_module_tracker] = module_id
+            st.session_state[edit_form_key] = {
+                "title": module["title"] or "",
+                "description": module["description"] or "",
+                "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
+                "learning_objectives": module["learning_objectives"] or "",
+                "content_sections": module["content_sections"] or "",
+                "completion_requirements": module["completion_requirements"] or "",
+                "quiz_required": bool(module["quiz_required"]),
+            }
+            st.session_state[edit_step_key] = 0
+        if edit_form_key not in st.session_state:
+            st.session_state[edit_form_key] = {
+                "title": module["title"] or "",
+                "description": module["description"] or "",
+                "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
+                "learning_objectives": module["learning_objectives"] or "",
+                "content_sections": module["content_sections"] or "",
+                "completion_requirements": module["completion_requirements"] or "",
+                "quiz_required": bool(module["quiz_required"]),
+            }
+        if edit_step_key not in st.session_state:
+            st.session_state[edit_step_key] = 0
 
-    edit_steps = [
-        {"title": "Module title", "field": "title"},
-        {"title": "Description", "field": "description"},
-        {"title": "Learning objectives", "field": "learning_objectives"},
-        {"title": "Ordered content sections", "field": "content_sections"},
-        {"title": "Completion requirements", "field": "completion_requirements"},
-        {"title": "Assessment settings", "field": "assessment"},
-        {"title": "Review and save", "field": "review"},
-    ]
-    edit_form = st.session_state[edit_form_key]
-    edit_step = int(st.session_state[edit_step_key])
-    st.markdown("### Module Editor")
-    with st.container(border=True):
-        _, editor_col, _ = st.columns([0.12, 0.76, 0.12])
-        with editor_col:
-            _render_wizard_progress(edit_step, len(edit_steps), edit_steps[edit_step]["title"])
+        edit_steps = [
+            {"title": "Module title", "field": "title"},
+            {"title": "Description", "field": "description"},
+            {"title": "Learning objectives", "field": "learning_objectives"},
+            {"title": "Ordered content sections", "field": "content_sections"},
+            {"title": "Completion requirements", "field": "completion_requirements"},
+            {"title": "Assessment settings", "field": "assessment"},
+            {"title": "Review and save", "field": "review"},
+        ]
+        edit_form = st.session_state[edit_form_key]
+        edit_step = int(st.session_state[edit_step_key])
+        st.markdown("### Module Editor")
+        with st.container(border=True):
+            _, editor_col, _ = st.columns([0.12, 0.76, 0.12])
+            with editor_col:
+                _render_wizard_progress(edit_step, len(edit_steps), edit_steps[edit_step]["title"])
 
-            edit_step_valid = True
-            edit_required_message = ""
-            if edit_steps[edit_step]["field"] == "title":
-                title_key = f"edit_module_title_{module_id}"
-                if title_key not in st.session_state:
-                    st.session_state[title_key] = edit_form["title"]
-                st.text_input("Title", key=title_key)
-                edit_form["title"] = st.session_state.get(title_key, "")
-                edit_step_valid = _has_session_text(title_key)
-                edit_required_message = "Title is required."
-            elif edit_steps[edit_step]["field"] == "description":
-                description_key = f"edit_module_description_{module_id}"
-                if description_key not in st.session_state:
-                    st.session_state[description_key] = edit_form["description"]
-                st.text_area("Description", key=description_key)
-                edit_form["description"] = st.session_state.get(description_key, "")
-                edit_step_valid = _has_session_text(description_key)
-                edit_required_message = "Description is required."
-            elif edit_steps[edit_step]["field"] == "learning_objectives":
-                objectives_key = f"edit_module_objectives_{module_id}"
-                if objectives_key not in st.session_state:
-                    st.session_state[objectives_key] = edit_form["learning_objectives"]
-                st.text_area(
-                    "Learning objectives",
-                    key=objectives_key,
-                )
-                edit_form["learning_objectives"] = st.session_state.get(objectives_key, "")
-                edit_step_valid = _has_session_text(objectives_key)
-                edit_required_message = "Learning objectives are required."
-            elif edit_steps[edit_step]["field"] == "content_sections":
-                sections_key = f"edit_module_sections_{module_id}"
-                if sections_key not in st.session_state:
-                    st.session_state[sections_key] = edit_form["content_sections"]
-                st.text_area(
-                    "Ordered content sections",
-                    key=sections_key,
-                )
-                edit_form["content_sections"] = st.session_state.get(sections_key, "")
-                edit_step_valid = _has_session_text(sections_key)
-                edit_required_message = "Ordered content sections are required."
-            elif edit_steps[edit_step]["field"] == "completion_requirements":
-                requirements_key = f"edit_module_requirements_{module_id}"
-                if requirements_key not in st.session_state:
-                    st.session_state[requirements_key] = edit_form["completion_requirements"]
-                st.text_area(
-                    "Completion requirements",
-                    key=requirements_key,
-                )
-                edit_form["completion_requirements"] = st.session_state.get(requirements_key, "")
-                edit_step_valid = _has_session_text(requirements_key)
-                edit_required_message = "Completion requirements are required."
-            elif edit_steps[edit_step]["field"] == "assessment":
-                edit_form["estimated_minutes"] = int(
-                    st.number_input(
-                        "Estimated assessment time (minutes)",
-                        min_value=1,
-                        max_value=240,
-                        value=int(edit_form["estimated_minutes"]),
-                        step=1,
-                        key=f"edit_module_minutes_{module_id}",
+                edit_step_valid = True
+                edit_required_message = ""
+                if edit_steps[edit_step]["field"] == "title":
+                    title_key = f"edit_module_title_{state_prefix}_{module_id}"
+                    if title_key not in st.session_state:
+                        st.session_state[title_key] = edit_form["title"]
+                    st.text_input("Title", key=title_key)
+                    edit_form["title"] = st.session_state.get(title_key, "")
+                    edit_step_valid = _has_session_text(title_key)
+                    edit_required_message = "Title is required."
+                elif edit_steps[edit_step]["field"] == "description":
+                    description_key = f"edit_module_description_{state_prefix}_{module_id}"
+                    if description_key not in st.session_state:
+                        st.session_state[description_key] = edit_form["description"]
+                    st.text_area("Description", key=description_key)
+                    edit_form["description"] = st.session_state.get(description_key, "")
+                    edit_step_valid = _has_session_text(description_key)
+                    edit_required_message = "Description is required."
+                elif edit_steps[edit_step]["field"] == "learning_objectives":
+                    objectives_key = f"edit_module_objectives_{state_prefix}_{module_id}"
+                    if objectives_key not in st.session_state:
+                        st.session_state[objectives_key] = edit_form["learning_objectives"]
+                    st.text_area("Learning objectives", key=objectives_key)
+                    edit_form["learning_objectives"] = st.session_state.get(objectives_key, "")
+                    edit_step_valid = _has_session_text(objectives_key)
+                    edit_required_message = "Learning objectives are required."
+                elif edit_steps[edit_step]["field"] == "content_sections":
+                    sections_key = f"edit_module_sections_{state_prefix}_{module_id}"
+                    if sections_key not in st.session_state:
+                        st.session_state[sections_key] = edit_form["content_sections"]
+                    st.text_area("Ordered content sections", key=sections_key)
+                    edit_form["content_sections"] = st.session_state.get(sections_key, "")
+                    edit_step_valid = _has_session_text(sections_key)
+                    edit_required_message = "Ordered content sections are required."
+                elif edit_steps[edit_step]["field"] == "completion_requirements":
+                    requirements_key = f"edit_module_requirements_{state_prefix}_{module_id}"
+                    if requirements_key not in st.session_state:
+                        st.session_state[requirements_key] = edit_form["completion_requirements"]
+                    st.text_area("Completion requirements", key=requirements_key)
+                    edit_form["completion_requirements"] = st.session_state.get(requirements_key, "")
+                    edit_step_valid = _has_session_text(requirements_key)
+                    edit_required_message = "Completion requirements are required."
+                elif edit_steps[edit_step]["field"] == "assessment":
+                    edit_form["estimated_minutes"] = int(
+                        st.number_input(
+                            "Estimated assessment time (minutes)",
+                            min_value=1,
+                            max_value=240,
+                            value=int(edit_form["estimated_minutes"]),
+                            step=1,
+                            key=f"edit_module_minutes_{state_prefix}_{module_id}",
+                        )
                     )
-                )
-                edit_form["quiz_required"] = st.checkbox(
-                    "Quiz required",
-                    value=bool(edit_form["quiz_required"]),
-                    key=f"edit_module_quiz_required_{module_id}",
-                )
-            elif edit_steps[edit_step]["field"] == "review":
-                st.markdown("##### Review")
-                _render_module_review_summary(edit_form)
-                missing_required = [
-                    ("title", "Module title"),
-                    ("description", "Description"),
-                    ("learning_objectives", "Learning objectives"),
-                    ("content_sections", "Ordered content sections"),
-                    ("completion_requirements", "Completion requirements"),
-                ]
-                missing_labels = [label for field, label in missing_required if not _is_present(edit_form.get(field))]
-                edit_step_valid = not missing_labels
-                if missing_labels:
-                    st.error("Please complete these items before saving: " + ", ".join(missing_labels) + ".")
+                    edit_form["quiz_required"] = st.checkbox(
+                        "Quiz required",
+                        value=bool(edit_form["quiz_required"]),
+                        key=f"edit_module_quiz_required_{state_prefix}_{module_id}",
+                    )
+                elif edit_steps[edit_step]["field"] == "review":
+                    st.markdown("##### Review")
+                    _render_module_review_summary(edit_form)
+                    missing_required = [
+                        ("title", "Module title"),
+                        ("description", "Description"),
+                        ("learning_objectives", "Learning objectives"),
+                        ("content_sections", "Ordered content sections"),
+                        ("completion_requirements", "Completion requirements"),
+                    ]
+                    missing_labels = [label for field, label in missing_required if not _is_present(edit_form.get(field))]
+                    edit_step_valid = not missing_labels
+                    if missing_labels:
+                        st.error("Please complete these items before saving: " + ", ".join(missing_labels) + ".")
 
-            if not edit_step_valid and edit_required_message and edit_steps[edit_step]["field"] != "review":
-                st.error(edit_required_message)
+                if not edit_step_valid and edit_required_message and edit_steps[edit_step]["field"] != "review":
+                    st.error(edit_required_message)
 
-            nav_cols = st.columns([1, 1]) if edit_steps[edit_step]["field"] == "review" else st.columns([1.2, 1.2, 2.2])
-            with nav_cols[0]:
-                if st.button("⬅ Previous", key=f"edit_module_previous_{module_id}", disabled=edit_step == 0, use_container_width=True):
-                    st.session_state[edit_step_key] = max(0, edit_step - 1)
-                    st.rerun()
-            if edit_steps[edit_step]["field"] != "review":
-                with nav_cols[1]:
-                    if edit_step < len(edit_steps) - 2:
-                        if st.button("Next", key=f"edit_module_next_{module_id}", use_container_width=True):
-                            st.session_state[edit_step_key] = edit_step + 1
-                            st.rerun()
-                    elif edit_step == len(edit_steps) - 2:
-                        if st.button("Next", key=f"edit_module_review_{module_id}", use_container_width=True):
-                            st.session_state[edit_step_key] = edit_step + 1
-                            st.rerun()
-            save_col_index = 1 if edit_steps[edit_step]["field"] == "review" else 2
-            with nav_cols[save_col_index]:
-                if edit_step == len(edit_steps) - 1:
-                    if st.button(
-                        "Save Module",
-                        key=f"edit_module_save_{module_id}",
-                        type="primary",
-                        disabled=not edit_step_valid,
-                        use_container_width=True,
-                    ):
-                        try:
+                nav_cols = st.columns([1, 1]) if edit_steps[edit_step]["field"] == "review" else st.columns([1.2, 1.2, 2.2])
+                with nav_cols[0]:
+                    if st.button("⬅ Previous", key=f"edit_module_previous_{state_prefix}_{module_id}", disabled=edit_step == 0, use_container_width=True):
+                        st.session_state[edit_step_key] = max(0, edit_step - 1)
+                        st.rerun()
+                if edit_steps[edit_step]["field"] != "review":
+                    with nav_cols[1]:
+                        if edit_step < len(edit_steps) - 2:
+                            if st.button("Next", key=f"edit_module_next_{state_prefix}_{module_id}", use_container_width=True):
+                                st.session_state[edit_step_key] = edit_step + 1
+                                st.rerun()
+                        elif edit_step == len(edit_steps) - 2:
+                            if st.button("Next", key=f"edit_module_review_{state_prefix}_{module_id}", use_container_width=True):
+                                st.session_state[edit_step_key] = edit_step + 1
+                                st.rerun()
+                save_col_index = 1 if edit_steps[edit_step]["field"] == "review" else 2
+                with nav_cols[save_col_index]:
+                    if edit_step == len(edit_steps) - 1:
+                        if st.button("Save Module", key=f"edit_module_save_{state_prefix}_{module_id}", type="primary", disabled=not edit_step_valid, use_container_width=True):
                             execute(
                                 """
                                 UPDATE modules
@@ -2814,89 +2817,88 @@ def render_manage_modules(current_user: dict) -> None:
                             st.success("Module updated.")
                             st.session_state[edit_step_key] = 0
                             st.rerun()
-                        except Exception as exc:
-                            st.error(f"Failed to save module: {exc}")
 
-            st.markdown("---")
-            st.markdown("##### Assessment questions")
-            for question in module_questions:
-                with st.container(border=True):
-                    st.markdown(f"**Q{question['question_order']}.** {question['question_text']}")
-                    st.caption(f"Type: {'Multiple choice' if question.get('question_type') == 'multiple_choice' else 'Open text'}")
-                    if question.get("question_type") == "multiple_choice" and question.get("options_text"):
-                        for option in [line.strip() for line in str(question.get("options_text", "")).splitlines() if line.strip()]:
-                            st.write(f"- {option}")
-                    if st.button(f"Delete question {question['question_order']}", key=f"delete_module_q_{question['question_id']}"):
-                        execute("DELETE FROM module_questions WHERE question_id = ?", (question["question_id"],))
-                        st.success("Question deleted.")
+                st.markdown("---")
+                st.markdown("##### Assessment questions")
+                for question in module_questions:
+                    with st.container(border=True):
+                        st.markdown(f"**Q{question['question_order']}.** {question['question_text']}")
+                        st.caption(f"Type: {'Multiple choice' if question.get('question_type') == 'multiple_choice' else 'Open text'}")
+                        if question.get("question_type") == "multiple_choice" and question.get("options_text"):
+                            for option in [line.strip() for line in str(question.get("options_text", "")).splitlines() if line.strip()]:
+                                st.write(f"- {option}")
+                        if st.button(f"Delete question {question['question_order']}", key=f"delete_module_q_{state_prefix}_{question['question_id']}"):
+                            execute("DELETE FROM module_questions WHERE question_id = ?", (question["question_id"],))
+                            st.success("Question deleted.")
+                            st.rerun()
+
+                with st.form(f"add_module_question_{state_prefix}_{module_id}"):
+                    st.markdown("Add question")
+                    add_question_text = st.text_area("Question", key=f"add_question_text_{state_prefix}_{module_id}")
+                    add_question_type = st.selectbox("Type", ["open_text", "multiple_choice"], key=f"add_question_type_{state_prefix}_{module_id}")
+                    add_question_options = st.text_area(
+                        "Multiple choice options (one per line)",
+                        key=f"add_question_options_{state_prefix}_{module_id}",
+                        disabled=add_question_type != "multiple_choice",
+                    )
+                    add_question_submit = st.form_submit_button("Add module question")
+                    if add_question_submit:
+                        max_order_row = fetch_one("SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_questions WHERE module_id = ?", (module_id,))
+                        next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
+                        execute(
+                            """
+                            INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                module_id,
+                                next_order,
+                                add_question_text.strip(),
+                                "Admin added",
+                                add_question_type,
+                                _parse_lines(add_question_options) if add_question_type == "multiple_choice" else "",
+                                None,
+                            ),
+                        )
+                        st.success("Question added.")
                         st.rerun()
 
-            with st.form(f"add_module_question_{module_id}"):
-                st.markdown("Add question")
-                add_question_text = st.text_area("Question", key=f"add_question_text_{module_id}")
-                add_question_type = st.selectbox("Type", ["open_text", "multiple_choice"], key=f"add_question_type_{module_id}")
-                add_question_options = st.text_area(
-                    "Multiple choice options (one per line)",
-                    key=f"add_question_options_{module_id}",
-                    disabled=add_question_type != "multiple_choice",
-                )
-                add_question_submit = st.form_submit_button("Add module question")
-                if add_question_submit:
-                    max_order_row = fetch_one(
-                        "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_questions WHERE module_id = ?",
-                        (module_id,),
-                    )
-                    next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
-                    execute(
-                        """
-                        INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            module_id,
-                            next_order,
-                            add_question_text.strip(),
-                            "Admin added",
-                            add_question_type,
-                            _parse_lines(add_question_options) if add_question_type == "multiple_choice" else "",
-                            None,
-                        ),
-                    )
-                    st.success("Question added.")
-                    st.rerun()
-
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                if st.button("Send to database: Publish", disabled=module["status"] == "published", use_container_width=True):
-                    execute("UPDATE modules SET status = 'published', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
-                    st.success("Module published.")
-                    st.rerun()
-            with c2:
-                if st.button("Send to database: Archive", disabled=module["status"] == "archived", use_container_width=True):
-                    execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
-                    st.success("Module archived.")
-                    st.rerun()
-            with c3:
-                if st.button("Send to database: Duplicate", use_container_width=True):
-                    execute(
-                        """
-                        INSERT INTO modules (
-                            title, category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
-                            hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
-                            expected_customer_response, lesson_takeaway, organization_id, status, learning_objectives,
-                            content_sections, completion_requirements, quiz_required, created_by, updated_at
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button("Send to database: Archive", disabled=str(module.get("status") or "existing").lower() == "archived", use_container_width=True, key=f"archive_module_{state_prefix}_{module_id}"):
+                        execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
+                        st.success("Module archived.")
+                        st.rerun()
+                with c2:
+                    if st.button("Send to database: Duplicate", use_container_width=True, key=f"duplicate_module_{state_prefix}_{module_id}"):
+                        execute(
+                            """
+                            INSERT INTO modules (
+                                title, category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
+                                hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
+                                expected_customer_response, lesson_takeaway, organization_id, status, learning_objectives,
+                                content_sections, completion_requirements, quiz_required, created_by, updated_at
+                            )
+                            SELECT title || ' (Copy)', category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
+                                   hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
+                                   expected_customer_response, lesson_takeaway, organization_id, 'existing', learning_objectives,
+                                   content_sections, completion_requirements, quiz_required, ?, CURRENT_TIMESTAMP
+                            FROM modules
+                            WHERE module_id = ? AND organization_id = ?
+                            """,
+                            (current_user["user_id"], module_id, org_id),
                         )
-                        SELECT title || ' (Copy)', category, difficulty, description, estimated_time, scenario_ticket, scenario_context,
-                               hidden_root_cause, expected_reasoning_path, expected_diagnosis, expected_next_steps,
-                               expected_customer_response, lesson_takeaway, organization_id, 'draft', learning_objectives,
-                               content_sections, completion_requirements, quiz_required, ?, CURRENT_TIMESTAMP
-                        FROM modules
-                        WHERE module_id = ? AND organization_id = ?
-                        """,
-                        (current_user["user_id"], module_id, org_id),
-                    )
-                    st.success("Module duplicated as draft.")
-                    st.rerun()
+                        st.success("Module duplicated.")
+                        st.rerun()
+
+    existing_df = modules_df[modules_df["status"] != "archived"].copy()
+    archived_df = modules_df[modules_df["status"] == "archived"].copy()
+
+    tab_existing, tab_archived = st.tabs(["Existing Modules", "Archived Modules"])
+    with tab_existing:
+        _render_module_management_tab(existing_df, "Existing Modules", "existing")
+    with tab_archived:
+        _render_module_management_tab(archived_df, "Archived Modules", "archived")
 
 
 
@@ -3474,7 +3476,7 @@ def _qa_test_save_scenario(current_user: dict) -> dict:
         module_id = execute(
             """
             INSERT INTO modules (title, category, difficulty, description, estimated_time, organization_id, status, created_by)
-            VALUES (?, 'QA', 'Easy', ?, 10, ?, 'draft', ?)
+            VALUES (?, 'QA', 'Easy', ?, 10, ?, 'existing', ?)
             RETURNING module_id AS id
             """,
             (f"QA Scenario {str(uuid4())[:8]}", "Temporary module for QA save test", org_id, int(current_user["user_id"])),
