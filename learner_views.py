@@ -81,6 +81,7 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
             x.attempt_count,
             x.last_attempt_at,
             x.last_result_status,
+            x.last_total_score,
             COALESCE(ws.submitted_state, FALSE) AS submitted_state,
             COALESCE(ws.progress_status, 'not_started') AS progress_status,
             ws.current_step
@@ -107,6 +108,17 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
                     ORDER BY t2.created_at DESC
                     LIMIT 1
                 ) AS last_result_status
+                ,
+                (
+                    SELECT t3.total_score
+                    FROM attempts t3
+                    WHERE t3.user_id = a2.learner_id
+                      AND t3.module_id = a2.module_id
+                      AND t3.organization_id = a2.organization_id
+                      AND t3.created_at >= a2.assigned_at
+                    ORDER BY t3.created_at DESC
+                    LIMIT 1
+                ) AS last_total_score
             FROM assignments a2
             LEFT JOIN attempts t
                 ON t.user_id = a2.learner_id
@@ -137,11 +149,11 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
 def _learner_module_status(module: Dict) -> str:
     attempt_count = safe_int(module.get("attempt_count"), 0)
     last_result_status = str(module.get("last_result_status") or "").strip().lower()
-    if module.get("best_score") is not None or last_result_status == "approved":
+    if last_result_status == "approved":
         return "Completed"
 
     if attempt_count > 0:
-        if last_result_status == "pending_review" or not last_result_status:
+        if module.get("last_total_score") is not None or last_result_status == "pending_review" or not last_result_status:
             return "Pending results"
         return "Submitted"
 
