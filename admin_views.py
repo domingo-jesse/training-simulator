@@ -1392,6 +1392,25 @@ def render_progress_tracking(current_user: dict) -> None:
     if filter_state_key not in st.session_state:
         st.session_state[filter_state_key] = default_filters.copy()
 
+    reset_filters_key = "progress_tracking_reset_filters"
+    if st.session_state.pop(reset_filters_key, False):
+        st.session_state[filter_state_key] = default_filters.copy()
+        st.session_state["progress_due_from"] = None
+        st.session_state["progress_due_to"] = None
+        st.session_state["progress_attempted_from"] = None
+        st.session_state["progress_attempted_to"] = None
+
+    current_filters = st.session_state[filter_state_key]
+    widget_defaults = {
+        "progress_due_from": current_filters.get("due_from"),
+        "progress_due_to": current_filters.get("due_to"),
+        "progress_attempted_from": current_filters.get("attempted_from"),
+        "progress_attempted_to": current_filters.get("attempted_to"),
+    }
+    for key, default_value in widget_defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+
     learner_labels = sorted(
         {
             f"{(row.get('learner_name') or 'Unknown learner').strip()} ({(row.get('learner_email') or 'no-email')})"
@@ -1408,7 +1427,6 @@ def render_progress_tracking(current_user: dict) -> None:
     with st.container(border=True):
         st.caption("No attempt yet ignores attempted date range filters.")
         with st.form("progress-tracking-filters", clear_on_submit=False):
-            current_filters = st.session_state[filter_state_key]
             row_one_cols = st.columns([1.1, 1.1, 1.2, 1.2])
             status_filter = row_one_cols[0].multiselect(
                 "Status",
@@ -1436,23 +1454,19 @@ def render_progress_tracking(current_user: dict) -> None:
             row_two_cols = st.columns(4)
             due_from = row_two_cols[0].date_input(
                 "Due from",
-                value=current_filters.get("due_from"),
                 key="progress_due_from",
             )
             due_to = row_two_cols[1].date_input(
                 "Due to",
-                value=current_filters.get("due_to"),
                 key="progress_due_to",
             )
             attempted_from = row_two_cols[2].date_input(
                 "Attempted from",
-                value=current_filters.get("attempted_from"),
                 disabled=no_attempt_yet,
                 key="progress_attempted_from",
             )
             attempted_to = row_two_cols[3].date_input(
                 "Attempted to",
-                value=current_filters.get("attempted_to"),
                 disabled=no_attempt_yet,
                 key="progress_attempted_to",
             )
@@ -1462,11 +1476,7 @@ def render_progress_tracking(current_user: dict) -> None:
             clear_pressed = clear_col.form_submit_button("Clear Filters", use_container_width=True)
 
         if clear_pressed:
-            st.session_state[filter_state_key] = default_filters.copy()
-            st.session_state["progress_due_from"] = None
-            st.session_state["progress_due_to"] = None
-            st.session_state["progress_attempted_from"] = None
-            st.session_state["progress_attempted_to"] = None
+            st.session_state[reset_filters_key] = True
             st.rerun()
         if apply_pressed:
             st.session_state[filter_state_key] = {
