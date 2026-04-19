@@ -1619,6 +1619,7 @@ def render_module_builder(current_user: dict) -> None:
     module_builder_current_step_key = "module_builder_current_step"
     module_builder_phase_labels = ["Enter module goals", "Review and approve generated draft", "Module completed"]
     module_builder_completed_module_id_key = "module_builder_completed_module_id"
+    module_builder_selected_run_id_key = "module_builder_selected_run_id"
     if module_builder_current_step_key not in st.session_state:
         st.session_state[module_builder_current_step_key] = 1
     current_step = max(1, min(int(st.session_state.get(module_builder_current_step_key, 1)), len(module_builder_phase_labels)))
@@ -1962,6 +1963,7 @@ def render_module_builder(current_user: dict) -> None:
                         if warning:
                             st.warning(warning)
                         st.session_state[module_builder_current_step_key] = 2
+                        st.session_state[module_builder_selected_run_id_key] = int(run_id)
                         st.success("Draft generated. Continue to Step 2 to review and approve.")
                         st.session_state[module_builder_step_key] = 0
                         st.rerun()
@@ -1985,14 +1987,18 @@ def render_module_builder(current_user: dict) -> None:
             st.info("No AI drafts yet. Complete Step 1 first.")
             return
 
-        run_map = {
-            f"Run #{int(row['run_id'])} • {row.get('generated_title') or row.get('input_title') or 'Untitled'} [{row['generation_status']}]":
-            int(row["run_id"])
-            for _, row in runs_df.iterrows()
-        }
-        selected_run_label = st.selectbox("Choose generated draft", list(run_map.keys()))
-        run_id = run_map[selected_run_label]
+        ordered_run_ids = [int(row["run_id"]) for _, row in runs_df.iterrows()]
+        selected_run_id = st.session_state.get(module_builder_selected_run_id_key)
+        if selected_run_id not in ordered_run_ids:
+            selected_run_id = ordered_run_ids[0]
+            st.session_state[module_builder_selected_run_id_key] = selected_run_id
+        run_id = int(selected_run_id)
         run = fetch_one("SELECT * FROM module_generation_runs WHERE run_id = ? AND organization_id = ?", (run_id, org_id))
+        if not run:
+            st.info("No accessible draft found for final review.")
+            return
+        run_title = run.get("generated_title") or run.get("input_title") or "Untitled"
+        st.markdown(f"**Reviewing Draft:** {run_title}")
         generated_questions = fetch_all(
             """
             SELECT * FROM module_generation_questions
