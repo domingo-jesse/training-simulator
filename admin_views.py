@@ -1431,7 +1431,7 @@ def _render_review_layout_styles() -> None:
                 padding: 0.25rem 0.25rem 0.4rem;
             }
             .review-section {
-                margin-bottom: 1.85rem;
+                margin-bottom: 2rem;
             }
             .review-section-title {
                 display: flex;
@@ -1450,11 +1450,12 @@ def _render_review_layout_styles() -> None:
                 line-height: 1;
             }
             .review-row {
-                display: flex;
-                flex-wrap: wrap;
-                align-items: baseline;
-                gap: 0.35rem;
-                padding: 0.22rem 0;
+                display: grid;
+                grid-template-columns: minmax(180px, 220px) minmax(0, 1fr);
+                align-items: start;
+                column-gap: 0.5rem;
+                row-gap: 0.15rem;
+                padding: 0.3rem 0;
             }
             .review-label {
                 color: #475467;
@@ -1469,6 +1470,7 @@ def _render_review_layout_styles() -> None:
                 font-weight: 400;
                 line-height: 1.4;
                 word-break: break-word;
+                min-width: 0;
             }
             .review-badge {
                 display: inline-block;
