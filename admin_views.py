@@ -2236,83 +2236,174 @@ def render_module_builder(current_user: dict) -> None:
                         st.rerun()
 
         else:
-            with st.container(border=True):
-                st.markdown("##### Final Review and Save")
+            st.markdown(
+                """
+                <style>
+                .stApp .block-container {
+                    max-width: 1320px;
+                    padding-top: 1.5rem;
+                    padding-bottom: 2rem;
+                }
+                .review-page-title {
+                    font-size: 1.6rem;
+                    font-weight: 700;
+                    margin-bottom: 1rem;
+                }
+                .review-section-title {
+                    font-size: 1.15rem;
+                    font-weight: 700;
+                    margin: 0.2rem 0 0.8rem 0;
+                }
+                .review-value-row {
+                    margin-bottom: 0.55rem;
+                    line-height: 1.5;
+                }
+                .review-value-row b {
+                    font-weight: 700;
+                }
+                .review-summary-panel {
+                    position: sticky;
+                    top: 1rem;
+                    border: 1px solid rgba(120, 120, 140, 0.22);
+                    border-radius: 12px;
+                    background: rgba(130, 130, 150, 0.08);
+                    padding: 1rem 1.1rem;
+                }
+                .review-summary-title {
+                    font-size: 1rem;
+                    font-weight: 700;
+                    margin-bottom: 0.75rem;
+                }
+                .review-question-block {
+                    padding: 0.75rem 0 1rem 0;
+                    border-bottom: 1px solid rgba(120, 120, 140, 0.22);
+                }
+                .review-question-title {
+                    font-size: 1rem;
+                    font-weight: 700;
+                    margin-bottom: 0.4rem;
+                }
+                .review-question-text {
+                    font-size: 1.05rem;
+                    margin-bottom: 0.6rem;
+                }
+                .review-muted-empty {
+                    text-align: center;
+                    color: rgba(120, 120, 140, 0.95);
+                    padding: 1.4rem 0;
+                }
+                .review-highlight-answer {
+                    background: rgba(64, 145, 108, 0.12);
+                    border: 1px solid rgba(64, 145, 108, 0.25);
+                    border-radius: 8px;
+                    padding: 0.45rem 0.6rem;
+                    margin: 0.4rem 0 0.55rem 0;
+                }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
 
-                def _review_value(label: str, value: object, *, fallback: str = "—") -> None:
-                    normalized = _normalize_text(value)
-                    st.markdown(f"**{label}**")
-                    st.write(normalized or fallback)
+            def _review_value_row(label: str, value: object, *, fallback: str = "—") -> None:
+                normalized = _normalize_text(value) or fallback
+                st.markdown(
+                    f"<div class='review-value-row'><b>{label}:</b> {normalized}</div>",
+                    unsafe_allow_html=True,
+                )
 
-                def _question_type_label(value: str) -> str:
-                    return "Multiple Choice" if value == "multiple_choice" else "Open Text"
+            def _question_type_label(value: str) -> str:
+                return "Multiple Choice" if value == "multiple_choice" else "Open Text"
 
-                def _render_question_block(question: dict, display_index: int) -> None:
-                    question_id = question.get("generated_question_id")
-                    question_order = question.get("question_order") or display_index
-                    question_identity = str(question_id) if question_id is not None else f"temp_{run_id}_{question_order}_{display_index}"
-                    is_custom_question = (question.get("admin_feedback") or "") == "custom_question"
-                    qtext = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtext_{question_identity}", question.get("question_text") or "")
-                    qtype = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtype_{question_identity}", question.get("question_type") or "open_text")
-                    qoptions = st.session_state.get(f"{'custom_' if is_custom_question else ''}qoptions_{question_identity}", question.get("options_text") or "")
-                    qrationale = st.session_state.get(f"{'custom_' if is_custom_question else ''}qrationale_{question_identity}", question.get("rationale") or "")
-                    st.markdown(f"###### Question {display_index}")
-                    _review_value("Question text", qtext, fallback="No question text provided.")
-                    _review_value("Question type", _question_type_label(qtype))
-                    if qtype == "multiple_choice":
-                        option_lines = [line.strip() for line in _normalize_text(qoptions).splitlines() if line.strip()]
-                        st.markdown("**Answer options**")
-                        if option_lines:
-                            for option_idx, option in enumerate(option_lines, start=1):
-                                st.write(f"{option_idx}. {option}")
-                        else:
-                            st.write("No options provided.")
-                    _review_value("Correct answer", "See explanation / rubric below")
-                    _review_value("Explanation / rationale", qrationale, fallback="No rationale provided.")
-                    _review_value("Scoring / points", "N/A")
-                    st.divider()
+            def _render_question_block(question: dict, display_index: int) -> None:
+                question_id = question.get("generated_question_id")
+                question_order = question.get("question_order") or display_index
+                question_identity = str(question_id) if question_id is not None else f"temp_{run_id}_{question_order}_{display_index}"
+                is_custom_question = (question.get("admin_feedback") or "") == "custom_question"
+                qtext = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtext_{question_identity}", question.get("question_text") or "")
+                qtype = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtype_{question_identity}", question.get("question_type") or "open_text")
+                qoptions = st.session_state.get(f"{'custom_' if is_custom_question else ''}qoptions_{question_identity}", question.get("options_text") or "")
+                qrationale = st.session_state.get(f"{'custom_' if is_custom_question else ''}qrationale_{question_identity}", question.get("rationale") or "")
 
-                scenario_title = st.session_state.get(f"scenario_title_{run_id}", run.get("generated_title") or run.get("input_title") or "Untitled")
-                scenario_summary = st.session_state.get(f"scenario_summary_{run_id}", run.get("generated_description") or run.get("input_description") or "")
-                scenario_context = st.session_state.get(f"scenario_context_{run_id}", run.get("generated_scenario_overview") or "")
-                learning_objectives_text = run.get("learning_objectives") or ""
-                learning_objectives = [line.strip() for line in learning_objectives_text.splitlines() if line.strip()]
-                reviewed_questions = list(generated_questions)
-                generated_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") != "custom_question"]
-                custom_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") == "custom_question"]
-                total_review_count = len(reviewed_questions)
+                st.markdown("<div class='review-question-block'>", unsafe_allow_html=True)
+                st.markdown(f"<div class='review-question-title'>Question {display_index}</div>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<div class='review-question-text'>{_normalize_text(qtext) or 'No question text provided.'}</div>",
+                    unsafe_allow_html=True,
+                )
+                _review_value_row("Question type", _question_type_label(qtype))
+                if qtype == "multiple_choice":
+                    option_lines = [line.strip() for line in _normalize_text(qoptions).splitlines() if line.strip()]
+                    st.markdown("**Answer choices:**")
+                    if option_lines:
+                        for option_idx, option in enumerate(option_lines, start=1):
+                            st.write(f"{option_idx}. {option}")
+                    else:
+                        st.write("No options provided.")
+                st.markdown(
+                    "<div class='review-highlight-answer'><b>Correct answer:</b> See explanation / rubric below</div>",
+                    unsafe_allow_html=True,
+                )
+                _review_value_row("Explanation", qrationale, fallback="No rationale provided.")
+                _review_value_row("Points / scoring", "N/A")
+                st.markdown("</div>", unsafe_allow_html=True)
 
-                _review_value("Scenario Title", scenario_title, fallback="Untitled")
-                _review_value("Category", run.get("input_category") or "General")
-                _review_value("Difficulty", run.get("input_difficulty") or "Beginner")
-                _review_value("Target Role / Audience", run.get("role_focus"), fallback="Not specified.")
-                _review_value("Scenario Summary", scenario_summary, fallback="No summary provided.")
-                _review_value("Scenario Context", scenario_context, fallback="No scenario context provided.")
-                st.markdown("**Learning Objectives**")
+            scenario_title = st.session_state.get(f"scenario_title_{run_id}", run.get("generated_title") or run.get("input_title") or "Untitled")
+            scenario_summary = st.session_state.get(f"scenario_summary_{run_id}", run.get("generated_description") or run.get("input_description") or "")
+            scenario_context = st.session_state.get(f"scenario_context_{run_id}", run.get("generated_scenario_overview") or "")
+            learning_objectives_text = run.get("learning_objectives") or ""
+            learning_objectives = [line.strip() for line in learning_objectives_text.splitlines() if line.strip()]
+            reviewed_questions = list(generated_questions)
+            generated_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") != "custom_question"]
+            custom_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") == "custom_question"]
+            total_review_count = len(reviewed_questions)
+            estimated_minutes = safe_int(run.get("input_estimated_minutes"), 20)
+
+            st.markdown("<div class='review-page-title'>Final Review and Save</div>", unsafe_allow_html=True)
+            primary_col, summary_col = st.columns([7, 3], gap="large")
+
+            with primary_col:
+                st.markdown("<div class='review-section-title'>Scenario Overview</div>", unsafe_allow_html=True)
+                st.markdown(f"### {_normalize_text(scenario_title) or 'Untitled'}")
+                _review_value_row("Category", run.get("input_category") or "General")
+                _review_value_row("Difficulty", run.get("input_difficulty") or "Beginner")
+                _review_value_row("Target Role / Audience", run.get("role_focus"), fallback="Not specified.")
+
+                st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='review-section-title'>Scenario Content</div>", unsafe_allow_html=True)
+                _review_value_row("Scenario Summary", scenario_summary, fallback="No summary provided.")
+                _review_value_row("Scenario Context", scenario_context, fallback="No scenario context provided.")
+
+                st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+                st.markdown("<div class='review-section-title'>Learning Setup</div>", unsafe_allow_html=True)
+                st.markdown("**Learning Objectives:**")
                 if learning_objectives:
                     for objective in learning_objectives:
                         st.write(f"- {objective}")
                 else:
                     st.write("No learning objectives provided.")
-                _review_value("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
-                _review_value("Time Limit", f"{safe_int(run.get('input_estimated_minutes'), 20)} minutes")
-                _review_value("Question Count", str(total_review_count))
-                _review_value("Generated Questions", str(len(generated_review_questions)))
-                _review_value("Custom Questions", str(len(custom_review_questions)))
+                _review_value_row("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
+                _review_value_row("Time Limit", f"{estimated_minutes} minutes")
 
-                st.markdown("**Generated Questions**")
-                if generated_review_questions:
-                    for idx, question in enumerate(generated_review_questions, start=1):
-                        _render_question_block(question, idx)
-                else:
-                    st.info("No generated questions are available for this draft.")
+            with summary_col:
+                st.markdown("<div class='review-summary-panel'>", unsafe_allow_html=True)
+                st.markdown("<div class='review-summary-title'>Summary</div>", unsafe_allow_html=True)
+                _review_value_row("Total Questions", str(total_review_count))
+                _review_value_row("Generated Questions", str(len(generated_review_questions)))
+                _review_value_row("Custom Questions", str(len(custom_review_questions)))
+                _review_value_row("Estimated Time", f"{estimated_minutes} minutes")
+                _review_value_row("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
+                st.markdown("</div>", unsafe_allow_html=True)
 
-                st.markdown("**Custom Questions**")
-                if custom_review_questions:
-                    for idx, question in enumerate(custom_review_questions, start=len(generated_review_questions) + 1):
-                        _render_question_block(question, idx)
-                else:
-                    st.info("No custom questions have been added.")
+            st.markdown("<div style='height: 1rem;'></div>", unsafe_allow_html=True)
+            st.markdown("<div class='review-section-title'>Questions Review</div>", unsafe_allow_html=True)
+            if reviewed_questions:
+                for idx, question in enumerate(reviewed_questions, start=1):
+                    _render_question_block(question, idx)
+            else:
+                st.markdown(
+                    "<div class='review-muted-empty'>No questions have been generated or added yet.</div>",
+                    unsafe_allow_html=True,
+                )
 
         approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
         total_review_steps = 4
@@ -2370,7 +2461,7 @@ def render_module_builder(current_user: dict) -> None:
                         st.rerun()
         with nav_action:
             if is_final_step:
-                if st.button("Create module from approved draft", key=f"finalize_run_{run_id}", type="primary"):
+                if st.button("Create Module", key=f"finalize_run_{run_id}", type="primary"):
                     module_id = execute(
                         """
                         INSERT INTO modules (
