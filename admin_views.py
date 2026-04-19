@@ -688,7 +688,14 @@ def _render_assignment_tool(current_user: dict) -> None:
 
     with st.container(border=True):
         st.markdown("#### Assign module")
-        module_map = {f"{m['title']} ({m['status']})": int(m["module_id"]) for m in modules}
+        module_map: dict[str, int] = {}
+        module_title_counts: dict[str, int] = {}
+        for module in modules:
+            base_title = str(module.get("title") or "Untitled module").strip() or "Untitled module"
+            occurrence = module_title_counts.get(base_title, 0) + 1
+            module_title_counts[base_title] = occurrence
+            display_title = base_title if occurrence == 1 else f"{base_title} #{occurrence}"
+            module_map[display_title] = int(module["module_id"])
         learners_df = to_df(learners)
         learners_df["team"] = learners_df["team"].fillna("")
         learners_df["organization_name"] = learners_df["organization_name"].fillna("Unassigned")
