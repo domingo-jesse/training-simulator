@@ -1418,56 +1418,181 @@ def _format_review_value(value: object) -> str:
     return "\n".join(lines) if lines else "Not provided"
 
 
-def _render_review_section(title: str, fields: list[tuple[str, object]]) -> None:
-    st.markdown(f"##### {title}")
-    with st.container(border=True):
-        left_col, right_col = st.columns(2)
-        for idx, (label, raw_value) in enumerate(fields):
-            value = _format_review_value(raw_value)
-            target_col = left_col if idx % 2 == 0 else right_col
-            with target_col:
-                st.markdown(f"**{label}**")
-                st.write(value)
-    st.divider()
+def _render_review_layout_styles() -> None:
+    if st.session_state.get("_module_review_styles_injected"):
+        return
+    st.session_state["_module_review_styles_injected"] = True
+    st.markdown(
+        """
+        <style>
+            .review-shell {
+                max-width: 980px;
+                margin: 0 auto;
+            }
+            .review-card {
+                background: #fcfdff;
+                border: 1px solid #e4e7ec;
+                border-radius: 12px;
+                padding: 0.75rem 0.9rem;
+                min-height: 100%;
+            }
+            .review-card-title {
+                font-size: 1rem;
+                font-weight: 700;
+                color: #101828;
+                margin-bottom: 0.4rem;
+                padding-bottom: 0.35rem;
+                border-bottom: 1px solid #eaecf0;
+            }
+            .review-row {
+                display: grid;
+                grid-template-columns: 150px minmax(0, 1fr);
+                gap: 0.6rem;
+                padding: 0.2rem 0;
+                align-items: start;
+            }
+            .review-label {
+                color: #667085;
+                font-size: 0.84rem;
+                font-weight: 600;
+                line-height: 1.35;
+            }
+            .review-value {
+                color: #101828;
+                font-size: 0.9rem;
+                font-weight: 500;
+                line-height: 1.4;
+                word-break: break-word;
+            }
+            .review-badge {
+                display: inline-block;
+                border-radius: 999px;
+                padding: 0.12rem 0.55rem;
+                font-size: 0.75rem;
+                font-weight: 700;
+                border: 1px solid transparent;
+            }
+            .review-badge-difficulty-beginner {
+                color: #067647;
+                background: #ecfdf3;
+                border-color: #abefc6;
+            }
+            .review-badge-difficulty-intermediate {
+                color: #b54708;
+                background: #fffaeb;
+                border-color: #fedf89;
+            }
+            .review-badge-difficulty-advanced {
+                color: #b42318;
+                background: #fef3f2;
+                border-color: #fecdca;
+            }
+            .review-badge-yes {
+                color: #067647;
+                background: #ecfdf3;
+                border-color: #abefc6;
+            }
+            .review-badge-no {
+                color: #344054;
+                background: #f2f4f7;
+                border-color: #d0d5dd;
+            }
+            .review-value-strong {
+                font-weight: 700;
+                color: #0f172a;
+            }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _render_review_value_html(label: str, value: object) -> str:
+    normalized = _format_review_value(value)
+    if label == "Difficulty":
+        badge_key = normalized.strip().lower()
+        if badge_key in {"beginner", "intermediate", "advanced"}:
+            return (
+                f"<span class='review-badge review-badge-difficulty-{badge_key}'>"
+                f"{escape(normalized)}</span>"
+            )
+    if label == "Quiz Required":
+        is_yes = _normalize_bool(value, default=False)
+        tone = "yes" if is_yes else "no"
+        text = "Yes" if is_yes else "No"
+        return f"<span class='review-badge review-badge-{tone}'>{text}</span>"
+    if label in {"Estimated Time (minutes)", "Question Count"} and normalized != "Not provided":
+        return f"<span class='review-value-strong'>{escape(normalized)}</span>"
+    return "<br>".join(escape(line) for line in normalized.splitlines())
+
+
+def _render_review_section(title: str, fields: list[tuple[str, object]], icon: str = "") -> None:
+    heading = f"{icon} {title}".strip()
+    rows_html: list[str] = []
+    for label, raw_value in fields:
+        rows_html.append(
+            "<div class='review-row'>"
+            f"<div class='review-label'>{escape(label)}</div>"
+            f"<div class='review-value'>{_render_review_value_html(label, raw_value)}</div>"
+            "</div>"
+        )
+    st.markdown(
+        "<div class='review-card'>"
+        f"<div class='review-card-title'>{escape(heading)}</div>"
+        f"{''.join(rows_html)}"
+        "</div>",
+        unsafe_allow_html=True,
+    )
 
 
 def _render_module_review_summary(module_values: dict) -> None:
-    _render_review_section(
-        "Basic Info",
-        [
-            ("Title", module_values.get("title")),
-            ("Category", module_values.get("category")),
-            ("Difficulty", module_values.get("difficulty")),
-        ],
-    )
-    _render_review_section(
-        "Module Details",
-        [
-            ("Role Focus", module_values.get("role_focus")),
-            ("Test Focus", module_values.get("test_focus")),
-            ("Description", module_values.get("description")),
-        ],
-    )
-    _render_review_section(
-        "Learning Content",
-        [
-            ("Learning Objectives", module_values.get("learning_objectives")),
-            ("Scenario Constraints", module_values.get("scenario_constraints")),
-            ("Content Sections", module_values.get("content_sections")),
-            ("Completion Requirements", module_values.get("completion_requirements")),
-        ],
-    )
-    st.markdown("##### Assessment")
-    with st.container(border=True):
-        left_col, right_col = st.columns(2)
-        with left_col:
-            st.markdown("**Quiz Required**")
-            st.write(_format_review_value(module_values.get("quiz_required")))
-            st.markdown("**Estimated Time (minutes)**")
-            st.write(_format_review_value(module_values.get("estimated_minutes")))
-        with right_col:
-            st.markdown("**Question Count**")
-            st.write(_format_review_value(module_values.get("question_count")))
+    _render_review_layout_styles()
+    st.markdown("<div class='review-shell'>", unsafe_allow_html=True)
+    row_1_col_1, row_1_col_2 = st.columns(2, gap="small")
+    with row_1_col_1:
+        _render_review_section(
+            "Basic Info",
+            [
+                ("Title", module_values.get("title")),
+                ("Category", module_values.get("category")),
+                ("Difficulty", module_values.get("difficulty")),
+            ],
+            icon="🧩",
+        )
+    with row_1_col_2:
+        _render_review_section(
+            "Module Details",
+            [
+                ("Role Focus", module_values.get("role_focus")),
+                ("Test Focus", module_values.get("test_focus")),
+                ("Description", module_values.get("description")),
+            ],
+            icon="📘",
+        )
+
+    row_2_col_1, row_2_col_2 = st.columns(2, gap="small")
+    with row_2_col_1:
+        _render_review_section(
+            "Learning Content",
+            [
+                ("Learning Objectives", module_values.get("learning_objectives")),
+                ("Scenario Constraints", module_values.get("scenario_constraints")),
+                ("Content Sections", module_values.get("content_sections")),
+                ("Completion Requirements", module_values.get("completion_requirements")),
+            ],
+            icon="🧠",
+        )
+    with row_2_col_2:
+        _render_review_section(
+            "Assessment",
+            [
+                ("Quiz Required", module_values.get("quiz_required")),
+                ("Estimated Time (minutes)", module_values.get("estimated_minutes")),
+                ("Question Count", module_values.get("question_count")),
+            ],
+            icon="🧪",
+        )
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _render_wizard_progress(step_index: int, total_steps: int, title: str) -> None:
@@ -2442,21 +2567,23 @@ def render_manage_modules(current_user: dict) -> None:
             if not edit_step_valid and edit_required_message and edit_steps[edit_step]["field"] != "review":
                 st.error(edit_required_message)
 
-            nav_cols = st.columns([1.2, 1.2, 2.2])
+            nav_cols = st.columns([1, 1]) if edit_steps[edit_step]["field"] == "review" else st.columns([1.2, 1.2, 2.2])
             with nav_cols[0]:
                 if st.button("⬅ Previous", key=f"edit_module_previous_{module_id}", disabled=edit_step == 0, use_container_width=True):
                     st.session_state[edit_step_key] = max(0, edit_step - 1)
                     st.rerun()
-            with nav_cols[1]:
-                if edit_step < len(edit_steps) - 2:
-                    if st.button("Next", key=f"edit_module_next_{module_id}", use_container_width=True):
-                        st.session_state[edit_step_key] = edit_step + 1
-                        st.rerun()
-                elif edit_step == len(edit_steps) - 2:
-                    if st.button("Next", key=f"edit_module_review_{module_id}", use_container_width=True):
-                        st.session_state[edit_step_key] = edit_step + 1
-                        st.rerun()
-            with nav_cols[2]:
+            if edit_steps[edit_step]["field"] != "review":
+                with nav_cols[1]:
+                    if edit_step < len(edit_steps) - 2:
+                        if st.button("Next", key=f"edit_module_next_{module_id}", use_container_width=True):
+                            st.session_state[edit_step_key] = edit_step + 1
+                            st.rerun()
+                    elif edit_step == len(edit_steps) - 2:
+                        if st.button("Next", key=f"edit_module_review_{module_id}", use_container_width=True):
+                            st.session_state[edit_step_key] = edit_step + 1
+                            st.rerun()
+            save_col_index = 1 if edit_steps[edit_step]["field"] == "review" else 2
+            with nav_cols[save_col_index]:
                 if edit_step == len(edit_steps) - 1:
                     if st.button(
                         "Save Module",
