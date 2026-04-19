@@ -369,7 +369,8 @@ def init_db() -> None:
                     graded_by_type TEXT,
                     graded_by_user_id BIGINT,
                     graded_at TIMESTAMPTZ,
-                    result_status TEXT NOT NULL DEFAULT 'pending_review',
+                    result_status TEXT NOT NULL DEFAULT 'pending_review'
+                        CHECK (result_status IN ('pending_review', 'approved')),
                     result_approved_at TIMESTAMPTZ,
                     result_approved_by_user_id BIGINT,
                     diagnosis_answer TEXT,
@@ -663,7 +664,8 @@ def init_db() -> None:
                 graded_by_type TEXT,
                 graded_by_user_id INTEGER,
                 graded_at TEXT,
-                result_status TEXT NOT NULL DEFAULT 'pending_review',
+                result_status TEXT NOT NULL DEFAULT 'pending_review'
+                    CHECK (result_status IN ('pending_review', 'approved')),
                 result_approved_at TEXT,
                 result_approved_by_user_id INTEGER,
                 diagnosis_answer TEXT,
@@ -1065,7 +1067,12 @@ def init_db() -> None:
             _ensure_column(conn, "attempts", "graded_by_type", "TEXT")
             _ensure_column(conn, "attempts", "graded_by_user_id", "BIGINT")
             _ensure_column(conn, "attempts", "graded_at", "TIMESTAMPTZ")
-            _ensure_column(conn, "attempts", "result_status", "TEXT DEFAULT 'pending_review'")
+            _ensure_column(
+                conn,
+                "attempts",
+                "result_status",
+                "TEXT DEFAULT 'pending_review' CHECK (result_status IN ('pending_review', 'approved'))",
+            )
             _ensure_column(conn, "attempts", "result_approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "attempts", "result_approved_by_user_id", "BIGINT")
             _ensure_column(conn, "attempts", "timed_out", "INTEGER DEFAULT 0")
@@ -1082,6 +1089,24 @@ def init_db() -> None:
                                 THEN 'approved'
                             ELSE 'pending_review'
                         END
+                        """
+                    )
+                    cur.execute("ALTER TABLE attempts ALTER COLUMN result_status SET DEFAULT 'pending_review'")
+                    cur.execute(
+                        """
+                        DO $$
+                        BEGIN
+                          IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'attempts_result_status_valid'
+                          ) THEN
+                            ALTER TABLE attempts
+                            ADD CONSTRAINT attempts_result_status_valid
+                            CHECK (result_status IN ('pending_review', 'approved'));
+                          END IF;
+                        END
+                        $$;
                         """
                     )
             else:
@@ -1270,6 +1295,26 @@ def init_db() -> None:
                 WHEN NEW.updated_at = OLD.updated_at
                 BEGIN
                     UPDATE module_progress SET updated_at = CURRENT_TIMESTAMP WHERE id = OLD.id;
+                END;
+
+                DROP TRIGGER IF EXISTS trg_attempts_result_status_validate_insert;
+                CREATE TRIGGER trg_attempts_result_status_validate_insert
+                BEFORE INSERT ON attempts
+                FOR EACH ROW
+                WHEN NEW.result_status IS NOT NULL
+                  AND LOWER(TRIM(NEW.result_status)) NOT IN ('pending_review', 'approved')
+                BEGIN
+                    SELECT RAISE(ABORT, 'invalid attempts.result_status');
+                END;
+
+                DROP TRIGGER IF EXISTS trg_attempts_result_status_validate_update;
+                CREATE TRIGGER trg_attempts_result_status_validate_update
+                BEFORE UPDATE OF result_status ON attempts
+                FOR EACH ROW
+                WHEN NEW.result_status IS NOT NULL
+                  AND LOWER(TRIM(NEW.result_status)) NOT IN ('pending_review', 'approved')
+                BEGIN
+                    SELECT RAISE(ABORT, 'invalid attempts.result_status');
                 END;
 
                 CREATE VIEW IF NOT EXISTS learner_dashboard_summary AS
