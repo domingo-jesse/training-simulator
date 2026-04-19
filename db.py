@@ -335,7 +335,7 @@ def init_db() -> None:
                     expected_customer_response TEXT,
                     lesson_takeaway TEXT,
                     organization_id BIGINT,
-                    status TEXT DEFAULT 'published',
+                    status TEXT DEFAULT 'existing',
                     learning_objectives TEXT,
                     content_sections TEXT,
                     completion_requirements TEXT,
@@ -550,7 +550,7 @@ def init_db() -> None:
                     generated_title TEXT,
                     generated_description TEXT,
                     generated_scenario_overview TEXT,
-                    generation_status TEXT DEFAULT 'draft',
+                    generation_status TEXT DEFAULT 'pending',
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     updated_at TIMESTAMPTZ DEFAULT NOW(),
                     FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
@@ -625,7 +625,7 @@ def init_db() -> None:
                 expected_customer_response TEXT,
                 lesson_takeaway TEXT,
                 organization_id INTEGER,
-                status TEXT DEFAULT 'published',
+                status TEXT DEFAULT 'existing',
                 learning_objectives TEXT,
                 content_sections TEXT,
                 completion_requirements TEXT,
@@ -840,7 +840,7 @@ def init_db() -> None:
                 generated_title TEXT,
                 generated_description TEXT,
                 generated_scenario_overview TEXT,
-                generation_status TEXT DEFAULT 'draft',
+                generation_status TEXT DEFAULT 'pending',
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(organization_id) REFERENCES organizations(organization_id),
@@ -930,7 +930,7 @@ def init_db() -> None:
                 conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username)")
 
             _ensure_column(conn, "modules", "organization_id", "INTEGER")
-            _ensure_column(conn, "modules", "status", "TEXT DEFAULT 'published'")
+            _ensure_column(conn, "modules", "status", "TEXT DEFAULT 'existing'")
             _ensure_column(conn, "modules", "learning_objectives", "TEXT")
             _ensure_column(conn, "modules", "content_sections", "TEXT")
             _ensure_column(conn, "modules", "completion_requirements", "TEXT")
@@ -939,6 +939,45 @@ def init_db() -> None:
             _ensure_column(conn, "modules", "created_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
             _ensure_column(conn, "modules", "updated_at", "TEXT DEFAULT CURRENT_TIMESTAMP")
             _ensure_column(conn, "modules", "id", "TEXT")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE modules
+                        SET status = CASE
+                            WHEN LOWER(BTRIM(COALESCE(status, ''))) = 'archived' THEN 'archived'
+                            ELSE 'existing'
+                        END
+                        """
+                    )
+                    cur.execute("ALTER TABLE modules ALTER COLUMN status SET DEFAULT 'existing'")
+                    cur.execute(
+                        """
+                        DO $$
+                        BEGIN
+                          IF NOT EXISTS (
+                            SELECT 1
+                            FROM pg_constraint
+                            WHERE conname = 'modules_status_valid'
+                          ) THEN
+                            ALTER TABLE modules
+                            ADD CONSTRAINT modules_status_valid
+                            CHECK (status IN ('existing', 'archived'));
+                          END IF;
+                        END
+                        $$;
+                        """
+                    )
+            else:
+                conn.execute(
+                    """
+                    UPDATE modules
+                    SET status = CASE
+                        WHEN LOWER(TRIM(COALESCE(status, ''))) = 'archived' THEN 'archived'
+                        ELSE 'existing'
+                    END
+                    """
+                )
             _ensure_column(conn, "learner_profiles", "organization_id", "INTEGER")
             _ensure_column(conn, "module_assignments", "organization_id", "INTEGER")
             _ensure_column(conn, "module_progress", "organization_id", "INTEGER")
@@ -1030,7 +1069,27 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "scoring_prompt_template_id", "TEXT")
             _ensure_column(conn, "submission_scores", "scoring_temperature", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "scoring_config_json", "TEXT")
-            _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'draft'")
+            _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'pending'")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE module_generation_runs
+                        SET generation_status = 'pending'
+                        WHERE LOWER(BTRIM(COALESCE(generation_status, ''))) = 'draft'
+                        """
+                    )
+                    cur.execute(
+                        "ALTER TABLE module_generation_runs ALTER COLUMN generation_status SET DEFAULT 'pending'"
+                    )
+            else:
+                conn.execute(
+                    """
+                    UPDATE module_generation_runs
+                    SET generation_status = 'pending'
+                    WHERE LOWER(TRIM(COALESCE(generation_status, ''))) = 'draft'
+                    """
+                )
             _ensure_column(conn, "module_generation_runs", "input_content_sections", "TEXT")
             _ensure_column(
                 conn,

@@ -114,7 +114,7 @@ def seed_modules() -> None:
             "Acknowledge impact, confirm identified config mismatch, provide ETA for replay and prevention actions.",
             "Configuration changes in payer integrations need plan-level validation and post-deploy monitoring.",
             org_id,
-            "published",
+            "existing",
             "Identify relevant logs\nIsolate probable root cause\nCommunicate remediation",
             "Collect evidence\nValidate hypothesis\nClose the loop",
             "Submit diagnosis and next steps",
@@ -135,7 +135,7 @@ def seed_modules() -> None:
             "Explain root cause in plain language, outline immediate fix and long-term reliability step.",
             "Credential automation should be alias-driven and validated with synthetic checks after rotations.",
             org_id,
-            "published",
+            "existing",
             "Validate authentication path\nIdentify stale credentials",
             "Check auth logs\nConfirm secret alias\nPropose fix",
             "Complete scenario submission",
@@ -156,7 +156,7 @@ def seed_modules() -> None:
             "Share impact, reassure no data loss, provide remediation timeline and monitoring commitment.",
             "Workflow releases need schema contract testing and coordinated change review with operations.",
             org_id,
-            "published",
+            "existing",
             "Analyze workflow rules\nAccount for schema changes\nPlan preventive tests",
             "Inspect release\nCompare schema\nPatch rule",
             "Submit root cause + prevention",
@@ -369,7 +369,7 @@ def backfill_existing_data() -> None:
     execute("UPDATE users SET is_active = COALESCE(is_active, TRUE)")
     execute("UPDATE users SET email = LOWER(REPLACE(name, ' ', '.')) || '@acmehealth.example' WHERE email IS NULL")
     execute("UPDATE modules SET organization_id = COALESCE(organization_id, ?)", (org_id,))
-    execute("UPDATE modules SET status = COALESCE(status, 'published')")
+    execute("UPDATE modules SET status = CASE WHEN LOWER(TRIM(COALESCE(status, ''))) = 'archived' THEN 'archived' ELSE 'existing' END")
     execute("UPDATE attempts SET organization_id = COALESCE(organization_id, ?)", (org_id,))
 
 
