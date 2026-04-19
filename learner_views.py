@@ -65,7 +65,7 @@ def _assigned_modules(user: Dict):
 
 @st.cache_data(ttl=30, show_spinner=False)
 def _assigned_modules_cached(user_id: int, organization_id: int):
-    return fetch_all(
+    rows = fetch_all(
         """
         SELECT
             a.assignment_id,
@@ -78,14 +78,12 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
             m.estimated_time,
             m.description,
             x.approved_best_score AS best_score,
-            CASE
-                WHEN x.approved_attempt_count > 0 THEN 'Completed'
-                WHEN x.attempt_count > 0 THEN 'Pending Review'
-                WHEN a.due_date IS NOT NULL AND a.due_date::date < CURRENT_DATE THEN 'Overdue'
-                ELSE 'Not Started'
-            END AS status,
             x.attempt_count,
-            x.last_attempt_at
+            x.last_attempt_at,
+            x.last_result_status,
+            COALESCE(ws.submitted_state, FALSE) AS submitted_state,
+            COALESCE(ws.progress_status, 'not_started') AS progress_status,
+            ws.current_step
         FROM assignments a
         JOIN modules m ON m.module_id = a.module_id
         LEFT JOIN (
@@ -93,18 +91,22 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
                 a2.assignment_id,
                 COUNT(t.attempt_id) AS attempt_count,
                 MAX(t.created_at) AS last_attempt_at,
-                COUNT(
-                    CASE
-                        WHEN COALESCE(t.result_status, 'pending_review') = 'approved' THEN 1
-                        ELSE NULL
-                    END
-                ) AS approved_attempt_count,
                 MAX(
                     CASE
                         WHEN COALESCE(t.result_status, 'pending_review') = 'approved' THEN t.total_score
                         ELSE NULL
                     END
-                ) AS approved_best_score
+                ) AS approved_best_score,
+                (
+                    SELECT COALESCE(t2.result_status, 'pending_review')
+                    FROM attempts t2
+                    WHERE t2.user_id = a2.learner_id
+                      AND t2.module_id = a2.module_id
+                      AND t2.organization_id = a2.organization_id
+                      AND t2.created_at >= a2.assigned_at
+                    ORDER BY t2.created_at DESC
+                    LIMIT 1
+                ) AS last_result_status
             FROM assignments a2
             LEFT JOIN attempts t
                 ON t.user_id = a2.learner_id
@@ -116,6 +118,11 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
               AND a2.is_active = TRUE
             GROUP BY a2.assignment_id
         ) x ON x.assignment_id = a.assignment_id
+        LEFT JOIN assignment_workspace_state ws
+          ON ws.assignment_id = a.assignment_id
+         AND ws.organization_id = a.organization_id
+         AND ws.module_id = a.module_id
+         AND ws.user_id = a.learner_id
         WHERE a.learner_id = ?
           AND a.organization_id = ?
           AND a.is_active = TRUE
@@ -124,6 +131,33 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
         """,
         (user_id, organization_id, user_id, organization_id),
     )
+    return [_with_assignment_status(dict(row)) for row in rows]
+
+
+def _learner_module_status(module: Dict) -> str:
+    attempt_count = safe_int(module.get("attempt_count"), 0)
+    last_result_status = str(module.get("last_result_status") or "").strip().lower()
+    if module.get("best_score") is not None or last_result_status == "approved":
+        return "Completed"
+
+    if attempt_count > 0:
+        if last_result_status == "pending_review" or not last_result_status:
+            return "Pending results"
+        return "Submitted"
+
+    if bool(module.get("submitted_state")):
+        return "Submitted"
+
+    progress_status = str(module.get("progress_status") or "").strip().lower()
+    if progress_status == "in_progress" or safe_int(module.get("current_step"), 1) > 1:
+        return "In progress"
+
+    return "Not started"
+
+
+def _with_assignment_status(module: Dict) -> Dict:
+    module["status"] = _learner_module_status(module)
+    return module
 
 
 def _learner_stats(user: Dict) -> Dict:
@@ -144,12 +178,12 @@ def _learner_stats_cached(user_id: int, organization_id: int) -> Dict:
         (user_id, organization_id),
     )
     assigned_modules = _assigned_modules_cached(user_id, organization_id)
-    completed_module_ids = {a["module_id"] for a in attempts}
+    completed_count = sum(1 for module in assigned_modules if module.get("status") == "Completed")
     avg_score = round(sum(a["total_score"] for a in attempts) / len(attempts), 1) if attempts else 0
     return {
         "attempts": attempts,
         "assigned_count": len(assigned_modules),
-        "completed_count": len(completed_module_ids),
+        "completed_count": completed_count,
         "avg_score": avg_score,
         "assigned_modules": assigned_modules,
     }
@@ -328,6 +362,14 @@ def render_module_library(user: Dict) -> None:
     completed_modules = [module for module in assignments if module["status"] == "Completed"]
     tab_assigned, tab_completed = st.tabs(["Assigned", "Completed"])
 
+    def _open_results(module: Dict, *, action: str) -> None:
+        view_logger.info("Button click.", action=action, scenario_id=module["module_id"])
+        st.session_state.active_assignment_id = None
+        st.session_state.learner_page = "results"
+        st.session_state["learner_selected_result_assignment"] = int(module["assignment_id"])
+        st.query_params["page"] = "progress-results"
+        st.rerun()
+
     with tab_assigned:
         if not assigned_modules:
             st.caption("No active assigned modules right now.")
@@ -336,17 +378,51 @@ def render_module_library(user: Dict) -> None:
             for col, module in zip(cols, assigned_modules[i : i + 2]):
                 with col:
                     with st.container(border=True):
+                        status = module["status"]
                         st.markdown(f"### {module['title']}")
                         st.caption(
-                            f"{module['category']} • {module['difficulty']} • {module['estimated_time']} • Status: {module['status']}"
+                            f"{module['category']} • {module['difficulty']} • {module['estimated_time']} • Status: {status}"
                         )
                         if module["due_date"]:
                             st.caption(f"Due: {module['due_date']}")
                         st.write(_compact_text(module["description"]))
-                        if st.button("Start module", key=f"start_{module['assignment_id']}_{module['module_id']}", type="primary"):
-                            view_logger.info("Button click.", action="start_module_clicked", scenario_id=module["module_id"])
-                            st.session_state.pending_start_module = dict(module)
-                            st.rerun()
+
+                        if status == "Pending results":
+                            st.warning("Pending results • Submitted and awaiting review.")
+                            if st.button(
+                                "View status",
+                                key=f"status_{module['assignment_id']}_{module['module_id']}",
+                                type="secondary",
+                            ):
+                                _open_results(module, action="view_pending_status")
+                        elif status == "Submitted":
+                            st.info("Submitted • Results pending approval.")
+                            if st.button(
+                                "View submission",
+                                key=f"submission_{module['assignment_id']}_{module['module_id']}",
+                                type="secondary",
+                            ):
+                                _open_results(module, action="view_submission_status")
+                        elif status == "In progress":
+                            st.info("In progress • Continue your module.")
+                            if st.button(
+                                "Continue module",
+                                key=f"continue_{module['assignment_id']}_{module['module_id']}",
+                                type="primary",
+                            ):
+                                view_logger.info("Button click.", action="continue_module_clicked", scenario_id=module["module_id"])
+                                st.session_state.pending_start_module = dict(module)
+                                st.rerun()
+                        else:
+                            st.info("Not started • Ready when you are.")
+                            if st.button(
+                                "Start module",
+                                key=f"start_{module['assignment_id']}_{module['module_id']}",
+                                type="primary",
+                            ):
+                                view_logger.info("Button click.", action="start_module_clicked", scenario_id=module["module_id"])
+                                st.session_state.pending_start_module = dict(module)
+                                st.rerun()
 
     with tab_completed:
         if not completed_modules:
@@ -368,26 +444,7 @@ def render_module_library(user: Dict) -> None:
                             key=f"view_{module['assignment_id']}_{module['module_id']}",
                             type="secondary",
                         ):
-                            view_logger.info("Button click.", action="view_score", scenario_id=module["module_id"])
-                            attempt = fetch_one(
-                                """
-                                SELECT attempt_id
-                                FROM attempts
-                                WHERE user_id = ?
-                                  AND module_id = ?
-                                  AND organization_id = ?
-                                  AND created_at >= ?
-                                ORDER BY created_at DESC
-                                LIMIT 1
-                                """,
-                                (user["user_id"], module["module_id"], user["organization_id"], module["assigned_at"]),
-                            )
-                            if attempt:
-                                st.session_state.latest_attempt_id = int(attempt["attempt_id"])
-                                st.session_state.learner_page = "results"
-                                st.session_state["learner_selected_result_assignment"] = int(module["assignment_id"])
-                                st.query_params["page"] = "progress-results"
-                                st.rerun()
+                            _open_results(module, action="view_score")
 
 
 
@@ -524,7 +581,7 @@ def render_scenario_page(user: Dict) -> None:
             st.success("You've already submitted this module.")
             st.info("Your submission has been graded and is awaiting instructor approval.")
         st.info("This assignment allows one graded submission. If reassigned by your admin, you can attempt it again.")
-        if st.button("View completed results", type="secondary"):
+        if st.button("View results" if str(existing_attempt.get("result_status") or "").strip().lower() == "approved" else "View status", type="secondary"):
             st.session_state.active_assignment_id = None
             st.session_state.latest_attempt_id = int(existing_attempt["attempt_id"])
             st.session_state.learner_page = "results"
@@ -991,12 +1048,12 @@ def render_progress_results_page(user: Dict) -> None:
         )
         if row.get("attempt_id")
     }
-    submitted_count = len(attempts_by_assignment)
-    pending_results_count = sum(
+    submitted_count = sum(
         1
-        for row in attempts_by_assignment.values()
-        if str(row.get("result_status") or "").strip().lower() != "approved"
+        for module in assignments
+        if module.get("status") in {"Submitted", "Pending results", "Completed"}
     )
+    pending_results_count = sum(1 for module in assignments if module.get("status") == "Pending results")
 
     render_page_header("Progress & Results", "Track overall progress and review detailed module outcomes in one place.")
 
