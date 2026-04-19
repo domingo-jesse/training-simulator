@@ -1181,6 +1181,8 @@ def render_grading_center(current_user: dict) -> None:
                 a.created_at,
                 u.name AS learner_name,
                 m.title AS module_title,
+                COALESCE(a.result_status, 'pending_review') AS result_status,
+                a.result_approved_at,
                 COALESCE(ss.total_score, a.total_score) AS total_score,
                 COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
                 COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
@@ -1213,11 +1215,19 @@ def render_grading_center(current_user: dict) -> None:
         options=sorted(attempts["module_title"].unique().tolist()),
         default=[],
     )
+    approval_filter = st.multiselect(
+        "Filter approval status",
+        options=["approved", "pending_review"],
+        format_func=lambda status: "Approved" if status == "approved" else "Pending approval",
+        default=[],
+    )
     filtered = attempts.copy()
     if learner_filter:
         filtered = filtered[filtered["learner_name"].isin(learner_filter)]
     if module_filter:
         filtered = filtered[filtered["module_title"].isin(module_filter)]
+    if approval_filter:
+        filtered = filtered[filtered["result_status"].isin(approval_filter)]
 
     metric_row(
         {
@@ -1233,6 +1243,7 @@ def render_grading_center(current_user: dict) -> None:
                 "created_at",
                 "learner_name",
                 "module_title",
+                "result_status",
                 "total_score",
                 "understanding_score",
                 "investigation_score",
@@ -1248,9 +1259,56 @@ def render_grading_center(current_user: dict) -> None:
             "solution_score": 1,
             "communication_score": 1,
         },
-        badge_columns={"total_score": "score"},
+        badge_columns={"total_score": "score", "result_status": "status"},
         numeric_align={k: "right" for k in ["total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]},
     )
+
+    selected_attempt_id = st.selectbox(
+        "Result approval controls",
+        options=filtered["attempt_id"].tolist(),
+        format_func=lambda aid: (
+            f"Attempt #{aid} • {filtered.loc[filtered['attempt_id'] == aid, 'learner_name'].iloc[0]}"
+            f" • {filtered.loc[filtered['attempt_id'] == aid, 'module_title'].iloc[0]}"
+        ),
+    )
+    selected_attempt_row = filtered[filtered["attempt_id"] == selected_attempt_id].iloc[0]
+    is_approved = str(selected_attempt_row.get("result_status") or "").strip().lower() == "approved"
+    st.caption(
+        "Current status: "
+        + ("Approved ✅" if is_approved else "Pending approval ⏳")
+        + f" • Submitted: {_format_datetime_for_admin_grid(selected_attempt_row.get('created_at'))}"
+    )
+    action_columns = st.columns([1, 1.5, 3.5])
+    with action_columns[0]:
+        if st.button("Approve Result", disabled=is_approved, use_container_width=True):
+            execute(
+                """
+                UPDATE attempts
+                SET result_status = 'approved',
+                    result_approved_at = CURRENT_TIMESTAMP,
+                    result_approved_by_user_id = ?
+                WHERE attempt_id = ?
+                  AND organization_id = ?
+                """,
+                (current_user["user_id"], int(selected_attempt_id), org_id),
+            )
+            st.success("Result approved. Learner can now see full results.")
+            st.rerun()
+    with action_columns[1]:
+        if st.button("Mark Unapproved", disabled=not is_approved, use_container_width=True):
+            execute(
+                """
+                UPDATE attempts
+                SET result_status = 'pending_review',
+                    result_approved_at = NULL,
+                    result_approved_by_user_id = NULL
+                WHERE attempt_id = ?
+                  AND organization_id = ?
+                """,
+                (int(selected_attempt_id), org_id),
+            )
+            st.warning("Approval revoked. Learner result visibility has been removed.")
+            st.rerun()
 
 
 def render_admin_assignment_review(current_user: dict, assignment_id: int | None) -> None:
