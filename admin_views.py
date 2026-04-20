@@ -2102,6 +2102,7 @@ def render_module_builder(current_user: dict) -> None:
     mode_key = "module_builder_mode"
     form_key = "module_builder_editor_form"
     dirty_key = "module_builder_editor_dirty"
+    pending_close_key = "module_builder_editor_pending_close"
     save_status_key = "module_builder_editor_save_status"
     last_input_key = "module_builder_editor_last_input_ts"
     last_save_key = "module_builder_editor_last_save_ts"
@@ -2148,7 +2149,7 @@ def render_module_builder(current_user: dict) -> None:
         ],
     }
 
-    def _reset_builder_state(builder_mode: str) -> None:
+    def _reset_builder_state(builder_mode: str | None) -> None:
         st.session_state[mode_key] = builder_mode
         st.session_state[form_key] = dict(default_form)
         if builder_mode == "ai":
@@ -2167,6 +2168,7 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[last_save_key] = 0.0
         st.session_state[touched_key] = set()
         st.session_state[publish_attempted_key] = False
+        st.session_state[pending_close_key] = False
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in [*keys_to_clear, *widget_keys]:
             st.session_state.pop(key, None)
@@ -2175,7 +2177,7 @@ def render_module_builder(current_user: dict) -> None:
 
     st.markdown("### Create a Module")
     st.caption("Choose how you want to begin before opening the full module builder.")
-    mode_col_1, mode_col_2, mode_col_3 = st.columns(3)
+    mode_col_1, mode_col_2 = st.columns(2)
     if mode_col_1.button("Start from Scratch", use_container_width=True):
         if st.session_state.get(mode_key) != "manual":
             _reset_builder_state("manual")
@@ -2184,7 +2186,6 @@ def render_module_builder(current_user: dict) -> None:
         if st.session_state.get(mode_key) != "ai":
             _reset_builder_state("ai")
         st.rerun()
-    mode_col_3.button("Use Template (Coming Soon)", disabled=True, use_container_width=True)
 
     selected_mode = st.session_state.get(mode_key)
     if selected_mode is None:
@@ -2205,6 +2206,7 @@ def render_module_builder(current_user: dict) -> None:
     st.session_state.setdefault(last_save_key, 0.0)
     st.session_state.setdefault(touched_key, set())
     st.session_state.setdefault(publish_attempted_key, False)
+    st.session_state.setdefault(pending_close_key, False)
 
     module_form = st.session_state[form_key]
     now_ts = time.time()
@@ -2279,6 +2281,25 @@ def render_module_builder(current_user: dict) -> None:
         )
     with top_right:
         st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
+
+    close_col_1, close_col_2 = st.columns([1, 2])
+    with close_col_1:
+        if st.button("Close Module", key="module_builder_close"):
+            if st.session_state.get(dirty_key):
+                st.session_state[pending_close_key] = True
+            else:
+                _reset_builder_state(None)
+            st.rerun()
+    with close_col_2:
+        if st.session_state.get(pending_close_key):
+            st.warning("You have unsaved edits. Close anyway and discard these changes?")
+            confirm_col, cancel_col = st.columns(2)
+            if confirm_col.button("Discard & Close", key="module_builder_discard_close", type="secondary"):
+                _reset_builder_state(None)
+                st.rerun()
+            if cancel_col.button("Keep Editing", key="module_builder_keep_editing"):
+                st.session_state[pending_close_key] = False
+                st.rerun()
 
     st.markdown(
         """
