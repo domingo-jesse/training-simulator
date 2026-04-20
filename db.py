@@ -1518,8 +1518,6 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
                     translated_query = _sql(query)
-                    print("PLACEHOLDERS:", translated_query.count("%s"))
-                    print("PARAMS:", len(params_tuple))
                     cur.execute(translated_query, params_tuple)
                     is_insert = translated_query.lstrip().upper().startswith("INSERT")
                     has_returning = "RETURNING" in translated_query.upper()

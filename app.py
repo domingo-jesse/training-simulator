@@ -309,6 +309,23 @@ def init_state() -> None:
             st.session_state[key] = value
 
 
+def _increment_rerun_cycle() -> int:
+    cycle = int(st.session_state.get("_rerun_cycle", 0)) + 1
+    st.session_state["_rerun_cycle"] = cycle
+    st.session_state["_render_log_seen"] = set()
+    return cycle
+
+
+def _log_render_debug(event: str, **context: Any) -> None:
+    cycle = int(st.session_state.get("_rerun_cycle", 0))
+    dedupe_key = f"{cycle}:{event}:{tuple(sorted(context.items()))}"
+    seen = st.session_state.setdefault("_render_log_seen", set())
+    if dedupe_key in seen:
+        return
+    seen.add(dedupe_key)
+    app_logger.debug(event, **context)
+
+
 def render_horizontal_button_group(
     label: str,
     options: list[str],
@@ -576,7 +593,7 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
     }
     st.session_state["selected_role"] = normalized_role
     app_logger.bind(user_id=user["id"], session_id=st.session_state.get("session_id")).info(
-        "User signed in.", auth_method=auth_method, role=normalized_role
+        "User sign-in succeeded.", auth_method=auth_method, role=normalized_role
     )
     st.session_state["page"] = None
     st.session_state["auth_error"] = None
@@ -973,7 +990,7 @@ def _render_database_connection_tester() -> None:
 
 
 def render_login_view() -> None:
-    app_logger.info("Rendering login view.", page="login")
+    _log_render_debug("Render login view.", page="login")
 
     if st.session_state.get("bootstrap_error"):
         st.error(
@@ -1024,7 +1041,7 @@ def render_login_view() -> None:
             identifier = st.text_input("Email or username", key="learner_identifier")
             submitted = st.form_submit_button("Sign in as Learner", use_container_width=True, type="primary")
             if submitted:
-                app_logger.info("Login form submitted.", role="learner")
+                app_logger.info("User submitted login form.", role="learner")
                 ok, message, user = validate_dev_login(identifier, expected_role="learner")
                 if ok and user:
                     _sign_in_user(user, "dev_quick")
@@ -1047,7 +1064,7 @@ def render_login_view() -> None:
             identifier = st.text_input("Email or username", key="admin_identifier")
             submitted = st.form_submit_button("Sign in as Admin", use_container_width=True, type="primary")
             if submitted:
-                app_logger.info("Login form submitted.", role="admin")
+                app_logger.info("User submitted login form.", role="admin")
                 ok, message, user = validate_dev_login(identifier, expected_role="admin")
                 if ok and user:
                     _sign_in_user(user, "dev_quick")
@@ -1104,7 +1121,7 @@ def render_login_view() -> None:
 
 
 def render_create_account_view() -> None:
-    app_logger.info("Rendering create-account view.", page="create_account")
+    _log_render_debug("Render create-account view.", page="create_account")
     st.markdown("### Create your account")
     st.caption("You can register both Learner and Admin accounts using the same email address.")
     role = render_horizontal_button_group(
@@ -1390,10 +1407,6 @@ def render_settings_page() -> None:
 
 def render_main_app() -> None:
     user = st.session_state["current_user"]
-    user_logger = app_logger.bind(
-        user_id=user.get("id"),
-        session_id=st.session_state.get("session_id"),
-    )
     with st.sidebar:
         render_sidebar_profile_section(user)
     requested_page = st.session_state.get("page")
@@ -1496,7 +1509,7 @@ def render_main_app() -> None:
         if st.session_state.get("nav") != current_slug:
             _set_nav(current_slug)
         st.session_state["current_page"] = _build_main_page_key("admin", current_slug)
-        user_logger.info("Admin page load.", page=normalized_page)
+        _log_render_debug("Render admin page.", page=normalized_page)
         admin_container_variant = {
             "Dashboard": "wide",
             "Assignment Management": "wide",
@@ -1590,7 +1603,7 @@ def render_main_app() -> None:
         if DEBUG:
             app_logger.debug("learner_page key = {}", current_page)
             app_logger.debug("render branch = {}", render_branch)
-        user_logger.info("Learner page load.", page=current_page)
+        _log_render_debug("Render learner page.", page=current_page)
         learner_container_variant = {
             "home": "medium",
             "assigned_modules": "medium",
@@ -1616,6 +1629,7 @@ def render_main_app() -> None:
 
 def main() -> None:
     init_state()
+    _increment_rerun_cycle()
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
@@ -1624,7 +1638,7 @@ def main() -> None:
         st.query_params["assignment_id"] = str(active_assignment_id)
 
     st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
-    app_logger.info("App startup.", session_id=st.session_state.get("session_id"))
+    _log_render_debug("App rerun started.", session_id=st.session_state.get("session_id"))
     initialize_once()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
