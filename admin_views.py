@@ -2195,8 +2195,6 @@ def _render_named_step_indicator(step_index: int, labels: list[str]) -> None:
 
 def render_module_builder(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    render_page_header("Module Builder", "Single-page module editor with autosave and inline validation.")
-    inject_scroll_to_top()
 
     mode_key = "module_builder_mode"
     form_key = "module_builder_editor_form"
@@ -2296,6 +2294,10 @@ def render_module_builder(current_user: dict) -> None:
         _reset_builder_state(queued_mode)
 
     selected_mode = st.session_state.get(mode_key)
+    header_description = "Single-page module editor with autosave and inline validation." if selected_mode != "ai" else None
+    render_page_header("Module Builder", header_description)
+    inject_scroll_to_top()
+
     if selected_mode is None:
         st.markdown("### Create a Module")
         st.caption("Choose how you want to begin before opening the full module builder.")
@@ -2312,7 +2314,7 @@ def render_module_builder(current_user: dict) -> None:
         if selected_mode == "manual":
             st.caption("Mode: Start from Scratch")
         elif selected_mode == "ai":
-            st.caption("Mode: Generate with AI (AI prompt + generated draft editor)")
+            st.caption("Generate with AI")
     with mode_action_col:
         if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
             _queue_builder_reset(None)
@@ -2482,43 +2484,42 @@ def render_module_builder(current_user: dict) -> None:
         if key not in st.session_state:
             st.session_state[key] = value
 
-    top_left, top_right = st.columns([3, 1])
-    with top_left:
-        st.subheader("Module editor")
-        st.caption(
-            "Start by entering a title, description, and scenario. Then add questions and settings below."
-        )
-    with top_right:
+    if selected_mode != "ai":
+        top_left, top_right = st.columns([3, 1])
+        with top_left:
+            st.subheader("Module editor")
+            st.caption(
+                "Start by entering a title, description, and scenario. Then add questions and settings below."
+            )
+        with top_right:
+            st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
+    else:
         st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
 
     ai_has_generated_draft = bool(st.session_state.get(ai_draft_key))
     show_builder_editor = selected_mode == "manual"
 
     if selected_mode == "ai":
-        st.markdown("### AI Module Generation")
-        st.caption("Describe the training topic, then click **Generate Module** to build a complete editable draft.")
-        st.number_input(
-            "Number of Questions",
+        st.caption("Generate with AI")
+        ai_controls_col, ai_button_col = st.columns([2, 1])
+        ai_controls_col.number_input(
+            "Question count",
             min_value=0,
             max_value=10,
             value=int(st.session_state.get(ai_question_count_key, 3)),
             key=ai_question_count_key,
-            help="Choose how many questions to include in the generated module draft.",
         )
-        st.markdown("### Describe the module you want to create")
         st.text_area(
-            "Describe the module you want to create",
+            "AI prompt",
             key=ai_prompt_key,
-            height=180,
+            height=140,
             placeholder=(
                 "Create a training module about handling upset patients and escalation steps\n"
                 "Build a prior authorization module about missing documentation and payer follow-up\n"
                 "Make a customer support module for de-escalation and empathy"
             ),
-            label_visibility="collapsed",
         )
-        ai_action_col_1, ai_action_col_2 = st.columns([1, 3])
-        if ai_action_col_1.button("Generate Module", key="module_builder_generate_ai", type="secondary", use_container_width=True):
+        if ai_button_col.button("Generate", key="module_builder_generate_ai", type="secondary", use_container_width=True):
             prompt = str(st.session_state.get(ai_prompt_key, "")).strip()
             if not prompt:
                 st.warning("Please describe what you want the module to cover before generating.")
@@ -2536,9 +2537,6 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[ai_keep_editing_key] = False
                 _apply_generated_draft_to_form(generated_draft)
                 st.rerun()
-        with ai_action_col_2:
-            st.caption("The generated draft stays editable. Review and publish only when you're ready.")
-
         ai_feedback = st.session_state.get(ai_feedback_key)
         if ai_feedback:
             st.info(ai_feedback)
