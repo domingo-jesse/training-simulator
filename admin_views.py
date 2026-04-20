@@ -1340,10 +1340,7 @@ def render_grading_center(current_user: dict) -> None:
     st.subheader("Submission Grading")
     st.caption("Review learner submissions and scoring results for assigned modules.")
 
-    score_sources = ["ss.admin_total_score", "ss.ai_total_score", "ss.total_score", "a.total_score"]
-    if column_exists("submission_scores", "final_total_score"):
-        score_sources.insert(0, "ss.final_total_score")
-    total_score_expr = f"COALESCE({', '.join(score_sources)})"
+    total_score_expr = "COALESCE(ss.final_total_score, ss.admin_total_score, ss.ai_total_score, 0)"
 
     attempts = to_df(
         fetch_all(
@@ -1689,13 +1686,13 @@ def render_grading_center(current_user: dict) -> None:
             COALESCE(mq.rubric, mq.rationale, '') AS rubric,
             COALESCE(mq.max_points, 10) AS max_points,
             sqs.learner_answer,
-            sqs.ai_awarded_points,
+            COALESCE(sqs.ai_awarded_points, sqs.ai_score) AS ai_awarded_points,
             sqs.ai_max_points,
-            sqs.ai_feedback,
+            COALESCE(sqs.ai_feedback, sqs.feedback) AS ai_feedback,
             sqs.ai_reasoning,
-            sqs.admin_awarded_points,
+            COALESCE(sqs.admin_awarded_points, sqs.admin_score) AS admin_awarded_points,
             sqs.admin_feedback,
-            sqs.final_awarded_points,
+            COALESCE(sqs.final_awarded_points, sqs.final_score, sqs.admin_awarded_points, sqs.admin_score, sqs.ai_awarded_points, sqs.ai_score) AS final_awarded_points,
             COALESCE(sqs.visible_to_learner, FALSE) AS visible_to_learner
         FROM attempts a
         JOIN module_questions mq ON mq.module_id = a.module_id
@@ -1728,11 +1725,16 @@ def render_grading_center(current_user: dict) -> None:
                         execute(
                             """
                             INSERT INTO submission_question_scores (
-                                attempt_id, question_id, learner_answer, ai_awarded_points, ai_max_points,
+                                attempt_id, question_id, ai_score, admin_score, final_score, feedback,
+                                learner_answer, ai_awarded_points, ai_max_points,
                                 ai_feedback, ai_reasoning, admin_awarded_points, admin_feedback,
                                 final_awarded_points, visible_to_learner, is_admin_override
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+                                ai_score = excluded.ai_score,
+                                admin_score = excluded.admin_score,
+                                final_score = excluded.final_score,
+                                feedback = excluded.feedback,
                                 admin_awarded_points = excluded.admin_awarded_points,
                                 admin_feedback = excluded.admin_feedback,
                                 final_awarded_points = excluded.final_awarded_points,
@@ -1743,6 +1745,10 @@ def render_grading_center(current_user: dict) -> None:
                             (
                                 int(selected_attempt_id),
                                 int(row["question_id"]),
+                                row.get("ai_awarded_points"),
+                                float(admin_points),
+                                float(admin_points),
+                                admin_feedback.strip(),
                                 row.get("learner_answer") or "",
                                 row.get("ai_awarded_points"),
                                 row.get("ai_max_points") or row.get("max_points"),
@@ -1761,8 +1767,8 @@ def render_grading_center(current_user: dict) -> None:
         totals = fetch_one(
             """
             SELECT
-                SUM(COALESCE(ai_awarded_points, 0)) AS ai_total,
-                SUM(COALESCE(admin_awarded_points, ai_awarded_points, 0)) AS admin_total,
+                SUM(COALESCE(ai_awarded_points, ai_score, 0)) AS ai_total,
+                SUM(COALESCE(admin_awarded_points, admin_score, ai_awarded_points, ai_score, 0)) AS admin_total,
                 SUM(COALESCE(ai_max_points, 0)) AS max_total
             FROM submission_question_scores
             WHERE attempt_id = ?
