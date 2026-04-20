@@ -2249,12 +2249,10 @@ def render_module_builder(current_user: dict) -> None:
     st.caption("Choose how you want to begin before opening the full module builder.")
     mode_col_1, mode_col_2 = st.columns(2)
     if mode_col_1.button("Start from Scratch", use_container_width=True):
-        if st.session_state.get(mode_key) != "manual":
-            _reset_builder_state("manual")
+        _reset_builder_state("manual")
         st.rerun()
     if mode_col_2.button("Generate with AI", use_container_width=True):
-        if st.session_state.get(mode_key) != "ai":
-            _reset_builder_state("ai")
+        _reset_builder_state("ai")
         st.rerun()
 
     selected_mode = st.session_state.get(mode_key)
@@ -2265,7 +2263,7 @@ def render_module_builder(current_user: dict) -> None:
     if selected_mode == "manual":
         st.caption("Mode: Start from Scratch")
     elif selected_mode == "ai":
-        st.caption("Mode: Generate with AI (prefilled starter fields applied)")
+        st.caption("Mode: Generate with AI (AI prompt + generated draft editor)")
 
     if form_key not in st.session_state:
         st.session_state[form_key] = dict(default_form)
@@ -2428,6 +2426,8 @@ def render_module_builder(current_user: dict) -> None:
         st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
 
     if selected_mode == "ai":
+        st.markdown("### AI Module Generation")
+        st.caption("Describe the training topic, then click **Generate Module** to build a complete editable draft.")
         st.markdown("### Describe the module you want to create")
         st.text_area(
             "Describe the module you want to create",
