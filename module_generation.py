@@ -25,6 +25,12 @@ class ModuleGenerationInput:
     question_count: int
 
 
+@dataclass
+class ModuleDraftGenerationInput:
+    prompt: str
+    question_count: int = 5
+
+
 def _fallback_preview(payload: ModuleGenerationInput) -> dict[str, Any]:
     question_count = min(10, max(0, payload.question_count))
     objectives = payload.learning_objectives or ["Demonstrate role-specific troubleshooting judgement"]
@@ -56,6 +62,121 @@ def _openai_headers(api_key: str) -> dict[str, str]:
         "Content-Type": "application/json",
         "Authorization": f"Bearer {api_key}",
     }
+
+
+def _fallback_module_draft(payload: ModuleDraftGenerationInput) -> dict[str, Any]:
+    seed_prompt = payload.prompt.strip() or "general training workflow"
+    question_count = min(10, max(1, payload.question_count))
+    questions = []
+    for idx in range(question_count):
+        questions.append(
+            {
+                "question_text": f"How would you handle step {idx + 1} for: {seed_prompt}?",
+                "question_type": "open_text",
+                "answer_guidance": "Provide a concise, practical response with rationale and escalation criteria.",
+                "rubric": "4 = complete and accurate; 3 = mostly complete; 2 = partial; 1 = minimal.",
+            }
+        )
+
+    return {
+        "title": "AI Draft Module",
+        "description": f"Draft module generated from: {seed_prompt}",
+        "scenario": (
+            "You are the primary responder handling the situation described by the author. "
+            "Apply policy, communication standards, and safe escalation decisions."
+        ),
+        "category": "",
+        "difficulty": "",
+        "time_limit_minutes": 20,
+        "questions": questions,
+        "overall_rubric": "Evaluate clarity, policy alignment, empathy, and decision quality across all responses.",
+    }
+
+
+def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str, Any], str | None]:
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        return _fallback_module_draft(payload), "OPENAI_API_KEY is not configured, so a local fallback module draft was generated."
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    question_count = min(10, max(1, payload.question_count))
+    prompt = (
+        "Generate a complete module draft from the user's idea. "
+        "Return strict JSON only with this exact schema and key names: "
+        "{"
+        '"title": string, "description": string, "scenario": string, '
+        '"category": string, "difficulty": string, "time_limit_minutes": number, '
+        '"questions": [{"question_text": string, "question_type": "open_text" | "multiple_choice", '
+        '"answer_guidance": string, "rubric": string}], '
+        '"overall_rubric": string'
+        "}. "
+        f"Generate {question_count} questions. Keep all text production-ready and practical.\n\n"
+        f"User prompt: {payload.prompt}"
+    )
+
+    body = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "Return only valid JSON matching the requested schema."},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.4,
+    }
+
+    http_request = request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers=_openai_headers(api_key),
+        method="POST",
+    )
+
+    try:
+        with request.urlopen(http_request, timeout=60) as response:
+            raw = response.read().decode("utf-8")
+        parsed = json.loads(raw)
+        content = parsed["choices"][0]["message"]["content"]
+        draft = json.loads(content)
+
+        raw_questions = draft.get("questions") or []
+        if not isinstance(raw_questions, list) or not raw_questions:
+            raise ValueError("questions must be a non-empty list")
+
+        safe_questions = []
+        for item in raw_questions[:question_count]:
+            if not isinstance(item, dict):
+                continue
+            question_text = str(item.get("question_text", "")).strip()
+            if not question_text:
+                continue
+            question_type = str(item.get("question_type", "open_text")).strip().lower()
+            if question_type not in {"open_text", "multiple_choice"}:
+                question_type = "open_text"
+            safe_questions.append(
+                {
+                    "question_text": question_text,
+                    "question_type": question_type,
+                    "answer_guidance": str(item.get("answer_guidance", "")).strip(),
+                    "rubric": str(item.get("rubric", "")).strip(),
+                }
+            )
+
+        if not safe_questions:
+            raise ValueError("OpenAI response did not include usable questions")
+
+        output = {
+            "title": str(draft.get("title") or "AI Draft Module").strip(),
+            "description": str(draft.get("description") or "").strip(),
+            "scenario": str(draft.get("scenario") or "").strip(),
+            "category": str(draft.get("category") or "").strip(),
+            "difficulty": str(draft.get("difficulty") or "").strip(),
+            "time_limit_minutes": int(draft.get("time_limit_minutes") or 20),
+            "questions": safe_questions,
+            "overall_rubric": str(draft.get("overall_rubric") or "").strip(),
+        }
+        return output, None
+    except (error.URLError, TimeoutError, KeyError, TypeError, json.JSONDecodeError, ValueError):
+        module_gen_logger.exception("Failed to generate module draft with OpenAI.")
+        return _fallback_module_draft(payload), "OpenAI call failed; a local fallback module draft was generated."
 
 
 def generate_module_preview(payload: ModuleGenerationInput) -> tuple[dict[str, Any], str | None]:
