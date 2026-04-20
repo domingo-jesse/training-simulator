@@ -3,12 +3,9 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-from contextlib import contextmanager
 from html import escape
 from typing import Any
-from urllib.parse import urlparse
 
-import psycopg2
 import streamlit as st
 from admin_views import (
     render_admin_dashboard,
@@ -24,7 +21,7 @@ from admin_views import (
     render_admin_quality_hub,
 )
 from data_seed import clear_seed_data
-from db import execute, fetch_all, fetch_one, get_database_debug_info, init_db
+from db import execute, execute_update, fetch_all, fetch_one, get_database_debug_info, init_db
 from learner_views import (
     render_learner_home,
     render_module_library,
@@ -37,34 +34,6 @@ from utils import inject_styles, page_container
 DEBUG = False  # set to True only when debugging
 
 app_logger = get_logger(module="app")
-
-
-@contextmanager
-def get_conn():
-    database_url = st.secrets["DATABASE_URL"]
-
-    parsed = urlparse(database_url)
-    safe_user = parsed.username
-    safe_host = parsed.hostname
-    safe_port = parsed.port
-    safe_db = parsed.path.lstrip("/")
-    safe_query = parsed.query
-
-    if DEBUG:
-        app_logger.debug("DB debug user: {}", safe_user)
-        app_logger.debug("DB debug host: {}", safe_host)
-        app_logger.debug("DB debug port: {}", safe_port)
-        app_logger.debug("DB debug db: {}", safe_db)
-        app_logger.debug("DB debug query: {}", safe_query)
-
-    try:
-        conn = psycopg2.connect(database_url, connect_timeout=10)
-        yield conn
-        conn.close()
-    except Exception as exc:
-        raise ConnectionError(
-            f"{type(exc).__name__}: {exc}"
-        ) from exc
 
 EXPECTED_PLATFORM_TABLES = (
     "organizations",
@@ -935,30 +904,11 @@ def _render_database_connection_tester() -> None:
 
     if quick_connect:
         with st.spinner("Checking direct database connectivity..."):
-            cur = None
-            conn = None
             try:
-                conn = psycopg2.connect(
-                    st.secrets["DATABASE_URL"],
-                    connect_timeout=10,
-                )
-                cur = conn.cursor()
-                cur.execute("SELECT version();")
-                result = cur.fetchone()
-                st.session_state["quick_connect_result"] = ("success", result)
+                result = fetch_one("SELECT version() AS version")
+                st.session_state["quick_connect_result"] = ("success", result["version"] if result else "Unknown")
             except Exception as exc:
                 st.session_state["quick_connect_result"] = ("error", f"{type(exc).__name__}: {exc}")
-            finally:
-                try:
-                    if cur:
-                        cur.close()
-                except Exception:
-                    pass
-                try:
-                    if conn:
-                        conn.close()
-                except Exception:
-                    pass
 
     if run_db_test:
         st.session_state["db_test_nonce"] = int(st.session_state.get("db_test_nonce", 0)) + 1
@@ -1268,9 +1218,7 @@ def save_user_profile_updates(
             return False, "New password and confirmation must match."
         updates["password_hash"] = hash_password(new_password)
 
-    set_clause = ", ".join(f"{col} = ?" for col in updates.keys())
-    params = tuple(updates.values()) + (profile["user_id"],)
-    execute(f"UPDATE users SET {set_clause} WHERE user_id = ?", params)
+    execute_update("users", updates, "user_id = ?", (profile["user_id"],))
 
     refreshed = load_current_user_profile()
     if refreshed:
