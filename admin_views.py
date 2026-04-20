@@ -68,6 +68,22 @@ def _clear_filtered_selection(multiselect_key: str) -> None:
     st.session_state[multiselect_key] = []
 
 
+@st.cache_data(show_spinner=False)
+def column_exists(table_name: str, column_name: str) -> bool:
+    row = fetch_one(
+        """
+        SELECT 1 AS exists_flag
+        FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = ?
+          AND column_name = ?
+        LIMIT 1
+        """,
+        (table_name, column_name),
+    )
+    return bool(row)
+
+
 def _merge_row_selection_into_multiselect(
     *,
     table_event,
@@ -1324,9 +1340,14 @@ def render_grading_center(current_user: dict) -> None:
     st.subheader("Submission Grading")
     st.caption("Review learner submissions and scoring results for assigned modules.")
 
+    score_sources = ["ss.admin_total_score", "ss.ai_total_score", "ss.total_score", "a.total_score"]
+    if column_exists("submission_scores", "final_total_score"):
+        score_sources.insert(0, "ss.final_total_score")
+    total_score_expr = f"COALESCE({', '.join(score_sources)})"
+
     attempts = to_df(
         fetch_all(
-            """
+            f"""
             SELECT
                 a.attempt_id,
                 a.created_at,
@@ -1336,7 +1357,7 @@ def render_grading_center(current_user: dict) -> None:
                 a.result_approved_at,
                 a.result_approved_by_user_id,
                 approver.name AS approved_by_name,
-                COALESCE(ss.final_total_score, ss.admin_total_score, ss.ai_total_score, ss.total_score, a.total_score) AS total_score,
+                {total_score_expr} AS total_score,
                 COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
                 COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
                 COALESCE(ss.solution_score, a.solution_score) AS solution_score,
