@@ -2174,6 +2174,7 @@ def render_module_builder(current_user: dict) -> None:
     ai_last_prompt_key = "module_builder_ai_last_prompt"
     ai_keep_editing_key = "module_builder_ai_keep_editing"
     ai_question_count_key = "ai_question_count"
+    pending_reset_mode_key = "module_builder_pending_reset_mode"
     widget_keys = [
         "module_builder_title",
         "module_builder_description",
@@ -2235,17 +2236,23 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[touched_key] = set()
         st.session_state[publish_attempted_key] = False
         st.session_state[pending_close_key] = False
-        st.session_state[ai_prompt_key] = ""
         st.session_state[ai_draft_key] = None
         st.session_state[ai_feedback_key] = None
         st.session_state[ai_last_prompt_key] = ""
         st.session_state[ai_keep_editing_key] = False
         st.session_state[ai_question_count_key] = 3
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
-        for key in [*keys_to_clear, *widget_keys]:
+        for key in [ai_prompt_key, *keys_to_clear, *widget_keys]:
             st.session_state.pop(key, None)
 
+    def _queue_builder_reset(builder_mode: str | None) -> None:
+        st.session_state[pending_reset_mode_key] = builder_mode
+        st.rerun()
+
     st.session_state.setdefault(mode_key, None)
+    if pending_reset_mode_key in st.session_state:
+        queued_mode = st.session_state.pop(pending_reset_mode_key)
+        _reset_builder_state(queued_mode)
 
     selected_mode = st.session_state.get(mode_key)
     if selected_mode is None:
@@ -2253,11 +2260,9 @@ def render_module_builder(current_user: dict) -> None:
         st.caption("Choose how you want to begin before opening the full module builder.")
         mode_col_1, mode_col_2 = st.columns(2)
         if mode_col_1.button("Start from Scratch", use_container_width=True):
-            _reset_builder_state("manual")
-            st.rerun()
+            _queue_builder_reset("manual")
         if mode_col_2.button("Generate with AI", use_container_width=True):
-            _reset_builder_state("ai")
-            st.rerun()
+            _queue_builder_reset("ai")
         st.info("Select a creation mode to continue.")
         return
 
@@ -2269,8 +2274,7 @@ def render_module_builder(current_user: dict) -> None:
             st.caption("Mode: Generate with AI (AI prompt + generated draft editor)")
     with mode_action_col:
         if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
-            _reset_builder_state(None)
-            st.rerun()
+            _queue_builder_reset(None)
 
     if form_key not in st.session_state:
         st.session_state[form_key] = dict(default_form)
@@ -2509,8 +2513,7 @@ def render_module_builder(current_user: dict) -> None:
                     _apply_generated_draft_to_form(generated_draft)
                     st.rerun()
             if generated_actions[1].button("Clear Draft", key="module_builder_clear_ai_draft", use_container_width=True):
-                _reset_builder_state("ai")
-                st.rerun()
+                _queue_builder_reset("ai")
             if generated_actions[2].button("Keep Editing", key="module_builder_keep_editing_ai", use_container_width=True):
                 st.session_state[ai_keep_editing_key] = True
                 st.session_state[ai_feedback_key] = None
@@ -2528,15 +2531,14 @@ def render_module_builder(current_user: dict) -> None:
             if st.session_state.get(dirty_key):
                 st.session_state[pending_close_key] = True
             else:
-                _reset_builder_state(None)
+                _queue_builder_reset(None)
             st.rerun()
     with close_col_2:
         if st.session_state.get(pending_close_key):
             st.warning("You have unsaved edits. Close anyway and discard these changes?")
             confirm_col, cancel_col = st.columns(2)
             if confirm_col.button("Discard & Close", key="module_builder_discard_close", type="secondary"):
-                _reset_builder_state(None)
-                st.rerun()
+                _queue_builder_reset(None)
             if cancel_col.button("Keep Editing", key="module_builder_keep_editing"):
                 st.session_state[pending_close_key] = False
                 st.rerun()
