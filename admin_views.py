@@ -3076,6 +3076,30 @@ def render_manage_modules(current_user: dict) -> None:
             selected_module_ids = [fallback_module_id]
 
         module_id = int(selected_module_ids[0])
+        module_dropdown_options = []
+        module_dropdown_index = 0
+        for row_index, (_, module_row) in enumerate(tab_df.iterrows()):
+            current_module_id = int(module_row["module_id"])
+            module_dropdown_options.append(
+                (
+                    current_module_id,
+                    f"{current_module_id} — {module_row.get('title') or 'Untitled module'}",
+                )
+            )
+            if current_module_id == module_id:
+                module_dropdown_index = row_index
+
+        selected_module_from_dropdown = st.selectbox(
+            "Select module to edit",
+            options=module_dropdown_options,
+            index=module_dropdown_index,
+            format_func=lambda option: option[1],
+            key=f"manage_modules_module_dropdown_{state_prefix}",
+            help="Choose a module directly from this dropdown to open it in the editor.",
+        )
+        module_id = int(selected_module_from_dropdown[0])
+        st.session_state[f"manage_modules_selected_module_id_{state_prefix}"] = module_id
+
         module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
         module_questions = fetch_all(
             "SELECT * FROM module_questions WHERE module_id = ? ORDER BY question_order",
