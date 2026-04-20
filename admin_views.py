@@ -13,6 +13,7 @@ import psycopg2
 import streamlit as st
 
 from db import execute, executemany, fetch_all, fetch_one, fetch_table_rows, list_public_tables, get_database_debug_info
+from ai_grading import grade_submission_with_ai
 from logger import get_logger
 from log_viewer import (
     LOG_LEVEL_OPTIONS,
@@ -1331,11 +1332,11 @@ def render_grading_center(current_user: dict) -> None:
                 a.created_at,
                 u.name AS learner_name,
                 m.title AS module_title,
-                COALESCE(a.result_status, 'pending_review') AS result_status,
+                COALESCE(a.result_status, 'submitted') AS result_status,
                 a.result_approved_at,
                 a.result_approved_by_user_id,
                 approver.name AS approved_by_name,
-                COALESCE(ss.total_score, a.total_score) AS total_score,
+                COALESCE(ss.final_total_score, ss.admin_total_score, ss.ai_total_score, ss.total_score, a.total_score) AS total_score,
                 COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
                 COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
                 COALESCE(ss.solution_score, a.solution_score) AS solution_score,
@@ -1388,7 +1389,7 @@ def render_grading_center(current_user: dict) -> None:
     )
     approval_filter = st.multiselect(
         "Filter approval status",
-        options=["approved", "pending_review"],
+        options=["submitted", "ai_grading", "ai_graded_pending_review", "grading_failed", "approved", "returned", "pending_review"],
         format_func=format_status_display,
         default=[],
     )
@@ -1616,6 +1617,16 @@ def render_grading_center(current_user: dict) -> None:
                 """,
                 (current_user["user_id"], int(selected_attempt_id), org_id),
             )
+            execute(
+                """
+                UPDATE submission_scores
+                SET grading_status = 'approved',
+                    approved_by = ?,
+                    approved_at = CURRENT_TIMESTAMP
+                WHERE attempt_id = ?
+                """,
+                (current_user["user_id"], int(selected_attempt_id)),
+            )
             st.session_state[approval_status_key] = ("success", "Result approved. Learner can now see full results.")
             st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
@@ -1624,7 +1635,7 @@ def render_grading_center(current_user: dict) -> None:
             execute(
                 """
                 UPDATE attempts
-                SET result_status = 'pending_review',
+                SET result_status = 'returned',
                     result_approved_at = NULL,
                     result_approved_by_user_id = NULL
                 WHERE attempt_id = ?
@@ -1632,9 +1643,149 @@ def render_grading_center(current_user: dict) -> None:
                 """,
                 (int(selected_attempt_id), org_id),
             )
+            execute(
+                """
+                UPDATE submission_scores
+                SET grading_status = 'returned',
+                    approved_by = NULL,
+                    approved_at = NULL
+                WHERE attempt_id = ?
+                """,
+                (int(selected_attempt_id),),
+            )
             st.session_state[approval_status_key] = ("warning", "Approval revoked. Learner result visibility has been removed.")
             st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
+
+    st.markdown("#### AI Question Grading Review")
+    question_rows = fetch_all(
+        """
+        SELECT
+            mq.question_id,
+            mq.question_order,
+            mq.question_text,
+            COALESCE(mq.expected_answer, mq.rationale, '') AS expected_answer,
+            COALESCE(mq.rubric, mq.rationale, '') AS rubric,
+            COALESCE(mq.max_points, 10) AS max_points,
+            sqs.learner_answer,
+            sqs.ai_awarded_points,
+            sqs.ai_max_points,
+            sqs.ai_feedback,
+            sqs.ai_reasoning,
+            sqs.admin_awarded_points,
+            sqs.admin_feedback,
+            sqs.final_awarded_points,
+            COALESCE(sqs.visible_to_learner, FALSE) AS visible_to_learner
+        FROM attempts a
+        JOIN module_questions mq ON mq.module_id = a.module_id
+        LEFT JOIN submission_question_scores sqs ON sqs.attempt_id = a.attempt_id AND sqs.question_id = mq.question_id
+        WHERE a.attempt_id = ?
+        ORDER BY mq.question_order
+        """,
+        (int(selected_attempt_id),),
+    )
+    if question_rows:
+        for row in question_rows:
+            with st.container(border=True):
+                st.markdown(f"**Q{row['question_order']}** {row['question_text']}")
+                st.caption(f"Expected: {row.get('expected_answer') or '—'}")
+                st.caption(f"Rubric: {row.get('rubric') or '—'}")
+                st.write(f"Learner answer: {row.get('learner_answer') or '—'}")
+                st.write(f"AI score: {row.get('ai_awarded_points') if row.get('ai_awarded_points') is not None else 0} / {row.get('ai_max_points') or row.get('max_points')}")
+                st.write(f"AI rationale: {row.get('ai_reasoning') or '—'}")
+                with st.form(f"grade_edit_{selected_attempt_id}_{row['question_id']}"):
+                    admin_points = st.number_input(
+                        "Admin points",
+                        min_value=0.0,
+                        max_value=float(row.get("max_points") or 10),
+                        value=float(row.get("admin_awarded_points") if row.get("admin_awarded_points") is not None else (row.get("ai_awarded_points") or 0.0)),
+                        step=0.5,
+                    )
+                    admin_feedback = st.text_area("Admin feedback", value=row.get("admin_feedback") or row.get("ai_feedback") or "")
+                    visible_to_learner = st.checkbox("Visible to learner", value=bool(row.get("visible_to_learner")))
+                    if st.form_submit_button("Save question edits"):
+                        execute(
+                            """
+                            INSERT INTO submission_question_scores (
+                                attempt_id, question_id, learner_answer, ai_awarded_points, ai_max_points,
+                                ai_feedback, ai_reasoning, admin_awarded_points, admin_feedback,
+                                final_awarded_points, visible_to_learner, is_admin_override
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+                                admin_awarded_points = excluded.admin_awarded_points,
+                                admin_feedback = excluded.admin_feedback,
+                                final_awarded_points = excluded.final_awarded_points,
+                                visible_to_learner = excluded.visible_to_learner,
+                                is_admin_override = excluded.is_admin_override,
+                                updated_at = CURRENT_TIMESTAMP
+                            """,
+                            (
+                                int(selected_attempt_id),
+                                int(row["question_id"]),
+                                row.get("learner_answer") or "",
+                                row.get("ai_awarded_points"),
+                                row.get("ai_max_points") or row.get("max_points"),
+                                row.get("ai_feedback") or "",
+                                row.get("ai_reasoning") or "",
+                                float(admin_points),
+                                admin_feedback.strip(),
+                                float(admin_points),
+                                bool(visible_to_learner),
+                                True,
+                            ),
+                        )
+                        st.success("Question edits saved.")
+                        st.rerun()
+
+        totals = fetch_one(
+            """
+            SELECT
+                SUM(COALESCE(ai_awarded_points, 0)) AS ai_total,
+                SUM(COALESCE(admin_awarded_points, ai_awarded_points, 0)) AS admin_total,
+                SUM(COALESCE(ai_max_points, 0)) AS max_total
+            FROM submission_question_scores
+            WHERE attempt_id = ?
+            """,
+            (int(selected_attempt_id),),
+        ) or {}
+        ai_total = float(totals.get("ai_total") or 0)
+        admin_total = float(totals.get("admin_total") or 0)
+        max_total = float(totals.get("max_total") or 0)
+        final_total = admin_total if admin_total > 0 else ai_total
+        percentage = round((final_total / max_total) * 100, 1) if max_total else None
+
+        controls_col_a, controls_col_b = st.columns(2)
+        with controls_col_a:
+            if st.button("Save admin edits", use_container_width=True):
+                execute(
+                    """
+                    INSERT INTO submission_scores (
+                        attempt_id, ai_total_score, admin_total_score, final_total_score, max_total_score, percentage, grading_status
+                    ) VALUES (?, ?, ?, ?, ?, ?, 'ai_graded_pending_review')
+                    ON CONFLICT(attempt_id) DO UPDATE SET
+                        ai_total_score = excluded.ai_total_score,
+                        admin_total_score = excluded.admin_total_score,
+                        final_total_score = excluded.final_total_score,
+                        max_total_score = excluded.max_total_score,
+                        percentage = excluded.percentage,
+                        grading_status = excluded.grading_status,
+                        scored_at = CURRENT_TIMESTAMP
+                    """,
+                    (int(selected_attempt_id), ai_total, admin_total, final_total, max_total, percentage),
+                )
+                execute(
+                    "UPDATE attempts SET total_score = ?, result_status = 'ai_graded_pending_review' WHERE attempt_id = ? AND organization_id = ?",
+                    (percentage, int(selected_attempt_id), org_id),
+                )
+                st.success("Admin edits saved.")
+                st.rerun()
+        with controls_col_b:
+            if st.button("Retry AI grading", use_container_width=True):
+                grade_submission_with_ai(int(selected_attempt_id))
+                st.success("AI grading completed.")
+                st.rerun()
+    else:
+        st.info("No per-question grading records yet.")
 
 
 def render_admin_assignment_review(current_user: dict, assignment_id: int | None) -> None:
@@ -3246,9 +3397,21 @@ def render_manage_modules(current_user: dict) -> None:
                         )
                         edit_question_rubric = st.text_area(
                             "Rubric / expected answer",
-                            value=question.get("rationale") or "",
+                            value=question.get("rubric") or question.get("rationale") or "",
                             key=f"edit_question_rationale_{state_prefix}_{question['question_id']}",
                             help="Use this for expected answer notes, rubric criteria, or grading guidance.",
+                        )
+                        edit_question_expected_answer = st.text_area(
+                            "Expected answer (reference)",
+                            value=question.get("expected_answer") or "",
+                            key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_max_points = st.number_input(
+                            "Max points",
+                            min_value=0.0,
+                            value=float(question.get("max_points") or 10),
+                            step=1.0,
+                            key=f"edit_question_points_{state_prefix}_{question['question_id']}",
                         )
                         edit_question_options = st.text_area(
                             "Options (one per line; multiple choice only)",
@@ -3265,13 +3428,16 @@ def render_manage_modules(current_user: dict) -> None:
                             execute(
                                 """
                                 UPDATE module_questions
-                                SET question_text = ?, question_type = ?, rationale = ?, options_text = ?
+                                SET question_text = ?, question_type = ?, rationale = ?, rubric = ?, expected_answer = ?, max_points = ?, options_text = ?
                                 WHERE question_id = ? AND module_id = ?
                                 """,
                                 (
                                     edit_question_text.strip(),
                                     edit_question_type,
                                     edit_question_rubric.strip(),
+                                    edit_question_rubric.strip(),
+                                    edit_question_expected_answer.strip(),
+                                    float(edit_question_max_points),
                                     json.dumps({"choices": _coerce_choice_list(_parse_lines(edit_question_options))})
                                     if edit_question_type == "multiple_choice"
                                     else "",
@@ -3291,6 +3457,14 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_text = st.text_area("Question text", key=f"add_question_text_{state_prefix}_{module_id}")
                 add_question_type = st.selectbox("Question type", ["open_text", "multiple_choice"], key=f"add_question_type_{state_prefix}_{module_id}")
                 add_question_rubric = st.text_area("Rubric / expected answer", key=f"add_question_rubric_{state_prefix}_{module_id}")
+                add_question_expected_answer = st.text_area("Expected answer (reference)", key=f"add_question_expected_{state_prefix}_{module_id}")
+                add_question_max_points = st.number_input(
+                    "Max points",
+                    min_value=0.0,
+                    value=10.0,
+                    step=1.0,
+                    key=f"add_question_max_points_{state_prefix}_{module_id}",
+                )
                 add_question_options = st.text_area(
                     "Options (one per line; multiple choice only)",
                     key=f"add_question_options_{state_prefix}_{module_id}",
@@ -3302,14 +3476,19 @@ def render_manage_modules(current_user: dict) -> None:
                     next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
                     execute(
                         """
-                        INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO module_questions (
+                            module_id, question_order, question_text, rationale, rubric, expected_answer, max_points, question_type, options_text, source_run_id
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             module_id,
                             next_order,
                             add_question_text.strip(),
                             add_question_rubric.strip(),
+                            add_question_rubric.strip(),
+                            add_question_expected_answer.strip(),
+                            float(add_question_max_points),
                             add_question_type,
                             json.dumps({"choices": _coerce_choice_list(_parse_lines(add_question_options))})
                             if add_question_type == "multiple_choice"

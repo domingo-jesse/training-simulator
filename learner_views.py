@@ -8,7 +8,7 @@ from typing import Dict
 import streamlit as st
 
 from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
-from evaluation import evaluate_submission
+from ai_grading import grade_submission_with_ai
 from logger import get_logger
 from utils import ensure_dataframe_schema, has_dataframe_columns, metric_row, parse_json_list, render_page_header, safe_int, to_df
 
@@ -195,7 +195,7 @@ def _learner_module_status(module: Dict) -> str:
         return "Completed"
 
     if attempt_count > 0:
-        if module.get("last_total_score") is not None or last_result_status == "pending_review" or not last_result_status:
+        if last_result_status in {"submitted", "ai_grading", "ai_graded_pending_review", "pending_review", "grading_failed", "returned"} or not last_result_status:
             return "Pending results"
         return "Submitted"
 
@@ -818,10 +818,22 @@ def render_scenario_page(user: Dict) -> None:
             "question_responses": json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
         }
         try:
-            evaluation = evaluate_submission(dict(module), answers, st.session_state[used_actions_key])
-            payload = {**answers, **evaluation}
+            payload = {
+                **answers,
+                "result_status": "submitted",
+                "coaching_feedback": "",
+                "strengths": [],
+                "missed_points": [],
+                "best_practice_reasoning": "",
+                "recommended_response": "",
+                "takeaway_summary": "",
+            }
             attempt_id = insert_attempt(user["user_id"], module_id, payload, user["organization_id"])
             log_actions(attempt_id, st.session_state[used_actions_key])
+            try:
+                grade_submission_with_ai(int(attempt_id))
+            except Exception:
+                scenario_logger.exception("Post-submit AI grading failed.", attempt_id=attempt_id)
             scenario_logger.info("Assignment submission recorded.", attempt_id=attempt_id, timed_out=timed_out)
 
             st.session_state.latest_attempt_id = attempt_id
