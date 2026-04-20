@@ -36,6 +36,7 @@ from utils import (
     render_kpi_card,
     render_page_header,
     safe_int,
+    inject_scroll_to_top,
     to_df,
 )
 from module_generation import ModuleGenerationInput, generate_module_preview
@@ -2096,12 +2097,15 @@ def _render_named_step_indicator(step_index: int, labels: list[str]) -> None:
 def render_module_builder(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     render_page_header("Module Builder", "Single-page module editor with autosave and inline validation.")
+    inject_scroll_to_top()
 
     form_key = "module_builder_editor_form"
     dirty_key = "module_builder_editor_dirty"
     save_status_key = "module_builder_editor_save_status"
     last_input_key = "module_builder_editor_last_input_ts"
     last_save_key = "module_builder_editor_last_save_ts"
+    touched_key = "module_builder_editor_touched_fields"
+    publish_attempted_key = "module_builder_editor_publish_attempted"
 
     default_form = {
         "title": "",
@@ -2135,14 +2139,20 @@ def render_module_builder(current_user: dict) -> None:
     st.session_state.setdefault(dirty_key, False)
     st.session_state.setdefault(last_input_key, 0.0)
     st.session_state.setdefault(last_save_key, 0.0)
+    st.session_state.setdefault(touched_key, set())
+    st.session_state.setdefault(publish_attempted_key, False)
 
     module_form = st.session_state[form_key]
     now_ts = time.time()
 
-    def _mark_dirty() -> None:
+    def _mark_dirty(field_key: str | None = None) -> None:
         st.session_state[dirty_key] = True
         st.session_state[last_input_key] = time.time()
         st.session_state[save_status_key] = "Saving..."
+        if field_key:
+            touched = set(st.session_state.get(touched_key, set()))
+            touched.add(field_key)
+            st.session_state[touched_key] = touched
 
     def _sync_form_from_widgets() -> None:
         module_form["title"] = st.session_state.get("module_builder_title", module_form.get("title", ""))
@@ -2200,15 +2210,39 @@ def render_module_builder(current_user: dict) -> None:
     top_left, top_right = st.columns([3, 1])
     with top_left:
         st.subheader("Module editor")
+        st.caption(
+            "Start by entering a title, description, and scenario. Then add questions and settings below."
+        )
     with top_right:
         st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
 
+    st.markdown(
+        """
+        <script>
+            setTimeout(function() {
+                const titleInput = document.querySelector('input[aria-label="Title *"]');
+                if (titleInput && document.activeElement !== titleInput) {
+                    titleInput.focus();
+                }
+            }, 80);
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
+
     st.markdown("### Basic Info")
-    st.text_input("Title *", key="module_builder_title", on_change=_mark_dirty)
-    st.text_area("Description *", key="module_builder_description", on_change=_mark_dirty)
+    with st.container(border=True):
+        st.text_input("Title *", key="module_builder_title", on_change=lambda: _mark_dirty("title"))
+        st.text_area("Description *", key="module_builder_description", on_change=lambda: _mark_dirty("description"))
 
     st.markdown("### Scenario")
-    st.text_area("Scenario text *", key="module_builder_scenario_constraints", on_change=_mark_dirty, height=180)
+    with st.container(border=True):
+        st.text_area(
+            "Scenario text *",
+            key="module_builder_scenario_constraints",
+            on_change=lambda: _mark_dirty("scenario_constraints"),
+            height=180,
+        )
 
     st.markdown("### Questions")
     module_form.setdefault("questions", [])
@@ -2218,33 +2252,44 @@ def render_module_builder(current_user: dict) -> None:
     delete_index = None
     for idx, question in enumerate(module_form["questions"]):
         q_prefix = f"module_builder_q_{idx}"
-        st.markdown(f"#### Question {idx + 1}")
-        if f"{q_prefix}_text" not in st.session_state:
-            st.session_state[f"{q_prefix}_text"] = question.get("question_text", "")
-        if f"{q_prefix}_type" not in st.session_state:
-            st.session_state[f"{q_prefix}_type"] = question.get("question_type", "open_text")
-        if f"{q_prefix}_options" not in st.session_state:
-            st.session_state[f"{q_prefix}_options"] = question.get("options_text", "")
-        if f"{q_prefix}_rationale" not in st.session_state:
-            st.session_state[f"{q_prefix}_rationale"] = question.get("rationale", "")
+        with st.container(border=True):
+            st.markdown(f"#### Question {idx + 1}")
+            if f"{q_prefix}_text" not in st.session_state:
+                st.session_state[f"{q_prefix}_text"] = question.get("question_text", "")
+            if f"{q_prefix}_type" not in st.session_state:
+                st.session_state[f"{q_prefix}_type"] = question.get("question_type", "open_text")
+            if f"{q_prefix}_options" not in st.session_state:
+                st.session_state[f"{q_prefix}_options"] = question.get("options_text", "")
+            if f"{q_prefix}_rationale" not in st.session_state:
+                st.session_state[f"{q_prefix}_rationale"] = question.get("rationale", "")
 
-        st.text_area("Question text *", key=f"{q_prefix}_text", on_change=_mark_dirty, height=110)
-        st.selectbox(
-            "Question type",
-            ["open_text", "multiple_choice"],
-            key=f"{q_prefix}_type",
-            on_change=_mark_dirty,
-        )
-        st.text_area(
-            "Answer choices (one per line)",
-            key=f"{q_prefix}_options",
-            on_change=_mark_dirty,
-            disabled=st.session_state.get(f"{q_prefix}_type") != "multiple_choice",
-            height=100,
-        )
-        st.text_area("Rubric / rationale", key=f"{q_prefix}_rationale", on_change=_mark_dirty, height=90)
-        if st.button("Delete question", key=f"delete_question_{idx}"):
-            delete_index = idx
+            st.text_area(
+                "Question text *",
+                key=f"{q_prefix}_text",
+                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                height=110,
+            )
+            st.selectbox(
+                "Question type",
+                ["open_text", "multiple_choice"],
+                key=f"{q_prefix}_type",
+                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+            )
+            st.text_area(
+                "Answer choices (one per line)",
+                key=f"{q_prefix}_options",
+                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}_options"),
+                disabled=st.session_state.get(f"{q_prefix}_type") != "multiple_choice",
+                height=100,
+            )
+            st.text_area(
+                "Rubric / rationale",
+                key=f"{q_prefix}_rationale",
+                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                height=90,
+            )
+            if st.button("Delete question", key=f"delete_question_{idx}"):
+                delete_index = idx
 
     if delete_index is not None:
         module_form["questions"].pop(delete_index)
@@ -2253,12 +2298,12 @@ def render_module_builder(current_user: dict) -> None:
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in keys_to_clear:
             st.session_state.pop(key, None)
-        _mark_dirty()
+        _mark_dirty("questions")
         st.rerun()
 
     if st.button("+ Add Question", key="module_builder_add_question"):
         module_form["questions"].append(dict(default_form["questions"][0]))
-        _mark_dirty()
+        _mark_dirty("questions")
         st.rerun()
 
     for idx, question in enumerate(module_form["questions"]):
@@ -2269,27 +2314,58 @@ def render_module_builder(current_user: dict) -> None:
         question["rationale"] = st.session_state.get(f"{q_prefix}_rationale", "")
 
     st.markdown("### Scoring / Rubric")
-    st.text_area(
-        "Completion requirements / passing rubric *",
-        key="module_builder_completion_requirements",
-        on_change=_mark_dirty,
-        height=120,
-    )
+    with st.container(border=True):
+        st.text_area(
+            "Completion requirements / passing rubric *",
+            key="module_builder_completion_requirements",
+            on_change=lambda: _mark_dirty("completion_requirements"),
+            height=120,
+        )
 
     st.markdown("### Settings")
-    settings_col_1, settings_col_2 = st.columns(2)
-    with settings_col_1:
-        st.text_input("Category", key="module_builder_category", on_change=_mark_dirty)
-        st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], key="module_builder_difficulty", on_change=_mark_dirty)
-        st.checkbox("Quiz required", key="module_builder_quiz_required", on_change=_mark_dirty)
-    with settings_col_2:
-        st.number_input("Time limit (minutes)", min_value=1, max_value=240, step=1, key="module_builder_estimated_minutes", on_change=_mark_dirty)
-        st.number_input("Attempt limit", min_value=1, max_value=10, step=1, key="module_builder_attempt_limit", on_change=_mark_dirty)
-        st.text_input("Role being simulated", key="module_builder_role_focus", on_change=_mark_dirty)
+    with st.container(border=True):
+        settings_col_1, settings_col_2 = st.columns(2)
+        with settings_col_1:
+            st.text_input("Category", key="module_builder_category", on_change=lambda: _mark_dirty("category"))
+            st.selectbox(
+                "Difficulty",
+                ["Beginner", "Intermediate", "Advanced"],
+                key="module_builder_difficulty",
+                on_change=lambda: _mark_dirty("difficulty"),
+            )
+            st.checkbox("Quiz required", key="module_builder_quiz_required", on_change=lambda: _mark_dirty("quiz_required"))
+        with settings_col_2:
+            st.number_input(
+                "Time limit (minutes)",
+                min_value=1,
+                max_value=240,
+                step=1,
+                key="module_builder_estimated_minutes",
+                on_change=lambda: _mark_dirty("estimated_minutes"),
+            )
+            st.number_input(
+                "Attempt limit",
+                min_value=1,
+                max_value=10,
+                step=1,
+                key="module_builder_attempt_limit",
+                on_change=lambda: _mark_dirty("attempt_limit"),
+            )
+            st.text_input("Role being simulated", key="module_builder_role_focus", on_change=lambda: _mark_dirty("role_focus"))
 
-    st.text_input("What should this module test?", key="module_builder_test_focus", on_change=_mark_dirty)
-    st.text_area("Learning objectives (one per line)", key="module_builder_learning_objectives", on_change=_mark_dirty, height=120)
-    st.text_area("Content sections (one per line)", key="module_builder_content_sections", on_change=_mark_dirty, height=120)
+        st.text_input("What should this module test?", key="module_builder_test_focus", on_change=lambda: _mark_dirty("test_focus"))
+        st.text_area(
+            "Learning objectives (one per line)",
+            key="module_builder_learning_objectives",
+            on_change=lambda: _mark_dirty("learning_objectives"),
+            height=120,
+        )
+        st.text_area(
+            "Content sections (one per line)",
+            key="module_builder_content_sections",
+            on_change=lambda: _mark_dirty("content_sections"),
+            height=120,
+        )
 
     _autosave()
 
@@ -2314,20 +2390,21 @@ def render_module_builder(current_user: dict) -> None:
             if len(option_lines) < 2:
                 validation_errors[f"question_{idx}_options"] = f"Question {idx} needs at least two answer choices."
 
-    if "title" in validation_errors:
-        st.error(validation_errors["title"])
-    if "description" in validation_errors:
-        st.error(validation_errors["description"])
-    if "scenario_constraints" in validation_errors:
-        st.error(validation_errors["scenario_constraints"])
-    if "completion_requirements" in validation_errors:
-        st.error(validation_errors["completion_requirements"])
+    touched_fields = set(st.session_state.get(touched_key, set()))
+    show_all_errors = bool(st.session_state.get(publish_attempted_key, False))
+
+    for key in ("title", "description", "scenario_constraints", "completion_requirements"):
+        if key in validation_errors and (show_all_errors or key in touched_fields):
+            st.error(validation_errors[key])
     for key, message in validation_errors.items():
-        if key.startswith("question_"):
+        if key.startswith("question_") and (show_all_errors or key in touched_fields):
             st.error(message)
 
-    publish_disabled = bool(validation_errors)
-    if st.button("Publish Module", key="module_builder_publish", type="primary", disabled=publish_disabled):
+    if st.button("Publish Module", key="module_builder_publish", type="primary"):
+        st.session_state[publish_attempted_key] = True
+        if validation_errors:
+            st.warning("Please address validation issues before publishing.")
+            st.rerun()
         _autosave(force=True)
         module_id = execute(
             """
@@ -2377,6 +2454,8 @@ def render_module_builder(current_user: dict) -> None:
         st.success(f"Module published successfully (Module #{int(module_id)}).")
         st.session_state[form_key] = dict(default_form)
         st.session_state[save_status_key] = "Saved"
+        st.session_state[publish_attempted_key] = False
+        st.session_state[touched_key] = set()
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in keys_to_clear:
             st.session_state.pop(key, None)
