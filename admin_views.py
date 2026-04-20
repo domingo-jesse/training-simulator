@@ -2099,6 +2099,7 @@ def render_module_builder(current_user: dict) -> None:
     render_page_header("Module Builder", "Single-page module editor with autosave and inline validation.")
     inject_scroll_to_top()
 
+    mode_key = "module_builder_mode"
     form_key = "module_builder_editor_form"
     dirty_key = "module_builder_editor_dirty"
     save_status_key = "module_builder_editor_save_status"
@@ -2106,6 +2107,21 @@ def render_module_builder(current_user: dict) -> None:
     last_save_key = "module_builder_editor_last_save_ts"
     touched_key = "module_builder_editor_touched_fields"
     publish_attempted_key = "module_builder_editor_publish_attempted"
+    widget_keys = [
+        "module_builder_title",
+        "module_builder_description",
+        "module_builder_scenario_constraints",
+        "module_builder_category",
+        "module_builder_difficulty",
+        "module_builder_role_focus",
+        "module_builder_test_focus",
+        "module_builder_learning_objectives",
+        "module_builder_content_sections",
+        "module_builder_completion_requirements",
+        "module_builder_quiz_required",
+        "module_builder_estimated_minutes",
+        "module_builder_attempt_limit",
+    ]
 
     default_form = {
         "title": "",
@@ -2131,6 +2147,54 @@ def render_module_builder(current_user: dict) -> None:
             }
         ],
     }
+
+    def _reset_builder_state(builder_mode: str) -> None:
+        st.session_state[mode_key] = builder_mode
+        st.session_state[form_key] = dict(default_form)
+        if builder_mode == "ai":
+            st.session_state[form_key].update(
+                {
+                    "title": "AI Generated Module",
+                    "description": "Describe the module goal and let AI draft a complete first version.",
+                    "scenario_constraints": "Provide context, constraints, and expected behavior for the generated scenario.",
+                    "learning_objectives": "Define learning objective 1\nDefine learning objective 2",
+                    "completion_requirements": "Include key completion requirements and pass/fail criteria.",
+                }
+            )
+        st.session_state[save_status_key] = "Saved"
+        st.session_state[dirty_key] = False
+        st.session_state[last_input_key] = 0.0
+        st.session_state[last_save_key] = 0.0
+        st.session_state[touched_key] = set()
+        st.session_state[publish_attempted_key] = False
+        keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
+        for key in [*keys_to_clear, *widget_keys]:
+            st.session_state.pop(key, None)
+
+    st.session_state.setdefault(mode_key, None)
+
+    st.markdown("### Create a Module")
+    st.caption("Choose how you want to begin before opening the full module builder.")
+    mode_col_1, mode_col_2, mode_col_3 = st.columns(3)
+    if mode_col_1.button("Start from Scratch", use_container_width=True):
+        if st.session_state.get(mode_key) != "manual":
+            _reset_builder_state("manual")
+        st.rerun()
+    if mode_col_2.button("Generate with AI", use_container_width=True):
+        if st.session_state.get(mode_key) != "ai":
+            _reset_builder_state("ai")
+        st.rerun()
+    mode_col_3.button("Use Template (Coming Soon)", disabled=True, use_container_width=True)
+
+    selected_mode = st.session_state.get(mode_key)
+    if selected_mode is None:
+        st.info("Select a creation mode to continue.")
+        return
+
+    if selected_mode == "manual":
+        st.caption("Mode: Start from Scratch")
+    elif selected_mode == "ai":
+        st.caption("Mode: Generate with AI (prefilled starter fields applied)")
 
     if form_key not in st.session_state:
         st.session_state[form_key] = dict(default_form)
@@ -2459,7 +2523,7 @@ def render_module_builder(current_user: dict) -> None:
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in keys_to_clear:
             st.session_state.pop(key, None)
-        for key in widget_defaults:
+        for key in widget_keys:
             st.session_state.pop(key, None)
         st.rerun()
 
