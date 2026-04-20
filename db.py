@@ -475,6 +475,12 @@ def init_db() -> None:
                     overall_ai_feedback TEXT,
                     overall_admin_feedback TEXT,
                     learner_visible_feedback TEXT,
+                    best_practice_reasoning TEXT,
+                    recommended_response TEXT,
+                    lesson_takeaway TEXT,
+                    learner_strengths TEXT,
+                    learner_weaknesses TEXT,
+                    learner_missed_points TEXT,
                     approved_by BIGINT,
                     approved_at TIMESTAMPTZ,
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -811,6 +817,12 @@ def init_db() -> None:
                 overall_ai_feedback TEXT,
                 overall_admin_feedback TEXT,
                 learner_visible_feedback TEXT,
+                best_practice_reasoning TEXT,
+                recommended_response TEXT,
+                lesson_takeaway TEXT,
+                learner_strengths TEXT,
+                learner_weaknesses TEXT,
+                learner_missed_points TEXT,
                 approved_by INTEGER,
                 approved_at TEXT,
                 FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -1297,6 +1309,12 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "overall_ai_feedback", "TEXT")
             _ensure_column(conn, "submission_scores", "overall_admin_feedback", "TEXT")
             _ensure_column(conn, "submission_scores", "learner_visible_feedback", "TEXT")
+            _ensure_column(conn, "submission_scores", "best_practice_reasoning", "TEXT")
+            _ensure_column(conn, "submission_scores", "recommended_response", "TEXT")
+            _ensure_column(conn, "submission_scores", "lesson_takeaway", "TEXT")
+            _ensure_column(conn, "submission_scores", "learner_strengths", "TEXT")
+            _ensure_column(conn, "submission_scores", "learner_weaknesses", "TEXT")
+            _ensure_column(conn, "submission_scores", "learner_missed_points", "TEXT")
             _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
             _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'pending'")

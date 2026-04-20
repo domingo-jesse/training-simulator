@@ -1639,11 +1639,52 @@ def render_grading_center(current_user: dict) -> None:
                 """
                 UPDATE submission_scores
                 SET grading_status = 'approved',
+                    final_total_score = COALESCE(admin_total_score, ai_total_score, final_total_score),
                     approved_by = ?,
-                    approved_at = CURRENT_TIMESTAMP
+                    approved_at = CURRENT_TIMESTAMP,
+                    learner_visible_feedback = COALESCE(learner_visible_feedback, overall_admin_feedback, overall_ai_feedback),
+                    best_practice_reasoning = COALESCE(
+                        best_practice_reasoning,
+                        (SELECT best_practice_reasoning FROM attempts WHERE attempt_id = ?)
+                    ),
+                    recommended_response = COALESCE(
+                        recommended_response,
+                        (SELECT COALESCE(a.recommended_response, m.expected_customer_response)
+                         FROM attempts a
+                         JOIN modules m ON m.module_id = a.module_id
+                         WHERE a.attempt_id = ?)
+                    ),
+                    lesson_takeaway = COALESCE(
+                        lesson_takeaway,
+                        (SELECT COALESCE(a.takeaway_summary, m.lesson_takeaway)
+                         FROM attempts a
+                         JOIN modules m ON m.module_id = a.module_id
+                         WHERE a.attempt_id = ?)
+                    ),
+                    learner_strengths = COALESCE(
+                        learner_strengths,
+                        (SELECT strengths FROM attempts WHERE attempt_id = ?)
+                    ),
+                    learner_weaknesses = COALESCE(
+                        learner_weaknesses,
+                        (SELECT missed_points FROM attempts WHERE attempt_id = ?)
+                    ),
+                    learner_missed_points = COALESCE(
+                        learner_missed_points,
+                        (SELECT missed_points FROM attempts WHERE attempt_id = ?)
+                    )
                 WHERE attempt_id = ?
                 """,
-                (current_user["user_id"], int(selected_attempt_id)),
+                (
+                    current_user["user_id"],
+                    int(selected_attempt_id),
+                    int(selected_attempt_id),
+                    int(selected_attempt_id),
+                    int(selected_attempt_id),
+                    int(selected_attempt_id),
+                    int(selected_attempt_id),
+                    int(selected_attempt_id),
+                ),
             )
             st.session_state[approval_status_key] = ("success", "Result approved. Learner can now see full results.")
             st.session_state[approval_status_expiry_key] = time.time() + 8

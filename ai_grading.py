@@ -55,7 +55,7 @@ def _grade_answer(*, learner_answer: str, expected_answer: str, rubric: str, max
 def grade_submission_with_ai(attempt_id: int) -> dict[str, Any]:
     attempt = fetch_one(
         """
-        SELECT a.*, m.organization_id AS module_org_id
+        SELECT a.*, m.organization_id AS module_org_id, m.expected_customer_response, m.lesson_takeaway
         FROM attempts a
         JOIN modules m ON m.module_id = a.module_id
         WHERE a.attempt_id = ?
@@ -164,9 +164,11 @@ def grade_submission_with_ai(attempt_id: int) -> dict[str, Any]:
             """
             INSERT INTO submission_scores (
                 attempt_id, ai_total_score, final_total_score, max_total_score, percentage,
-                grading_status, overall_ai_feedback, learner_visible_feedback
+                grading_status, overall_ai_feedback, learner_visible_feedback,
+                best_practice_reasoning, recommended_response, lesson_takeaway,
+                learner_strengths, learner_weaknesses, learner_missed_points
             )
-            VALUES (?, ?, ?, ?, ?, 'ai_graded_pending_review', ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'ai_graded_pending_review', ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(attempt_id) DO UPDATE SET
                 ai_total_score = excluded.ai_total_score,
                 final_total_score = COALESCE(submission_scores.admin_total_score, excluded.ai_total_score),
@@ -175,9 +177,29 @@ def grade_submission_with_ai(attempt_id: int) -> dict[str, Any]:
                 grading_status = excluded.grading_status,
                 overall_ai_feedback = excluded.overall_ai_feedback,
                 learner_visible_feedback = COALESCE(submission_scores.learner_visible_feedback, excluded.learner_visible_feedback),
+                best_practice_reasoning = COALESCE(submission_scores.best_practice_reasoning, excluded.best_practice_reasoning),
+                recommended_response = COALESCE(submission_scores.recommended_response, excluded.recommended_response),
+                lesson_takeaway = COALESCE(submission_scores.lesson_takeaway, excluded.lesson_takeaway),
+                learner_strengths = COALESCE(submission_scores.learner_strengths, excluded.learner_strengths),
+                learner_weaknesses = COALESCE(submission_scores.learner_weaknesses, excluded.learner_weaknesses),
+                learner_missed_points = COALESCE(submission_scores.learner_missed_points, excluded.learner_missed_points),
                 scored_at = CURRENT_TIMESTAMP
             """,
-            (attempt_id, total_score, total_score, max_total_score, percentage, overall_feedback, overall_feedback),
+            (
+                attempt_id,
+                total_score,
+                total_score,
+                max_total_score,
+                percentage,
+                overall_feedback,
+                overall_feedback,
+                attempt.get("best_practice_reasoning") or "",
+                attempt.get("recommended_response") or attempt.get("expected_customer_response") or "",
+                attempt.get("takeaway_summary") or attempt.get("lesson_takeaway") or "",
+                attempt.get("strengths") or "[]",
+                attempt.get("missed_points") or "[]",
+                attempt.get("missed_points") or "[]",
+            ),
         )
 
         execute(
