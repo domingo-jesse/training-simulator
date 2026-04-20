@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from datetime import date, datetime, timedelta, timezone
 from html import escape
 from io import StringIO
@@ -664,6 +665,10 @@ def _render_assignment_tool(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Assignment Tool")
+    assign_status_key = "assignment_tool_assign_status"
+    assign_status_expiry_key = "assignment_tool_assign_status_expiry"
+    assign_in_progress_key = "assignment_tool_is_assigning"
+    pending_payload_key = "assignment_tool_pending_assignment_payload"
 
     learners = fetch_all(
         """
@@ -859,60 +864,116 @@ def _render_assignment_tool(current_user: dict) -> None:
             disabled=not st.session_state[due_date_enabled_key],
             help="Select a due date.",
         )
-        assign_submitted = st.button("Send to database: Assign training", type="primary")
+        status_container = st.container()
+        assign_submitted = st.button(
+            "Send to database: Assign training",
+            type="primary",
+            disabled=bool(st.session_state.get(assign_in_progress_key, False)),
+        )
 
-        if assign_submitted:
+        if assign_submitted and not st.session_state.get(assign_in_progress_key, False):
             module_id = module_map[selected_module]
             due_date_value = due_date.isoformat() if st.session_state[due_date_enabled_key] and due_date else None
-            if not selected_learners:
-                st.warning("Select at least one learner before assigning.")
-                return
+            selected_ids: list[int] = []
+            missing_labels: list[str] = []
+            for learner_label in selected_learners:
+                learner_id = all_active_learner_map.get(learner_label)
+                if learner_id is None:
+                    missing_labels.append(learner_label)
+                    continue
+                selected_ids.append(int(learner_id))
+            if not selected_ids:
+                st.session_state[assign_status_key] = ("warning", "Select at least one learner before assigning.")
+                st.session_state[assign_status_expiry_key] = time.time() + 6
+            elif missing_labels:
+                st.session_state[assign_status_key] = ("warning", "Some selected learners are no longer available. Refresh and try again.")
+                st.session_state[assign_status_expiry_key] = time.time() + 6
+            else:
+                st.session_state[pending_payload_key] = {
+                    "module_id": int(module_id),
+                    "due_date": due_date_value,
+                    "selected_ids": selected_ids,
+                }
+                st.session_state[assign_in_progress_key] = True
+                st.session_state[assign_status_key] = None
+                st.session_state[assign_status_expiry_key] = None
+                st.rerun()
+
+        if st.session_state.get(assign_in_progress_key, False):
+            pending_payload = st.session_state.get(pending_payload_key) or {}
+            module_id = int(pending_payload.get("module_id", 0))
+            due_date_value = pending_payload.get("due_date")
+            selected_ids = [int(v) for v in pending_payload.get("selected_ids", [])]
             try:
-                selected_ids = [learner_map[learner_label] for learner_label in selected_learners]
-                active_rows = fetch_all(
-                    """
-                    SELECT user_id
-                    FROM users
-                    WHERE role = 'learner'
-                      AND organization_id = ?
-                      AND is_active = TRUE
-                      AND user_id = ANY(?)
-                    """,
-                    (org_id, selected_ids),
-                )
-                active_ids = {int(row["user_id"]) for row in active_rows}
-                valid_ids = [learner_id for learner_id in selected_ids if learner_id in active_ids]
-                skipped_count = len(selected_ids) - len(valid_ids)
-                if not valid_ids:
-                    st.warning("No active learners were selected. Refresh and try again.")
-                    return
-                for learner_label in selected_learners:
-                    learner_id = learner_map[learner_label]
-                    if learner_id not in active_ids:
-                        continue
-                    execute(
-                        """
-                        INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        RETURNING assignment_id AS id
-                        """,
-                        (org_id, module_id, learner_id, current_user["user_id"], due_date_value, True),
-                    )
-                    _sync_assignment_tracking_records(
-                        organization_id=org_id,
-                        module_id=module_id,
-                        learner_id=learner_id,
-                        assigned_by_user_id=current_user["user_id"],
-                    )
+                with status_container:
+                    with st.spinner("Assigning training..."):
+                        active_rows = fetch_all(
+                            """
+                            SELECT user_id
+                            FROM users
+                            WHERE role = 'learner'
+                              AND organization_id = ?
+                              AND is_active = TRUE
+                              AND user_id = ANY(?)
+                            """,
+                            (org_id, selected_ids),
+                        )
+                        active_ids = {int(row["user_id"]) for row in active_rows}
+                        valid_ids = [learner_id for learner_id in selected_ids if learner_id in active_ids]
+                        skipped_count = len(selected_ids) - len(valid_ids)
+                        if not valid_ids:
+                            raise ValueError("No active learners were selected. Refresh and try again.")
+                        for learner_id in valid_ids:
+                            execute(
+                                """
+                                INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
+                                VALUES (?, ?, ?, ?, ?, ?)
+                                RETURNING assignment_id AS id
+                                """,
+                                (org_id, module_id, learner_id, current_user["user_id"], due_date_value, True),
+                            )
+                            _sync_assignment_tracking_records(
+                                organization_id=org_id,
+                                module_id=module_id,
+                                learner_id=learner_id,
+                                assigned_by_user_id=current_user["user_id"],
+                            )
                 view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(valid_ids))
                 if skipped_count:
-                    st.warning(f"Skipped {skipped_count} learner(s) who are no longer active.")
-                st.success(f"Assigned module to {len(valid_ids)} learner(s).")
+                    st.session_state[assign_status_key] = ("success", f"Training assigned successfully. ({skipped_count} learner(s) skipped)")
+                else:
+                    st.session_state[assign_status_key] = ("success", "Training assigned successfully.")
+                st.session_state[assign_status_expiry_key] = time.time() + 5
                 st.cache_data.clear()
-                st.rerun()
+                st.session_state["assignment_management_refresh_token"] = int(st.session_state.get("assignment_management_refresh_token", 0)) + 1
+                st.session_state.pop("assignment_management_filtered_cache", None)
+            except ValueError as validation_error:
+                st.session_state[assign_status_key] = ("error", str(validation_error))
+                st.session_state[assign_status_expiry_key] = time.time() + 8
             except Exception:
                 view_logger.exception("Failed assigning training.", scenario_id=module_id)
-                st.error("Could not assign training.")
+                st.session_state[assign_status_key] = ("error", "Could not assign training.")
+                st.session_state[assign_status_expiry_key] = time.time() + 8
+            finally:
+                st.session_state[assign_in_progress_key] = False
+                st.session_state.pop(pending_payload_key, None)
+                st.rerun()
+
+        status_payload = st.session_state.get(assign_status_key)
+        status_expiry = st.session_state.get(assign_status_expiry_key)
+        if status_payload and status_expiry and time.time() > float(status_expiry):
+            st.session_state[assign_status_key] = None
+            st.session_state[assign_status_expiry_key] = None
+            status_payload = None
+        if status_payload:
+            status_level, status_message = status_payload
+            with status_container:
+                if status_level == "success":
+                    st.caption("✅ " + status_message)
+                elif status_level == "warning":
+                    st.caption("⚠️ " + status_message)
+                else:
+                    st.caption("❌ " + status_message)
 
 
 def render_assignment_management(current_user: dict) -> None:
