@@ -938,7 +938,12 @@ def _render_assignment_tool(current_user: dict) -> None:
                                 learner_id=learner_id,
                                 assigned_by_user_id=current_user["user_id"],
                             )
-                view_logger.info("Form submitted.", form="assign_training", scenario_id=module_id, learners=len(valid_ids))
+                view_logger.info(
+                    "Admin submitted training assignment form.",
+                    form="assign_training",
+                    scenario_id=module_id,
+                    learners=len(valid_ids),
+                )
                 if skipped_count:
                     st.session_state[assign_status_key] = ("success", f"Training assigned successfully. ({skipped_count} learner(s) skipped)")
                 else:

@@ -735,7 +735,7 @@ def render_scenario_page(user: Dict) -> None:
 
     def _submit_module_attempt(*, timed_out: bool) -> None:
         scenario_logger = view_logger.bind(scenario_id=module_id)
-        scenario_logger.info("Form submitted.", form="submit_module", timed_out=timed_out)
+        scenario_logger.info("User submitted module response form.", form="submit_module", timed_out=timed_out)
         submission_lock = fetch_one(
             """
             UPDATE assignment_workspace_state
@@ -804,7 +804,7 @@ def render_scenario_page(user: Dict) -> None:
             payload = {**answers, **evaluation}
             attempt_id = insert_attempt(user["user_id"], module_id, payload, user["organization_id"])
             log_actions(attempt_id, st.session_state[used_actions_key])
-            scenario_logger.info("Scenario submission saved.", attempt_id=attempt_id, timed_out=timed_out)
+            scenario_logger.info("Assignment submission recorded.", attempt_id=attempt_id, timed_out=timed_out)
 
             st.session_state.latest_attempt_id = attempt_id
             st.session_state.active_assignment_id = None
