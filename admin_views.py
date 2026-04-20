@@ -1908,6 +1908,45 @@ def _parse_lines(value: str) -> str:
     return "\n".join([line.strip() for line in value.splitlines() if line.strip()])
 
 
+def _coerce_choice_list(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [str(choice) for choice in value]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                return [str(choice) for choice in parsed]
+            if isinstance(parsed, dict):
+                choices = parsed.get("choices")
+                if isinstance(choices, list):
+                    return [str(choice) for choice in choices]
+        except Exception:
+            pass
+        return [line.strip() for line in value.splitlines() if line.strip()]
+    return []
+
+
+def _normalize_question_choices(question: dict[str, object]) -> list[str]:
+    choices = _coerce_choice_list(question.get("choices"))
+    if choices:
+        return choices
+    return _coerce_choice_list(question.get("options_text"))
+
+
+def _serialize_question_options(question: dict[str, object]) -> str:
+    if str(question.get("question_type") or "").strip() != "multiple_choice":
+        return ""
+    choices = [str(choice or "") for choice in _coerce_choice_list(question.get("choices"))]
+    payload: dict[str, object] = {"choices": choices}
+    correct_choice_index = question.get("correct_choice_index")
+    if isinstance(correct_choice_index, int) and 0 <= correct_choice_index < len(choices):
+        payload["correct_choice_index"] = correct_choice_index
+    return json.dumps(payload)
+
+
 def _estimated_time_to_minutes(value: str | None, fallback: int = 20) -> int:
     text = (value or "").strip()
     digits = "".join(ch for ch in text if ch.isdigit())
@@ -2211,6 +2250,8 @@ def render_module_builder(current_user: dict) -> None:
                 "question_text": "",
                 "question_type": "open_text",
                 "options_text": "",
+                "choices": [],
+                "correct_choice_index": None,
                 "rationale": "",
             }
         ],
@@ -2329,6 +2370,8 @@ def render_module_builder(current_user: dict) -> None:
                         if str(question.get("question_type") or "").strip().lower() == "multiple_choice"
                         else "open_text",
                         "options_text": "",
+                        "choices": _coerce_choice_list(question.get("choices")),
+                        "correct_choice_index": question.get("correct_choice_index"),
                         "rationale": "\n\n".join(rationale_parts),
                     }
                 )
@@ -2376,6 +2419,15 @@ def render_module_builder(current_user: dict) -> None:
             touched = set(st.session_state.get(touched_key, set()))
             touched.add(field_key)
             st.session_state[touched_key] = touched
+
+    def _on_question_type_change(current_idx: int) -> None:
+        q_prefix = f"module_builder_q_{current_idx}"
+        question_type = st.session_state.get(f"{q_prefix}_type", "open_text")
+        choices_key = f"{q_prefix}_choices"
+        if question_type == "multiple_choice" and not st.session_state.get(choices_key):
+            st.session_state[choices_key] = ["", ""]
+            st.session_state[f"{q_prefix}_correct_choice"] = None
+        _mark_dirty(f"question_{current_idx + 1}")
 
     def _sync_form_from_widgets() -> None:
         module_form["title"] = st.session_state.get("module_builder_title", module_form.get("title", ""))
@@ -2585,8 +2637,13 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[f"{q_prefix}_text"] = question.get("question_text", "")
             if f"{q_prefix}_type" not in st.session_state:
                 st.session_state[f"{q_prefix}_type"] = question.get("question_type", "open_text")
-            if f"{q_prefix}_options" not in st.session_state:
-                st.session_state[f"{q_prefix}_options"] = question.get("options_text", "")
+            if f"{q_prefix}_choices" not in st.session_state:
+                st.session_state[f"{q_prefix}_choices"] = _normalize_question_choices(question)
+            if f"{q_prefix}_correct_choice" not in st.session_state:
+                correct_choice_index = question.get("correct_choice_index")
+                st.session_state[f"{q_prefix}_correct_choice"] = (
+                    correct_choice_index if isinstance(correct_choice_index, int) else None
+                )
             if f"{q_prefix}_rationale" not in st.session_state:
                 st.session_state[f"{q_prefix}_rationale"] = question.get("rationale", "")
 
@@ -2600,15 +2657,66 @@ def render_module_builder(current_user: dict) -> None:
                 "Question type",
                 ["open_text", "multiple_choice"],
                 key=f"{q_prefix}_type",
-                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                on_change=lambda current_idx=idx: _on_question_type_change(current_idx),
             )
-            st.text_area(
-                "Answer choices (one per line)",
-                key=f"{q_prefix}_options",
-                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}_options"),
-                disabled=st.session_state.get(f"{q_prefix}_type") != "multiple_choice",
-                height=100,
-            )
+            is_multiple_choice = st.session_state.get(f"{q_prefix}_type") == "multiple_choice"
+            if is_multiple_choice:
+                choices_key = f"{q_prefix}_choices"
+                choices = list(st.session_state.get(choices_key, []))
+                if not choices:
+                    choices = ["", ""]
+                    st.session_state[choices_key] = choices
+
+                st.markdown("Answer choices")
+                remove_choice_idx = None
+                for choice_idx, choice_value in enumerate(choices):
+                    choice_key = f"{q_prefix}_choice_{choice_idx}"
+                    if choice_key not in st.session_state:
+                        st.session_state[choice_key] = choice_value
+                    choice_col, remove_col = st.columns([5, 1])
+                    choice_col.text_input(
+                        f"Choice {choice_idx + 1}",
+                        key=choice_key,
+                        on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}_options"),
+                    )
+                    if remove_col.button("Remove", key=f"{q_prefix}_remove_choice_{choice_idx}"):
+                        remove_choice_idx = choice_idx
+
+                if st.button("Add Choice", key=f"{q_prefix}_add_choice"):
+                    st.session_state[choices_key] = [st.session_state.get(f"{q_prefix}_choice_{i}", "") for i in range(len(choices))]
+                    st.session_state[choices_key].append("")
+                    st.session_state[f"{q_prefix}_correct_choice"] = None
+                    _mark_dirty(f"question_{idx + 1}_options")
+                    st.rerun()
+
+                if remove_choice_idx is not None:
+                    updated_choices = [
+                        st.session_state.get(f"{q_prefix}_choice_{i}", "")
+                        for i in range(len(choices))
+                        if i != remove_choice_idx
+                    ]
+                    st.session_state[choices_key] = updated_choices
+                    for key in [k for k in list(st.session_state.keys()) if k.startswith(f"{q_prefix}_choice_")]:
+                        st.session_state.pop(key, None)
+                    st.session_state[f"{q_prefix}_correct_choice"] = None
+                    _mark_dirty(f"question_{idx + 1}_options")
+                    st.rerun()
+
+                current_choice_indexes = list(range(len(st.session_state.get(choices_key, []))))
+                if current_choice_indexes:
+                    option_values = [None, *current_choice_indexes]
+                    current_value = st.session_state.get(f"{q_prefix}_correct_choice")
+                    current_index = option_values.index(current_value) if current_value in option_values else 0
+                    st.session_state[f"{q_prefix}_correct_choice"] = st.selectbox(
+                        "Correct answer (optional)",
+                        options=option_values,
+                        index=current_index,
+                        format_func=lambda choice_idx: "Not set"
+                        if choice_idx is None
+                        else (st.session_state.get(f"{q_prefix}_choice_{choice_idx}", "").strip() or f"Choice {choice_idx + 1}"),
+                        key=f"{q_prefix}_correct_choice_select",
+                        on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}_options"),
+                    )
             st.text_area(
                 "Rubric / rationale",
                 key=f"{q_prefix}_rationale",
@@ -2637,7 +2745,13 @@ def render_module_builder(current_user: dict) -> None:
         q_prefix = f"module_builder_q_{idx}"
         question["question_text"] = st.session_state.get(f"{q_prefix}_text", "")
         question["question_type"] = st.session_state.get(f"{q_prefix}_type", "open_text")
-        question["options_text"] = _parse_lines(st.session_state.get(f"{q_prefix}_options", ""))
+        choices = st.session_state.get(f"{q_prefix}_choices", [])
+        if isinstance(choices, list):
+            question["choices"] = [str(st.session_state.get(f"{q_prefix}_choice_{choice_idx}", choice_value)) for choice_idx, choice_value in enumerate(choices)]
+        else:
+            question["choices"] = []
+        question["correct_choice_index"] = st.session_state.get(f"{q_prefix}_correct_choice")
+        question["options_text"] = _serialize_question_options(question)
         question["rationale"] = st.session_state.get(f"{q_prefix}_rationale", "")
 
     st.markdown("### Scoring / Rubric")
@@ -2713,7 +2827,7 @@ def render_module_builder(current_user: dict) -> None:
         if not _is_present(question.get("question_text")):
             validation_errors[f"question_{idx}"] = f"Question {idx} text is required."
         if question.get("question_type") == "multiple_choice":
-            option_lines = [line.strip() for line in str(question.get("options_text") or "").splitlines() if line.strip()]
+            option_lines = [choice.strip() for choice in _coerce_choice_list(question.get("choices")) if str(choice).strip()]
             if len(option_lines) < 2:
                 validation_errors[f"question_{idx}_options"] = f"Question {idx} needs at least two answer choices."
 
@@ -2770,7 +2884,7 @@ def render_module_builder(current_user: dict) -> None:
                     q.get("question_text", "").strip(),
                     q.get("rationale", "").strip(),
                     q.get("question_type") or "open_text",
-                    q.get("options_text") or "",
+                    _serialize_question_options(q),
                     None,
                 )
                 for idx, q in enumerate(module_form.get("questions", []))
@@ -3083,7 +3197,7 @@ def render_manage_modules(current_user: dict) -> None:
                         )
                         edit_question_options = st.text_area(
                             "Options (one per line; multiple choice only)",
-                            value=question.get("options_text") or "",
+                            value="\n".join(_normalize_question_choices(question)),
                             key=f"edit_question_options_{state_prefix}_{question['question_id']}",
                             disabled=edit_question_type != "multiple_choice",
                         )
@@ -3103,7 +3217,9 @@ def render_manage_modules(current_user: dict) -> None:
                                     edit_question_text.strip(),
                                     edit_question_type,
                                     edit_question_rubric.strip(),
-                                    _parse_lines(edit_question_options) if edit_question_type == "multiple_choice" else "",
+                                    json.dumps({"choices": _coerce_choice_list(_parse_lines(edit_question_options))})
+                                    if edit_question_type == "multiple_choice"
+                                    else "",
                                     question["question_id"],
                                     module_id,
                                 ),
@@ -3140,7 +3256,9 @@ def render_manage_modules(current_user: dict) -> None:
                             add_question_text.strip(),
                             add_question_rubric.strip(),
                             add_question_type,
-                            _parse_lines(add_question_options) if add_question_type == "multiple_choice" else "",
+                            json.dumps({"choices": _coerce_choice_list(_parse_lines(add_question_options))})
+                            if add_question_type == "multiple_choice"
+                            else "",
                             None,
                         ),
                     )
