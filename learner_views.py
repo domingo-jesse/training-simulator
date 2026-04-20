@@ -51,7 +51,20 @@ def _estimated_minutes(value: str | None, fallback: int = 20) -> int:
 
 
 def _question_options(options_text: str | None) -> list[str]:
-    return [line.strip() for line in (options_text or "").splitlines() if line.strip()]
+    text = (options_text or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, list):
+            return [str(choice).strip() for choice in parsed if str(choice).strip()]
+        if isinstance(parsed, dict):
+            choices = parsed.get("choices")
+            if isinstance(choices, list):
+                return [str(choice).strip() for choice in choices if str(choice).strip()]
+    except Exception:
+        pass
+    return [line.strip() for line in text.splitlines() if line.strip()]
 
 
 def _format_duration(seconds: int | None) -> str:
