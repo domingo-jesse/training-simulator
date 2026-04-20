@@ -39,7 +39,12 @@ from utils import (
     inject_scroll_to_top,
     to_df,
 )
-from module_generation import ModuleGenerationInput, generate_module_preview
+from module_generation import (
+    ModuleDraftGenerationInput,
+    ModuleGenerationInput,
+    generate_module_draft,
+    generate_module_preview,
+)
 
 admin_logger = get_logger(module="admin_views")
 
@@ -2163,6 +2168,11 @@ def render_module_builder(current_user: dict) -> None:
     last_save_key = "module_builder_editor_last_save_ts"
     touched_key = "module_builder_editor_touched_fields"
     publish_attempted_key = "module_builder_editor_publish_attempted"
+    ai_prompt_key = "module_builder_ai_prompt"
+    ai_draft_key = "module_builder_ai_draft"
+    ai_feedback_key = "module_builder_ai_feedback"
+    ai_last_prompt_key = "module_builder_ai_last_prompt"
+    ai_keep_editing_key = "module_builder_ai_keep_editing"
     widget_keys = [
         "module_builder_title",
         "module_builder_description",
@@ -2224,6 +2234,11 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[touched_key] = set()
         st.session_state[publish_attempted_key] = False
         st.session_state[pending_close_key] = False
+        st.session_state[ai_prompt_key] = ""
+        st.session_state[ai_draft_key] = None
+        st.session_state[ai_feedback_key] = None
+        st.session_state[ai_last_prompt_key] = ""
+        st.session_state[ai_keep_editing_key] = False
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in [*keys_to_clear, *widget_keys]:
             st.session_state.pop(key, None)
@@ -2265,6 +2280,81 @@ def render_module_builder(current_user: dict) -> None:
 
     module_form = st.session_state[form_key]
     now_ts = time.time()
+
+    def _normalize_generated_difficulty(value: object, current: str) -> str:
+        normalized = str(value or "").strip().lower()
+        mapping = {
+            "beginner": "Beginner",
+            "basic": "Beginner",
+            "intermediate": "Intermediate",
+            "mid": "Intermediate",
+            "advanced": "Advanced",
+            "expert": "Advanced",
+        }
+        return mapping.get(normalized, current or "Beginner")
+
+    def _apply_generated_draft_to_form(generated_draft: dict[str, object]) -> None:
+        questions = generated_draft.get("questions") if isinstance(generated_draft, dict) else None
+        normalized_questions = []
+        if isinstance(questions, list):
+            for question in questions:
+                if not isinstance(question, dict):
+                    continue
+                question_text = str(question.get("question_text") or "").strip()
+                if not question_text:
+                    continue
+                answer_guidance = str(question.get("answer_guidance") or "").strip()
+                rubric_text = str(question.get("rubric") or "").strip()
+                rationale_parts = []
+                if answer_guidance:
+                    rationale_parts.append(f"Ideal answer guidance:\n{answer_guidance}")
+                if rubric_text:
+                    rationale_parts.append(f"Question rubric:\n{rubric_text}")
+                normalized_questions.append(
+                    {
+                        "question_text": question_text,
+                        "question_type": "multiple_choice"
+                        if str(question.get("question_type") or "").strip().lower() == "multiple_choice"
+                        else "open_text",
+                        "options_text": "",
+                        "rationale": "\n\n".join(rationale_parts),
+                    }
+                )
+        if not normalized_questions:
+            normalized_questions = [dict(default_form["questions"][0])]
+
+        module_form["title"] = _normalize_text(generated_draft.get("title")) or module_form.get("title", "")
+        module_form["description"] = _normalize_text(generated_draft.get("description")) or module_form.get("description", "")
+        module_form["scenario_constraints"] = _normalize_text(generated_draft.get("scenario")) or module_form.get(
+            "scenario_constraints", ""
+        )
+        category = _normalize_text(generated_draft.get("category"))
+        if category:
+            module_form["category"] = category
+        module_form["difficulty"] = _normalize_generated_difficulty(generated_draft.get("difficulty"), module_form.get("difficulty"))
+        time_limit = generated_draft.get("time_limit_minutes")
+        if isinstance(time_limit, (int, float)) and int(time_limit) > 0:
+            module_form["estimated_minutes"] = int(time_limit)
+
+        overall_rubric = _normalize_text(generated_draft.get("overall_rubric"))
+        if overall_rubric:
+            module_form["completion_requirements"] = overall_rubric
+        module_form["questions"] = normalized_questions
+        module_form["question_count"] = len(normalized_questions)
+
+        st.session_state["module_builder_title"] = module_form["title"]
+        st.session_state["module_builder_description"] = module_form["description"]
+        st.session_state["module_builder_scenario_constraints"] = module_form["scenario_constraints"]
+        st.session_state["module_builder_category"] = module_form["category"]
+        st.session_state["module_builder_difficulty"] = module_form["difficulty"]
+        st.session_state["module_builder_estimated_minutes"] = int(module_form["estimated_minutes"])
+        st.session_state["module_builder_completion_requirements"] = module_form["completion_requirements"]
+        keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
+        for key in keys_to_clear:
+            st.session_state.pop(key, None)
+        st.session_state[dirty_key] = True
+        st.session_state[last_input_key] = time.time()
+        st.session_state[save_status_key] = "Saving..."
 
     def _mark_dirty(field_key: str | None = None) -> None:
         st.session_state[dirty_key] = True
@@ -2336,6 +2426,69 @@ def render_module_builder(current_user: dict) -> None:
         )
     with top_right:
         st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
+
+    if selected_mode == "ai":
+        st.markdown("### Describe the module you want to create")
+        st.text_area(
+            "Describe the module you want to create",
+            key=ai_prompt_key,
+            height=180,
+            placeholder=(
+                "Create a training module about handling upset patients and escalation steps\n"
+                "Build a prior authorization module about missing documentation and payer follow-up\n"
+                "Make a customer support module for de-escalation and empathy"
+            ),
+            label_visibility="collapsed",
+        )
+        ai_action_col_1, ai_action_col_2 = st.columns([1, 3])
+        if ai_action_col_1.button("Generate Module", key="module_builder_generate_ai", type="secondary", use_container_width=True):
+            prompt = str(st.session_state.get(ai_prompt_key, "")).strip()
+            if not prompt:
+                st.warning("Please describe what you want the module to cover before generating.")
+            else:
+                with st.spinner("Generating module draft..."):
+                    generated_draft, warning = generate_module_draft(
+                        ModuleDraftGenerationInput(prompt=prompt, question_count=max(1, len(module_form.get("questions", []))))
+                    )
+                st.session_state[ai_draft_key] = generated_draft
+                st.session_state[ai_last_prompt_key] = prompt
+                st.session_state[ai_feedback_key] = warning
+                st.session_state[ai_keep_editing_key] = False
+                _apply_generated_draft_to_form(generated_draft)
+                st.rerun()
+        with ai_action_col_2:
+            st.caption("The generated draft stays editable. Review and publish only when you're ready.")
+
+        ai_feedback = st.session_state.get(ai_feedback_key)
+        if ai_feedback:
+            st.info(ai_feedback)
+
+        if st.session_state.get(ai_draft_key):
+            st.success("Draft generated. You can regenerate, clear, or keep editing.")
+            generated_actions = st.columns(3)
+            if generated_actions[0].button("Regenerate", key="module_builder_regenerate_ai", use_container_width=True):
+                prompt = str(st.session_state.get(ai_prompt_key) or st.session_state.get(ai_last_prompt_key) or "").strip()
+                if not prompt:
+                    st.warning("Enter a prompt to regenerate the module draft.")
+                else:
+                    with st.spinner("Generating module draft..."):
+                        generated_draft, warning = generate_module_draft(
+                            ModuleDraftGenerationInput(prompt=prompt, question_count=max(1, len(module_form.get("questions", []))))
+                        )
+                    st.session_state[ai_draft_key] = generated_draft
+                    st.session_state[ai_last_prompt_key] = prompt
+                    st.session_state[ai_feedback_key] = warning
+                    st.session_state[ai_keep_editing_key] = False
+                    _apply_generated_draft_to_form(generated_draft)
+                    st.rerun()
+            if generated_actions[1].button("Clear Draft", key="module_builder_clear_ai_draft", use_container_width=True):
+                _reset_builder_state("ai")
+                st.rerun()
+            if generated_actions[2].button("Keep Editing", key="module_builder_keep_editing_ai", use_container_width=True):
+                st.session_state[ai_keep_editing_key] = True
+                st.session_state[ai_feedback_key] = None
+            if st.session_state.get(ai_keep_editing_key):
+                st.caption("Keep editing mode enabled. Generated content is loaded and fully editable.")
 
     close_col_1, close_col_2 = st.columns([1, 2])
     with close_col_1:
