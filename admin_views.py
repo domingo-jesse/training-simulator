@@ -2173,6 +2173,7 @@ def render_module_builder(current_user: dict) -> None:
     ai_feedback_key = "module_builder_ai_feedback"
     ai_last_prompt_key = "module_builder_ai_last_prompt"
     ai_keep_editing_key = "module_builder_ai_keep_editing"
+    ai_question_count_key = "module_builder_ai_question_count"
     widget_keys = [
         "module_builder_title",
         "module_builder_description",
@@ -2239,6 +2240,7 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[ai_feedback_key] = None
         st.session_state[ai_last_prompt_key] = ""
         st.session_state[ai_keep_editing_key] = False
+        st.session_state[ai_question_count_key] = 8
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in [*keys_to_clear, *widget_keys]:
             st.session_state.pop(key, None)
@@ -2436,6 +2438,14 @@ def render_module_builder(current_user: dict) -> None:
     if selected_mode == "ai":
         st.markdown("### AI Module Generation")
         st.caption("Describe the training topic, then click **Generate Module** to build a complete editable draft.")
+        st.number_input(
+            "Questions to generate",
+            min_value=3,
+            max_value=10,
+            value=int(st.session_state.get(ai_question_count_key, 8)),
+            key=ai_question_count_key,
+            help="Higher counts create a fuller first draft that you can still edit.",
+        )
         st.markdown("### Describe the module you want to create")
         st.text_area(
             "Describe the module you want to create",
@@ -2456,7 +2466,10 @@ def render_module_builder(current_user: dict) -> None:
             else:
                 with st.spinner("Generating module draft..."):
                     generated_draft, warning = generate_module_draft(
-                        ModuleDraftGenerationInput(prompt=prompt, question_count=max(1, len(module_form.get("questions", []))))
+                        ModuleDraftGenerationInput(
+                            prompt=prompt,
+                            question_count=max(3, min(10, int(st.session_state.get(ai_question_count_key, 8)))),
+                        )
                     )
                 st.session_state[ai_draft_key] = generated_draft
                 st.session_state[ai_last_prompt_key] = prompt
@@ -2481,7 +2494,10 @@ def render_module_builder(current_user: dict) -> None:
                 else:
                     with st.spinner("Generating module draft..."):
                         generated_draft, warning = generate_module_draft(
-                            ModuleDraftGenerationInput(prompt=prompt, question_count=max(1, len(module_form.get("questions", []))))
+                            ModuleDraftGenerationInput(
+                                prompt=prompt,
+                                question_count=max(3, min(10, int(st.session_state.get(ai_question_count_key, 8)))),
+                            )
                         )
                     st.session_state[ai_draft_key] = generated_draft
                     st.session_state[ai_last_prompt_key] = prompt
