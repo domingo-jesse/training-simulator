@@ -3030,7 +3030,7 @@ def render_module_builder(current_user: dict) -> None:
 def render_manage_modules(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     st.subheader("Manage Modules")
-    st.caption("Browse existing and archived modules in separate tabs, then edit a selected module.")
+    st.caption("Browse active and archived modules in separate tabs, then edit a selected module.")
 
     modules_df = to_df(
         fetch_all(
@@ -3057,6 +3057,7 @@ def render_manage_modules(current_user: dict) -> None:
 
         with st.container(border=True):
             library_df = tab_df[["module_id", "title", "status", "difficulty", "updated_at"]].copy()
+            library_df["status"] = library_df["status"].replace({"existing": "active"}).astype(str).str.title()
             if "updated_at" in library_df.columns:
                 library_df["updated_at"] = library_df["updated_at"].apply(_format_datetime_for_admin_grid)
             _, selected_module_ids = render_admin_selection_table(
@@ -3111,7 +3112,7 @@ def render_manage_modules(current_user: dict) -> None:
             st.markdown(f"**Editing:** {module.get('title') or 'Untitled module'}")
             meta_col_1, meta_col_2, meta_col_3, meta_col_4 = st.columns(4)
             meta_col_1.metric("Module ID", int(module["module_id"]))
-            meta_col_2.metric("State", "Archived" if str(module.get("status") or "existing").lower() == "archived" else "Existing")
+            meta_col_2.metric("State", "Archived" if str(module.get("status") or "existing").lower() == "archived" else "Active")
             meta_col_3.metric("Difficulty", str(module.get("difficulty") or "Not set").title())
             meta_col_4.metric("Questions", len(module_questions))
             st.caption(f"Last updated: {_format_datetime_for_admin_grid(module.get('updated_at'))}")
@@ -3462,9 +3463,9 @@ def render_manage_modules(current_user: dict) -> None:
     existing_df = modules_df[modules_df["status"] != "archived"].copy()
     archived_df = modules_df[modules_df["status"] == "archived"].copy()
 
-    tab_existing, tab_archived = st.tabs(["Existing Modules", "Archived Modules"])
-    with tab_existing:
-        _render_module_management_tab(existing_df, "Existing Modules", "existing")
+    tab_active, tab_archived = st.tabs(["Active Modules", "Archived Modules"])
+    with tab_active:
+        _render_module_management_tab(existing_df, "Active Modules", "existing")
     with tab_archived:
         _render_module_management_tab(archived_df, "Archived Modules", "archived")
 
