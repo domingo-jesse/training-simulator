@@ -468,6 +468,7 @@ def init_db() -> None:
                     ai_total_score DOUBLE PRECISION,
                     admin_total_score DOUBLE PRECISION,
                     final_total_score DOUBLE PRECISION,
+                    score_status TEXT DEFAULT 'pending',
                     max_total_score DOUBLE PRECISION,
                     percentage DOUBLE PRECISION,
                     grading_status TEXT DEFAULT 'submitted',
@@ -483,6 +484,10 @@ def init_db() -> None:
                     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     attempt_id BIGINT NOT NULL,
                     question_id BIGINT,
+                    ai_score DOUBLE PRECISION,
+                    admin_score DOUBLE PRECISION,
+                    final_score DOUBLE PRECISION,
+                    feedback TEXT,
                     learner_answer TEXT,
                     ai_awarded_points DOUBLE PRECISION,
                     ai_max_points DOUBLE PRECISION,
@@ -799,6 +804,7 @@ def init_db() -> None:
                 ai_total_score REAL,
                 admin_total_score REAL,
                 final_total_score REAL,
+                score_status TEXT DEFAULT 'pending',
                 max_total_score REAL,
                 percentage REAL,
                 grading_status TEXT DEFAULT 'submitted',
@@ -814,6 +820,10 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 attempt_id INTEGER NOT NULL,
                 question_id INTEGER,
+                ai_score REAL,
+                admin_score REAL,
+                final_score REAL,
+                feedback TEXT,
                 learner_answer TEXT,
                 ai_awarded_points REAL,
                 ai_max_points REAL,
@@ -1280,6 +1290,7 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "ai_total_score", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "admin_total_score", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "final_total_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "score_status", "TEXT DEFAULT 'pending'")
             _ensure_column(conn, "submission_scores", "max_total_score", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "percentage", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "grading_status", "TEXT DEFAULT 'submitted'")
@@ -1384,6 +1395,10 @@ def init_db() -> None:
                     )
                     """
                 )
+            _ensure_column(conn, "submission_question_scores", "ai_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_question_scores", "admin_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_question_scores", "final_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_question_scores", "feedback", "TEXT")
 
             if RUNTIME_USE_POSTGRES:
                 _executescript(

@@ -117,12 +117,16 @@ def grade_submission_with_ai(attempt_id: int) -> dict[str, Any]:
             execute(
                 """
                 INSERT INTO submission_question_scores (
-                    attempt_id, question_id, learner_answer, ai_awarded_points, ai_max_points,
+                    attempt_id, question_id, ai_score, final_score, feedback,
+                    learner_answer, ai_awarded_points, ai_max_points,
                     ai_feedback, ai_reasoning, missing_key_concepts, final_awarded_points,
                     visible_to_learner, is_admin_override
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE)
                 ON CONFLICT(attempt_id, question_id) DO UPDATE SET
+                    ai_score = excluded.ai_score,
+                    final_score = excluded.final_score,
+                    feedback = excluded.feedback,
                     learner_answer = excluded.learner_answer,
                     ai_awarded_points = excluded.ai_awarded_points,
                     ai_max_points = excluded.ai_max_points,
@@ -135,6 +139,9 @@ def grade_submission_with_ai(attempt_id: int) -> dict[str, Any]:
                 (
                     attempt_id,
                     question_id,
+                    graded["awarded_points"],
+                    graded["awarded_points"],
+                    graded["feedback"],
                     learner_answer,
                     graded["awarded_points"],
                     graded["max_points"],
