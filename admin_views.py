@@ -3092,49 +3092,62 @@ def render_manage_modules(current_user: dict) -> None:
             meta_col_4.metric("Questions", len(module_questions))
             st.caption(f"Last updated: {_format_datetime_for_admin_grid(module.get('updated_at'))}")
 
+        edit_form_defaults = {
+            "title": "",
+            "category": "",
+            "description": "",
+            "difficulty": "intermediate",
+            "estimated_minutes": 20,
+            "lesson_takeaway": "",
+            "learning_objectives": "",
+            "content_sections": "",
+            "completion_requirements": "",
+            "quiz_required": False,
+            "scenario_ticket": "",
+            "scenario_context": "",
+            "hidden_root_cause": "",
+            "expected_reasoning_path": "",
+            "expected_diagnosis": "",
+            "expected_next_steps": "",
+            "expected_customer_response": "",
+        }
+
+        def _build_module_edit_form(module_row: dict) -> dict:
+            return {
+                "title": module_row.get("title") or edit_form_defaults["title"],
+                "category": module_row.get("category") or edit_form_defaults["category"],
+                "description": module_row.get("description") or edit_form_defaults["description"],
+                "difficulty": module_row.get("difficulty") or edit_form_defaults["difficulty"],
+                "estimated_minutes": _estimated_time_to_minutes(module_row.get("estimated_time"), fallback=20),
+                "lesson_takeaway": module_row.get("lesson_takeaway") or edit_form_defaults["lesson_takeaway"],
+                "learning_objectives": module_row.get("learning_objectives") or edit_form_defaults["learning_objectives"],
+                "content_sections": module_row.get("content_sections") or edit_form_defaults["content_sections"],
+                "completion_requirements": module_row.get("completion_requirements") or edit_form_defaults["completion_requirements"],
+                "quiz_required": bool(module_row.get("quiz_required", edit_form_defaults["quiz_required"])),
+                "scenario_ticket": module_row.get("scenario_ticket") or edit_form_defaults["scenario_ticket"],
+                "scenario_context": module_row.get("scenario_context") or edit_form_defaults["scenario_context"],
+                "hidden_root_cause": module_row.get("hidden_root_cause") or edit_form_defaults["hidden_root_cause"],
+                "expected_reasoning_path": module_row.get("expected_reasoning_path") or edit_form_defaults["expected_reasoning_path"],
+                "expected_diagnosis": module_row.get("expected_diagnosis") or edit_form_defaults["expected_diagnosis"],
+                "expected_next_steps": module_row.get("expected_next_steps") or edit_form_defaults["expected_next_steps"],
+                "expected_customer_response": module_row.get("expected_customer_response") or edit_form_defaults["expected_customer_response"],
+            }
+
+        def _normalize_module_edit_form(form_state: dict) -> dict:
+            normalized = dict(edit_form_defaults)
+            normalized.update(form_state or {})
+            normalized["estimated_minutes"] = int(normalized.get("estimated_minutes") or 0)
+            normalized["quiz_required"] = bool(normalized.get("quiz_required"))
+            return normalized
+
         edit_form_key = f"edit_module_form_{state_prefix}_{module_id}"
         selected_module_tracker = f"edit_module_selected_module_id_{state_prefix}"
         if st.session_state.get(selected_module_tracker) != module_id:
             st.session_state[selected_module_tracker] = module_id
-            st.session_state[edit_form_key] = {
-                "title": module["title"] or "",
-                "category": module.get("category") or "",
-                "description": module["description"] or "",
-                "difficulty": module.get("difficulty") or "intermediate",
-                "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
-                "lesson_takeaway": module.get("lesson_takeaway") or "",
-                "learning_objectives": module["learning_objectives"] or "",
-                "content_sections": module["content_sections"] or "",
-                "completion_requirements": module["completion_requirements"] or "",
-                "quiz_required": bool(module["quiz_required"]),
-                "scenario_ticket": module.get("scenario_ticket") or "",
-                "scenario_context": module.get("scenario_context") or "",
-                "hidden_root_cause": module.get("hidden_root_cause") or "",
-                "expected_reasoning_path": module.get("expected_reasoning_path") or "",
-                "expected_diagnosis": module.get("expected_diagnosis") or "",
-                "expected_next_steps": module.get("expected_next_steps") or "",
-                "expected_customer_response": module.get("expected_customer_response") or "",
-            }
+            st.session_state[edit_form_key] = _build_module_edit_form(module)
         if edit_form_key not in st.session_state:
-            st.session_state[edit_form_key] = {
-                "title": module["title"] or "",
-                "category": module.get("category") or "",
-                "description": module["description"] or "",
-                "difficulty": module.get("difficulty") or "intermediate",
-                "estimated_minutes": _estimated_time_to_minutes(module.get("estimated_time"), fallback=20),
-                "lesson_takeaway": module.get("lesson_takeaway") or "",
-                "learning_objectives": module["learning_objectives"] or "",
-                "content_sections": module["content_sections"] or "",
-                "completion_requirements": module["completion_requirements"] or "",
-                "quiz_required": bool(module["quiz_required"]),
-                "scenario_ticket": module.get("scenario_ticket") or "",
-                "scenario_context": module.get("scenario_context") or "",
-                "hidden_root_cause": module.get("hidden_root_cause") or "",
-                "expected_reasoning_path": module.get("expected_reasoning_path") or "",
-                "expected_diagnosis": module.get("expected_diagnosis") or "",
-                "expected_next_steps": module.get("expected_next_steps") or "",
-                "expected_customer_response": module.get("expected_customer_response") or "",
-            }
+            st.session_state[edit_form_key] = _build_module_edit_form(module)
+        st.session_state[edit_form_key] = _normalize_module_edit_form(st.session_state.get(edit_form_key, {}))
         edit_form = st.session_state[edit_form_key]
         st.markdown("### Module Editor")
         with st.container(border=True):
@@ -3144,15 +3157,15 @@ def render_manage_modules(current_user: dict) -> None:
                 edit_form["title"] = st.text_input(
                     "Title",
                     key=f"edit_module_title_{state_prefix}_{module_id}",
-                    value=edit_form["title"],
+                    value=edit_form.get("title", ""),
                 )
                 edit_form["category"] = st.text_input(
                     "Category",
                     key=f"edit_module_category_{state_prefix}_{module_id}",
-                    value=edit_form["category"],
+                    value=edit_form.get("category", ""),
                 )
                 difficulty_options = ["beginner", "intermediate", "advanced"]
-                current_difficulty = str(edit_form["difficulty"] or "intermediate").lower()
+                current_difficulty = str(edit_form.get("difficulty") or "intermediate").lower()
                 if current_difficulty not in difficulty_options:
                     difficulty_options.append(current_difficulty)
                 edit_form["difficulty"] = st.selectbox(
@@ -3166,7 +3179,7 @@ def render_manage_modules(current_user: dict) -> None:
                         "Duration (minutes)",
                         min_value=1,
                         max_value=240,
-                        value=int(edit_form["estimated_minutes"]),
+                        value=int(edit_form.get("estimated_minutes", 0)),
                         step=1,
                         key=f"edit_module_minutes_{state_prefix}_{module_id}",
                     )
@@ -3175,37 +3188,37 @@ def render_manage_modules(current_user: dict) -> None:
                 edit_form["description"] = st.text_area(
                     "Description",
                     key=f"edit_module_description_{state_prefix}_{module_id}",
-                    value=edit_form["description"],
+                    value=edit_form.get("description", ""),
                     height=140,
                 )
                 edit_form["lesson_takeaway"] = st.text_area(
                     "Lesson takeaway",
                     key=f"edit_module_lesson_takeaway_{state_prefix}_{module_id}",
-                    value=edit_form["lesson_takeaway"],
+                    value=edit_form.get("lesson_takeaway", ""),
                     height=110,
                 )
                 edit_form["quiz_required"] = st.checkbox(
                     "Quiz required",
-                    value=bool(edit_form["quiz_required"]),
+                    value=bool(edit_form.get("quiz_required", False)),
                     key=f"edit_module_quiz_required_{state_prefix}_{module_id}",
                 )
 
             edit_form["learning_objectives"] = st.text_area(
                 "Learning objectives",
                 key=f"edit_module_objectives_{state_prefix}_{module_id}",
-                value=edit_form["learning_objectives"],
+                value=edit_form.get("learning_objectives", ""),
                 height=120,
             )
             edit_form["content_sections"] = st.text_area(
                 "Ordered content sections",
                 key=f"edit_module_sections_{state_prefix}_{module_id}",
-                value=edit_form["content_sections"],
+                value=edit_form.get("content_sections", ""),
                 height=120,
             )
             edit_form["completion_requirements"] = st.text_area(
                 "Completion requirements",
                 key=f"edit_module_requirements_{state_prefix}_{module_id}",
-                value=edit_form["completion_requirements"],
+                value=edit_form.get("completion_requirements", ""),
                 height=110,
             )
 
@@ -3214,12 +3227,12 @@ def render_manage_modules(current_user: dict) -> None:
             edit_form["scenario_ticket"] = st.text_input(
                 "Scenario prompt / ticket",
                 key=f"edit_module_scenario_ticket_{state_prefix}_{module_id}",
-                value=edit_form["scenario_ticket"],
+                value=edit_form.get("scenario_ticket", ""),
             )
             edit_form["scenario_context"] = st.text_area(
                 "Scenario instructions / context",
                 key=f"edit_module_scenario_context_{state_prefix}_{module_id}",
-                value=edit_form["scenario_context"],
+                value=edit_form.get("scenario_context", ""),
                 height=140,
             )
             scenario_col_1, scenario_col_2 = st.columns(2)
@@ -3227,32 +3240,32 @@ def render_manage_modules(current_user: dict) -> None:
                 edit_form["hidden_root_cause"] = st.text_area(
                     "Hidden root cause",
                     key=f"edit_module_hidden_root_cause_{state_prefix}_{module_id}",
-                    value=edit_form["hidden_root_cause"],
+                    value=edit_form.get("hidden_root_cause", ""),
                     height=120,
                 )
                 edit_form["expected_diagnosis"] = st.text_area(
                     "Expected diagnosis",
                     key=f"edit_module_expected_diagnosis_{state_prefix}_{module_id}",
-                    value=edit_form["expected_diagnosis"],
+                    value=edit_form.get("expected_diagnosis", ""),
                     height=120,
                 )
             with scenario_col_2:
                 edit_form["expected_reasoning_path"] = st.text_area(
                     "Expected reasoning path",
                     key=f"edit_module_expected_reasoning_path_{state_prefix}_{module_id}",
-                    value=edit_form["expected_reasoning_path"],
+                    value=edit_form.get("expected_reasoning_path", ""),
                     height=120,
                 )
                 edit_form["expected_next_steps"] = st.text_area(
                     "Expected next steps",
                     key=f"edit_module_expected_next_steps_{state_prefix}_{module_id}",
-                    value=edit_form["expected_next_steps"],
+                    value=edit_form.get("expected_next_steps", ""),
                     height=120,
                 )
             edit_form["expected_customer_response"] = st.text_area(
                 "Expected customer response",
                 key=f"edit_module_expected_customer_response_{state_prefix}_{module_id}",
-                value=edit_form["expected_customer_response"],
+                value=edit_form.get("expected_customer_response", ""),
                 height=100,
             )
 
@@ -3372,23 +3385,23 @@ def render_manage_modules(current_user: dict) -> None:
                         WHERE module_id = ? AND organization_id = ?
                         """,
                         (
-                            edit_form["title"],
-                            edit_form["category"],
-                            edit_form["difficulty"],
-                            edit_form["description"],
-                            f"{int(edit_form['estimated_minutes'])} min",
-                            edit_form["scenario_ticket"],
-                            edit_form["scenario_context"],
-                            edit_form["hidden_root_cause"],
-                            edit_form["expected_reasoning_path"],
-                            edit_form["expected_diagnosis"],
-                            edit_form["expected_next_steps"],
-                            edit_form["expected_customer_response"],
-                            edit_form["lesson_takeaway"],
-                            _parse_lines(edit_form["learning_objectives"]),
-                            _parse_lines(edit_form["content_sections"]),
-                            edit_form["completion_requirements"],
-                            bool(edit_form["quiz_required"]),
+                            edit_form.get("title", ""),
+                            edit_form.get("category", ""),
+                            edit_form.get("difficulty", "intermediate"),
+                            edit_form.get("description", ""),
+                            f"{int(edit_form.get('estimated_minutes', 0))} min",
+                            edit_form.get("scenario_ticket", ""),
+                            edit_form.get("scenario_context", ""),
+                            edit_form.get("hidden_root_cause", ""),
+                            edit_form.get("expected_reasoning_path", ""),
+                            edit_form.get("expected_diagnosis", ""),
+                            edit_form.get("expected_next_steps", ""),
+                            edit_form.get("expected_customer_response", ""),
+                            edit_form.get("lesson_takeaway", ""),
+                            _parse_lines(edit_form.get("learning_objectives", "")),
+                            _parse_lines(edit_form.get("content_sections", "")),
+                            edit_form.get("completion_requirements", ""),
+                            bool(edit_form.get("quiz_required", False)),
                             module_id,
                             org_id,
                         ),
