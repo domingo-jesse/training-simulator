@@ -28,6 +28,20 @@ def safe_int(value: Any, default: int = 0) -> int:
         return default
 
 
+
+
+def inject_scroll_to_top(delay_ms: int = 50) -> None:
+    st.markdown(
+        f"""
+        <script>
+            setTimeout(function() {{
+                window.scrollTo(0, 0);
+            }}, {delay_ms});
+        </script>
+        """,
+        unsafe_allow_html=True,
+    )
+
 def inject_styles() -> None:
     st.markdown(
         """

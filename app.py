@@ -29,7 +29,7 @@ from learner_views import (
     render_scenario_page,
 )
 from logger import get_logger
-from utils import inject_styles, page_container
+from utils import inject_scroll_to_top, inject_styles, page_container
 
 DEBUG = False  # set to True only when debugging
 
@@ -1588,6 +1588,7 @@ def main() -> None:
     st.session_state.setdefault("session_id", st.session_state.get("session_id") or f"sess_{hashlib.md5(str(id(st.session_state)).encode()).hexdigest()[:12]}")
     _log_render_debug("App rerun started.", session_id=st.session_state.get("session_id"))
     initialize_once()
+    inject_scroll_to_top()
 
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
         inject_styles()
