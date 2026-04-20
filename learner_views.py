@@ -10,7 +10,7 @@ import streamlit as st
 from db import execute, fetch_all, fetch_one, insert_attempt, log_actions
 from evaluation import evaluate_submission
 from logger import get_logger
-from utils import metric_row, parse_json_list, render_page_header, safe_int, to_df
+from utils import ensure_dataframe_schema, has_dataframe_columns, metric_row, parse_json_list, render_page_header, safe_int, to_df
 
 learner_logger = get_logger(module="learner_views")
 WIZARD_STEPS = [
@@ -1202,20 +1202,24 @@ def render_progress_results_page(user: Dict) -> None:
 
     render_page_header("Progress & Results", "Track overall progress and review detailed module outcomes in one place.")
 
-    df = to_df(attempts) if attempts else to_df([])
+    df = to_df(
+        attempts,
+        columns=["module_id", "total_score", "strengths", "missed_points"],
+    )
     metric_row(
         {
-            "Completed": int(df["module_id"].nunique()) if not df.empty else 0,
+            "Completed": int(df["module_id"].nunique()) if has_dataframe_columns(df, ["module_id"]) else 0,
             "Submitted": submitted_count,
             "Pending results": pending_results_count,
-            "Average score": f"{round(df['total_score'].mean(), 1)}%" if not df.empty else "0%",
-            "Recent score": f"{df['total_score'].iloc[-1]}%" if not df.empty else "N/A",
+            "Average score": f"{round(df['total_score'].mean(), 1)}%" if has_dataframe_columns(df, ["total_score"]) else "0%",
+            "Recent score": f"{df['total_score'].iloc[-1]}%" if has_dataframe_columns(df, ["total_score"]) else "N/A",
         }
     )
 
     strengths = []
     misses = []
     if not df.empty:
+        df = ensure_dataframe_schema(df, ["strengths", "missed_points"])
         for _, row in df.tail(5).iterrows():
             strengths.extend(parse_json_list(row["strengths"]))
             misses.extend(parse_json_list(row["missed_points"]))
