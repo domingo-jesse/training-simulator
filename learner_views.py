@@ -801,7 +801,7 @@ def render_scenario_page(user: Dict) -> None:
             "graded_at": submitted_at.isoformat(),
             "actions_used": list(st.session_state[used_actions_key]),
             "actions_used_count": len(st.session_state[used_actions_key]),
-            "timed_out": timed_out,
+            "timed_out": 1 if timed_out else 0,
             "question_responses": json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
         }
         try:

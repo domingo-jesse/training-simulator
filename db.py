@@ -1624,6 +1624,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
     if organization_id is None:
         user = fetch_one("SELECT organization_id FROM users WHERE user_id = ?", (user_id,))
         organization_id = user["organization_id"] if user else None
+    timed_out_value = 1 if bool(payload.get("timed_out")) else 0
 
     attempt_id = execute(
         """
@@ -1658,7 +1659,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("customer_response"),
             payload.get("escalation_choice"),
             payload.get("notes"),
-            bool(payload.get("timed_out")),
+            timed_out_value,
             payload.get("question_responses"),
             payload["category_scores"]["understanding"],
             payload["category_scores"]["investigation"],
