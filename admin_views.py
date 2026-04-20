@@ -2294,8 +2294,16 @@ def render_module_builder(current_user: dict) -> None:
         _reset_builder_state(queued_mode)
 
     selected_mode = st.session_state.get(mode_key)
-    header_description = "Single-page module editor with autosave and inline validation." if selected_mode != "ai" else None
-    render_page_header("Module Builder", header_description)
+    header_description = "Single-page module editor with autosave and inline validation." if selected_mode != "ai" else ""
+    if selected_mode == "ai":
+        header_title_col, header_action_col = st.columns([3, 1], vertical_alignment="center")
+        with header_title_col:
+            st.markdown("### Module Builder")
+        with header_action_col:
+            if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
+                _queue_builder_reset(None)
+    else:
+        render_page_header("Module Builder", header_description)
     inject_scroll_to_top()
 
     if selected_mode is None:
@@ -2309,15 +2317,13 @@ def render_module_builder(current_user: dict) -> None:
         st.info("Select a creation mode to continue.")
         return
 
-    mode_summary_col, mode_action_col = st.columns([3, 1])
-    with mode_summary_col:
-        if selected_mode == "manual":
+    if selected_mode == "manual":
+        mode_summary_col, mode_action_col = st.columns([3, 1])
+        with mode_summary_col:
             st.caption("Mode: Start from Scratch")
-        elif selected_mode == "ai":
-            st.caption("Generate with AI")
-    with mode_action_col:
-        if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
-            _queue_builder_reset(None)
+        with mode_action_col:
+            if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
+                _queue_builder_reset(None)
 
     if form_key not in st.session_state:
         st.session_state[form_key] = dict(default_form)
@@ -2493,31 +2499,19 @@ def render_module_builder(current_user: dict) -> None:
             )
         with top_right:
             st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
-    else:
-        st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
 
     ai_has_generated_draft = bool(st.session_state.get(ai_draft_key))
     show_builder_editor = selected_mode == "manual"
 
     if selected_mode == "ai":
-        st.caption("Generate with AI")
-        ai_controls_col, ai_button_col = st.columns([2, 1])
+        st.markdown("**Generate with AI**")
+        ai_controls_col, ai_button_col = st.columns([2, 1], vertical_alignment="bottom")
         ai_controls_col.number_input(
             "Question count",
             min_value=0,
             max_value=10,
             value=int(st.session_state.get(ai_question_count_key, 3)),
             key=ai_question_count_key,
-        )
-        st.text_area(
-            "AI prompt",
-            key=ai_prompt_key,
-            height=140,
-            placeholder=(
-                "Create a training module about handling upset patients and escalation steps\n"
-                "Build a prior authorization module about missing documentation and payer follow-up\n"
-                "Make a customer support module for de-escalation and empathy"
-            ),
         )
         if ai_button_col.button("Generate", key="module_builder_generate_ai", type="secondary", use_container_width=True):
             prompt = str(st.session_state.get(ai_prompt_key, "")).strip()
@@ -2537,6 +2531,16 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[ai_keep_editing_key] = False
                 _apply_generated_draft_to_form(generated_draft)
                 st.rerun()
+        st.text_area(
+            "AI prompt",
+            key=ai_prompt_key,
+            height=140,
+            placeholder=(
+                "Create a training module about handling upset patients and escalation steps\n"
+                "Build a prior authorization module about missing documentation and payer follow-up\n"
+                "Make a customer support module for de-escalation and empathy"
+            ),
+        )
         ai_feedback = st.session_state.get(ai_feedback_key)
         if ai_feedback:
             st.info(ai_feedback)
