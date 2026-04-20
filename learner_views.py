@@ -654,6 +654,11 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"next_steps_{assignment_id}", persisted.get("next_steps_response") or "")
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
     st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
+    st.session_state.setdefault(f"review_diagnosis_{assignment_id}", st.session_state.get(f"diagnosis_{assignment_id}", ""))
+    st.session_state.setdefault(f"review_next_steps_{assignment_id}", st.session_state.get(f"next_steps_{assignment_id}", ""))
+    st.session_state.setdefault(f"review_customer_{assignment_id}", st.session_state.get(f"customer_{assignment_id}", ""))
+    st.session_state.setdefault(f"review_escalation_{assignment_id}", st.session_state.get(f"escalation_{assignment_id}", "No escalation"))
+    st.session_state.setdefault(f"review_actions_{assignment_id}", list(st.session_state.get(f"used_actions_{assignment_id}", [])))
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
     persisted_submitted_state = _submitted_state_value(persisted.get("submitted_state"))
     st.session_state.setdefault(
@@ -973,35 +978,122 @@ def render_scenario_page(user: Dict) -> None:
                         st.rerun()
             else:
                 st.markdown("### Review and Submit")
-                st.write(f"Actions used: {len(st.session_state[used_actions_key])}")
+                st.caption("Review your answers below. You can make final edits before submitting.")
+
                 answered = sum(1 for value in question_answers_local.values() if str(value).strip())
-                st.write(f"Answered questions: {answered}/{len(assessment_questions)}")
-                st.write(f"Diagnosis provided: {'Yes' if st.session_state.get(f'diagnosis_{assignment_id}', '').strip() else 'No'}")
-                review_validation_error = None
-                unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
-                if unanswered:
-                    review_validation_error = "Please answer all assessment questions before submitting."
-                elif (
-                    not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
-                    or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
-                    or not st.session_state.get(f"customer_{assignment_id}", "").strip()
-                ):
-                    review_validation_error = "Diagnosis, next steps, and customer response are required before submitting."
-                if review_validation_error:
-                    st.warning(review_validation_error)
-                c1, c2 = st.columns(2)
-                with c1:
-                    if st.button("Back"):
-                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                        st.session_state[step_key] = max(1, current_step_local - 1)
-                        st.rerun()
-                with c2:
-                    if st.button(
-                        "Submit Response",
-                        type="primary",
-                        disabled=st.session_state.get(timer_key, False) or bool(review_validation_error),
+                summary_col1, summary_col2, summary_col3 = st.columns(3)
+                with summary_col1:
+                    st.metric("Actions selected", len(st.session_state[used_actions_key]))
+                with summary_col2:
+                    st.metric("Assessment questions", f"{answered}/{len(assessment_questions)}")
+                with summary_col3:
+                    has_diagnosis = bool(st.session_state.get(f"diagnosis_{assignment_id}", "").strip())
+                    st.metric("Diagnosis provided", "Yes" if has_diagnosis else "No")
+
+                action_name_to_details = {
+                    action.get("action_name"): action.get("revealed_information", "")
+                    for action in actions
+                    if action.get("action_name")
+                }
+                action_names = list(action_name_to_details.keys())
+                with st.form(key=f"wizard_step5_review_form_{assignment_id}", clear_on_submit=False):
+                    st.markdown("#### Review and Edit")
+                    diagnosis_value = st.text_area("Diagnosis", key=f"review_diagnosis_{assignment_id}", height=100)
+                    next_steps_value = st.text_area("Next steps", key=f"review_next_steps_{assignment_id}", height=120)
+                    customer_response_value = st.text_area(
+                        "Customer/client response",
+                        key=f"review_customer_{assignment_id}",
+                        height=120,
+                    )
+                    escalation_value = st.selectbox(
+                        "Escalation decision",
+                        ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
+                        key=f"review_escalation_{assignment_id}",
+                    )
+                    selected_actions = st.multiselect(
+                        "Selected actions",
+                        options=action_names,
+                        default=st.session_state.get(used_actions_key, []),
+                        key=f"review_actions_{assignment_id}",
+                        help="Adjust which investigation actions should be included with your submission.",
+                    )
+
+                    edited_question_answers: dict[str, str] = {}
+                    if assessment_questions:
+                        st.markdown("#### Assessment question responses")
+                        for question in assessment_questions:
+                            qid = str(question["question_id"])
+                            review_question_key = f"review_assessment_q_{assignment_id}_{qid}"
+                            if review_question_key not in st.session_state:
+                                st.session_state[review_question_key] = question_answers_local.get(qid, "")
+                            if question.get("question_type") == "multiple_choice":
+                                options = _question_options(question.get("options_text"))
+                                answer = st.radio(
+                                    f"Q{question['question_order']}. {question['question_text']}",
+                                    options=options if options else ["No options configured"],
+                                    key=review_question_key,
+                                    index=None,
+                                )
+                            else:
+                                answer = st.text_area(
+                                    f"Q{question['question_order']}. {question['question_text']}",
+                                    key=review_question_key,
+                                    height=90,
+                                )
+                            edited_question_answers[qid] = answer or ""
+
+                    c1, c2, c3 = st.columns(3)
+                    with c1:
+                        back_clicked = st.form_submit_button("Back")
+                    with c2:
+                        save_clicked = st.form_submit_button("Save edits")
+                    with c3:
+                        submit_clicked = st.form_submit_button(
+                            "Submit Response",
+                            type="primary",
+                            disabled=st.session_state.get(timer_key, False),
+                        )
+
+                if back_clicked or save_clicked or submit_clicked:
+                    st.session_state[f"diagnosis_{assignment_id}"] = diagnosis_value or ""
+                    st.session_state[f"next_steps_{assignment_id}"] = next_steps_value or ""
+                    st.session_state[f"customer_{assignment_id}"] = customer_response_value or ""
+                    st.session_state[f"escalation_{assignment_id}"] = escalation_value or "No escalation"
+                    st.session_state[used_actions_key] = list(selected_actions or [])
+                    for action_name in st.session_state[used_actions_key]:
+                        if action_name not in st.session_state[revealed_key] and action_name in action_name_to_details:
+                            st.session_state[revealed_key][action_name] = action_name_to_details[action_name]
+                    if assessment_questions:
+                        st.session_state[f"question_answers_{assignment_id}"] = edited_question_answers
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+
+                if back_clicked:
+                    st.session_state[step_key] = max(1, current_step_local - 1)
+                    st.rerun()
+
+                if save_clicked:
+                    st.toast("Review updates saved.")
+                    st.rerun()
+
+                if submit_clicked:
+                    review_validation_error = None
+                    unanswered = [
+                        q
+                        for q in assessment_questions
+                        if not st.session_state.get(f"question_answers_{assignment_id}", {}).get(str(q["question_id"]), "").strip()
+                    ]
+                    if unanswered:
+                        review_validation_error = "Please answer all assessment questions before submitting."
+                    elif (
+                        not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
+                        or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
+                        or not st.session_state.get(f"customer_{assignment_id}", "").strip()
                     ):
-                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                        review_validation_error = "Diagnosis, next steps, and customer response are required before submitting."
+
+                    if review_validation_error:
+                        st.warning(review_validation_error)
+                    else:
                         _submit_module_attempt(timed_out=False)
 
     _render_assessment_workspace()
