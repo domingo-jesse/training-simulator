@@ -28,7 +28,7 @@ class ModuleGenerationInput:
 @dataclass
 class ModuleDraftGenerationInput:
     prompt: str
-    question_count: int = 5
+    question_count: int = 3
 
 
 def _fallback_preview(payload: ModuleGenerationInput) -> dict[str, Any]:
@@ -66,15 +66,25 @@ def _openai_headers(api_key: str) -> dict[str, str]:
 
 def _fallback_module_draft(payload: ModuleDraftGenerationInput) -> dict[str, Any]:
     seed_prompt = payload.prompt.strip() or "general training workflow"
-    question_count = min(10, max(1, payload.question_count))
+    question_count = min(10, max(0, payload.question_count))
     questions = []
     for idx in range(question_count):
         questions.append(
             {
                 "question_text": f"How would you handle step {idx + 1} for: {seed_prompt}?",
                 "question_type": "open_text",
-                "answer_guidance": "Provide a concise, practical response with rationale and escalation criteria.",
-                "rubric": "4 = complete and accurate; 3 = mostly complete; 2 = partial; 1 = minimal.",
+                "answer_guidance": (
+                    "Explain your approach with practical sequencing, risk controls, communication choices, "
+                    "and escalation criteria tied to the scenario."
+                ),
+                "ideal_answer": (
+                    "A strong response identifies the immediate priority, clarifies assumptions, documents "
+                    "tradeoffs, and proposes a realistic next step with stakeholder communication."
+                ),
+                "rubric": (
+                    "Score on situational judgment, policy alignment, communication clarity, and decision quality. "
+                    "Top responses are specific, defensible, and operationally practical."
+                ),
             }
         )
 
@@ -99,7 +109,7 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
         return _fallback_module_draft(payload), "OPENAI_API_KEY is not configured, so a local fallback module draft was generated."
 
     model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
-    question_count = min(10, max(1, payload.question_count))
+    question_count = min(10, max(0, payload.question_count))
     prompt = (
         "Generate a complete module draft from the user's idea. "
         "Return strict JSON only with this exact schema and key names: "
@@ -107,17 +117,30 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
         '"title": string, "description": string, "scenario": string, '
         '"category": string, "difficulty": string, "time_limit_minutes": number, '
         '"questions": [{"question_text": string, "question_type": "open_text" | "multiple_choice", '
-        '"answer_guidance": string, "rubric": string}], '
+        '"answer_guidance": string, "ideal_answer": string, "rubric": string}], '
         '"overall_rubric": string'
         "}. "
-        f"Generate {question_count} questions. Keep all text production-ready and practical.\n\n"
+        f"Generate exactly {question_count} questions. "
+        "If question_count is 0, return an empty questions array but still provide all other sections. "
+        "Write naturally and clearly, avoid placeholder phrasing, avoid repetitive generic training language, "
+        "and make content realistic, specific, and professionally written. "
+        "Scenarios must include enough detail to be usable for training. "
+        "Each question must be grounded in the scenario and practical. "
+        "Answer guidance and ideal answers must be thoughtful and useful for real grading. "
+        "Rubrics must include concrete evaluation criteria.\n\n"
         f"User prompt: {payload.prompt}"
     )
 
     body = {
         "model": model,
         "messages": [
-            {"role": "system", "content": "Return only valid JSON matching the requested schema."},
+            {
+                "role": "system",
+                "content": (
+                    "Return only valid JSON matching the requested schema. "
+                    "Write with natural, professional language and concrete detail."
+                ),
+            },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.4,
@@ -138,8 +161,8 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
         draft = json.loads(content)
 
         raw_questions = draft.get("questions") or []
-        if not isinstance(raw_questions, list) or not raw_questions:
-            raise ValueError("questions must be a non-empty list")
+        if not isinstance(raw_questions, list):
+            raise ValueError("questions must be a list")
 
         safe_questions = []
         for item in raw_questions[:question_count]:
@@ -156,12 +179,25 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
                     "question_text": question_text,
                     "question_type": question_type,
                     "answer_guidance": str(item.get("answer_guidance", "")).strip(),
+                    "ideal_answer": str(item.get("ideal_answer", "")).strip(),
                     "rubric": str(item.get("rubric", "")).strip(),
                 }
             )
 
-        if not safe_questions:
+        missing_questions = max(0, question_count - len(safe_questions))
+        if question_count > 0 and missing_questions == question_count:
             raise ValueError("OpenAI response did not include usable questions")
+        if missing_questions:
+            for missing_idx in range(missing_questions):
+                safe_questions.append(
+                    {
+                        "question_text": f"Question {len(safe_questions) + 1}: Add scenario-specific prompt.",
+                        "question_type": "open_text",
+                        "answer_guidance": "Add practical guidance with decision points and tradeoffs.",
+                        "ideal_answer": "Add an ideal answer that demonstrates realistic professional judgment.",
+                        "rubric": "Add concrete scoring criteria (accuracy, reasoning, communication, and action quality).",
+                    }
+                )
 
         output = {
             "title": str(draft.get("title") or "AI Draft Module").strip(),

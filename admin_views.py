@@ -2173,7 +2173,7 @@ def render_module_builder(current_user: dict) -> None:
     ai_feedback_key = "module_builder_ai_feedback"
     ai_last_prompt_key = "module_builder_ai_last_prompt"
     ai_keep_editing_key = "module_builder_ai_keep_editing"
-    ai_question_count_key = "module_builder_ai_question_count"
+    ai_question_count_key = "ai_question_count"
     widget_keys = [
         "module_builder_title",
         "module_builder_description",
@@ -2240,7 +2240,7 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[ai_feedback_key] = None
         st.session_state[ai_last_prompt_key] = ""
         st.session_state[ai_keep_editing_key] = False
-        st.session_state[ai_question_count_key] = 8
+        st.session_state[ai_question_count_key] = 3
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in [*keys_to_clear, *widget_keys]:
             st.session_state.pop(key, None)
@@ -2309,10 +2309,13 @@ def render_module_builder(current_user: dict) -> None:
                 if not question_text:
                     continue
                 answer_guidance = str(question.get("answer_guidance") or "").strip()
+                ideal_answer = str(question.get("ideal_answer") or "").strip()
                 rubric_text = str(question.get("rubric") or "").strip()
                 rationale_parts = []
                 if answer_guidance:
                     rationale_parts.append(f"Ideal answer guidance:\n{answer_guidance}")
+                if ideal_answer:
+                    rationale_parts.append(f"Ideal answer example:\n{ideal_answer}")
                 if rubric_text:
                     rationale_parts.append(f"Question rubric:\n{rubric_text}")
                 normalized_questions.append(
@@ -2326,7 +2329,7 @@ def render_module_builder(current_user: dict) -> None:
                     }
                 )
         if not normalized_questions:
-            normalized_questions = [dict(default_form["questions"][0])]
+            normalized_questions = [dict(default_form["questions"][0])] if selected_mode == "manual" else []
 
         module_form["title"] = _normalize_text(generated_draft.get("title")) or module_form.get("title", "")
         module_form["description"] = _normalize_text(generated_draft.get("description")) or module_form.get("description", "")
@@ -2439,12 +2442,12 @@ def render_module_builder(current_user: dict) -> None:
         st.markdown("### AI Module Generation")
         st.caption("Describe the training topic, then click **Generate Module** to build a complete editable draft.")
         st.number_input(
-            "Questions to generate",
-            min_value=3,
+            "Number of Questions",
+            min_value=0,
             max_value=10,
-            value=int(st.session_state.get(ai_question_count_key, 8)),
+            value=int(st.session_state.get(ai_question_count_key, 3)),
             key=ai_question_count_key,
-            help="Higher counts create a fuller first draft that you can still edit.",
+            help="Choose how many questions to include in the generated module draft.",
         )
         st.markdown("### Describe the module you want to create")
         st.text_area(
@@ -2468,7 +2471,7 @@ def render_module_builder(current_user: dict) -> None:
                     generated_draft, warning = generate_module_draft(
                         ModuleDraftGenerationInput(
                             prompt=prompt,
-                            question_count=max(3, min(10, int(st.session_state.get(ai_question_count_key, 8)))),
+                            question_count=max(0, min(10, int(st.session_state.get(ai_question_count_key, 3)))),
                         )
                     )
                 st.session_state[ai_draft_key] = generated_draft
@@ -2496,7 +2499,7 @@ def render_module_builder(current_user: dict) -> None:
                         generated_draft, warning = generate_module_draft(
                             ModuleDraftGenerationInput(
                                 prompt=prompt,
-                                question_count=max(3, min(10, int(st.session_state.get(ai_question_count_key, 8)))),
+                                question_count=max(0, min(10, int(st.session_state.get(ai_question_count_key, 3)))),
                             )
                         )
                     st.session_state[ai_draft_key] = generated_draft
@@ -2568,7 +2571,7 @@ def render_module_builder(current_user: dict) -> None:
 
     st.markdown("### Questions")
     module_form.setdefault("questions", [])
-    if not module_form["questions"]:
+    if not module_form["questions"] and selected_mode == "manual":
         module_form["questions"] = [dict(default_form["questions"][0])]
 
     delete_index = None
@@ -2615,7 +2618,7 @@ def render_module_builder(current_user: dict) -> None:
 
     if delete_index is not None:
         module_form["questions"].pop(delete_index)
-        if not module_form["questions"]:
+        if not module_form["questions"] and selected_mode == "manual":
             module_form["questions"].append(dict(default_form["questions"][0]))
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
         for key in keys_to_clear:
