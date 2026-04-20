@@ -1420,6 +1420,23 @@ def render_grading_center(current_user: dict) -> None:
         """,
         unsafe_allow_html=True,
     )
+    approval_status_key = "results_approval_status_message"
+    approval_status_expiry_key = "results_approval_status_expiry"
+    approval_status = st.session_state.get(approval_status_key)
+    approval_status_expiry = st.session_state.get(approval_status_expiry_key)
+    if approval_status and approval_status_expiry and time.time() > float(approval_status_expiry):
+        st.session_state[approval_status_key] = None
+        st.session_state[approval_status_expiry_key] = None
+        approval_status = None
+    if isinstance(approval_status, tuple) and len(approval_status) == 2:
+        tone, message = approval_status
+        if tone == "success":
+            st.success(message)
+        elif tone == "warning":
+            st.warning(message)
+        elif tone == "error":
+            st.error(message)
+
     action_columns = st.columns([1, 1.5, 3.5])
     with action_columns[0]:
         if st.button("Approve Result", disabled=is_approved, use_container_width=True):
@@ -1434,7 +1451,8 @@ def render_grading_center(current_user: dict) -> None:
                 """,
                 (current_user["user_id"], int(selected_attempt_id), org_id),
             )
-            st.success("Result approved. Learner can now see full results.")
+            st.session_state[approval_status_key] = ("success", "Result approved. Learner can now see full results.")
+            st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
     with action_columns[1]:
         if st.button("Mark Unapproved", disabled=not is_approved, use_container_width=True):
@@ -1449,7 +1467,8 @@ def render_grading_center(current_user: dict) -> None:
                 """,
                 (int(selected_attempt_id), org_id),
             )
-            st.warning("Approval revoked. Learner result visibility has been removed.")
+            st.session_state[approval_status_key] = ("warning", "Approval revoked. Learner result visibility has been removed.")
+            st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
 
 
