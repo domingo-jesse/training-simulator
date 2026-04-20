@@ -25,9 +25,11 @@ from log_viewer import (
 from utils import (
     apply_learner_filters,
     build_learner_option_label,
+    ensure_dataframe_schema,
     filter_active_learners,
     filter_inactive_learners,
     format_status_display,
+    has_dataframe_columns,
     metric_row,
     render_admin_selection_table,
     render_app_table,
@@ -137,7 +139,26 @@ def _assignments_with_status(org_id: int, refresh_token: int = 0) -> pd.DataFram
         """,
         (org_id, org_id),
     )
-    return to_df(rows)
+    return to_df(
+        rows,
+        columns=[
+            "assignment_id",
+            "module_id",
+            "learner_id",
+            "due_date",
+            "assigned_at",
+            "is_active",
+            "learner_name",
+            "learner_email",
+            "team",
+            "learner_active",
+            "organization_name",
+            "module_title",
+            "status",
+            "attempt_count",
+            "last_attempt_at",
+        ],
+    )
 
 
 def _sync_assignment_tracking_records(
@@ -262,8 +283,11 @@ def render_admin_dashboard(current_user: dict) -> None:
         st.error("Failed to load dashboard data.")
         return
 
+    learners_df = ensure_dataframe_schema(learners_df, ["is_active"])
+    assignments_df = ensure_dataframe_schema(assignments_df, ["status", "last_attempt_at", "learner_name", "module_title"])
+
     total_learners = len(learners_df)
-    active_learners = int(learners_df["is_active"].sum()) if not learners_df.empty else 0
+    active_learners = int(learners_df["is_active"].fillna(False).astype(bool).sum()) if not learners_df.empty else 0
     inactive_learners = total_learners - active_learners
     modules_created = len(modules_df)
     modules_assigned = len(assignments_df)
@@ -385,9 +409,12 @@ def render_admin_dashboard(current_user: dict) -> None:
     with c4:
         with st.container(border=True):
             st.markdown("<div class='dashboard-section-title'>Recent submissions</div>", unsafe_allow_html=True)
-            recent = assignments_df[assignments_df["last_attempt_at"].notna()].head(5)
+            if has_dataframe_columns(assignments_df, ["last_attempt_at"]):
+                recent = assignments_df[assignments_df["last_attempt_at"].notna()].head(5)
+            else:
+                recent = pd.DataFrame()
             if recent.empty:
-                st.caption("No submissions yet.")
+                st.info("No recent activity yet.")
             else:
                 for _, row in recent.iterrows():
                     attempted_at = _format_datetime_for_admin_grid(row["last_attempt_at"])
@@ -478,7 +505,21 @@ def render_learner_management(current_user: dict) -> None:
         """,
         (org_id, org_id, org_id),
     )
-    df = to_df(rows)
+    df = to_df(
+        rows,
+        columns=[
+            "user_id",
+            "user_uuid",
+            "name",
+            "team",
+            "is_active",
+            "organization_id",
+            "organization_name",
+            "assigned_modules",
+            "completed_modules",
+            "last_activity",
+        ],
+    )
 
     if df.empty:
         st.info("No learners in this organization.")
@@ -703,7 +744,7 @@ def _render_assignment_tool(current_user: dict) -> None:
             module_title_counts[base_title] = occurrence
             display_title = base_title if occurrence == 1 else f"{base_title} #{occurrence}"
             module_map[display_title] = int(module["module_id"])
-        learners_df = to_df(learners)
+        learners_df = to_df(learners, columns=["user_id", "name", "team", "organization_name"])
         learners_df["team"] = learners_df["team"].fillna("")
         learners_df["organization_name"] = learners_df["organization_name"].fillna("Unassigned")
 
@@ -997,6 +1038,22 @@ def render_current_assignments(current_user: dict) -> None:
 
     refresh_token = int(st.session_state.get("assignment_management_refresh_token", 0))
     assignments_df = _assignments_with_status(org_id, refresh_token)
+    assignments_df = ensure_dataframe_schema(
+        assignments_df,
+        [
+            "assignment_id",
+            "learner_name",
+            "team",
+            "organization_name",
+            "module_title",
+            "status",
+            "due_date",
+            "last_attempt_at",
+            "assigned_at",
+            "module_id",
+            "learner_id",
+        ],
+    )
     if assignments_df.empty:
         st.info("No assignments yet.")
         return
@@ -1270,6 +1327,24 @@ def render_grading_center(current_user: dict) -> None:
             """,
             (org_id,),
         )
+    ,
+        columns=[
+            "attempt_id",
+            "created_at",
+            "learner_name",
+            "module_title",
+            "result_status",
+            "result_approved_at",
+            "result_approved_by_user_id",
+            "approved_by_name",
+            "total_score",
+            "understanding_score",
+            "investigation_score",
+            "solution_score",
+            "communication_score",
+            "scoring_version",
+            "ai_feedback",
+        ],
     )
     if attempts.empty:
         st.info("No learner submissions yet.")
@@ -1335,6 +1410,10 @@ def render_grading_center(current_user: dict) -> None:
         badge_columns={"total_score": "score", "result_status": "status"},
         numeric_align={k: "right" for k in ["total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]},
     )
+
+    if filtered.empty or "attempt_id" not in filtered.columns:
+        st.info("No submissions match the current filters.")
+        return
 
     selected_attempt_id = st.selectbox(
         "Result approval controls",

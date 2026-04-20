@@ -504,8 +504,26 @@ def render_kpi_card(label: str, value: Any, subtext: str = "", tone: str = "defa
     )
 
 
-def to_df(rows) -> pd.DataFrame:
-    return pd.DataFrame([dict(r) for r in rows])
+def to_df(rows, columns: list[str] | None = None) -> pd.DataFrame:
+    df = pd.DataFrame([dict(r) for r in rows])
+    if columns is None:
+        return df
+    return ensure_dataframe_schema(df, columns)
+
+
+def ensure_dataframe_schema(df: pd.DataFrame | None, columns: list[str]) -> pd.DataFrame:
+    if df is None:
+        return pd.DataFrame(columns=columns)
+    if df.empty and not len(df.columns):
+        return pd.DataFrame(columns=columns)
+    for column in columns:
+        if column not in df.columns:
+            df[column] = pd.NA
+    return df
+
+
+def has_dataframe_columns(df: pd.DataFrame | None, columns: list[str]) -> bool:
+    return df is not None and not df.empty and all(column in df.columns for column in columns)
 
 
 def parse_json_list(value: str):
