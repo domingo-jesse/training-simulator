@@ -175,6 +175,10 @@ def _table_columns(conn, table: str) -> set[str]:
 
 
 def _ensure_column(conn, table: str, column: str, definition: str) -> bool:
+    if not _is_safe_identifier(table):
+        raise ValueError(f"Unsafe table identifier: {table}")
+    if not _is_safe_identifier(column):
+        raise ValueError(f"Unsafe column identifier: {column}")
     if column not in _table_columns(conn, table):
         with conn.cursor() as cur:
             cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
@@ -1518,8 +1522,6 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
                     translated_query = _sql(query)
-                    print("PLACEHOLDERS:", translated_query.count("%s"))
-                    print("PARAMS:", len(params_tuple))
                     cur.execute(translated_query, params_tuple)
                     is_insert = translated_query.lstrip().upper().startswith("INSERT")
                     has_returning = "RETURNING" in translated_query.upper()
@@ -1542,6 +1544,26 @@ def execute(query: str, params: Iterable[Any] = ()) -> int:
     except Exception:
         db_logger.exception("Database write failed.", operation="execute")
         raise
+
+
+def execute_update(
+    table_name: str,
+    updates: Dict[str, Any],
+    where_clause: str,
+    where_params: Iterable[Any] = (),
+) -> None:
+    if not updates:
+        raise ValueError("updates must contain at least one column.")
+    if not _is_safe_identifier(table_name):
+        raise ValueError(f"Unsafe table name: {table_name}")
+
+    invalid_columns = [column for column in updates.keys() if not _is_safe_identifier(column)]
+    if invalid_columns:
+        raise ValueError(f"Unsafe update column(s): {', '.join(sorted(invalid_columns))}")
+
+    set_clause = ", ".join(f"{column} = ?" for column in updates.keys())
+    query = f"UPDATE {table_name} SET {set_clause} WHERE {where_clause}"
+    execute(query, tuple(updates.values()) + tuple(where_params))
 
 
 def executemany(query: str, rows: Iterable[Iterable[Any]]) -> None:
