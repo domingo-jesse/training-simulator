@@ -43,6 +43,7 @@ EXPECTED_PLATFORM_TABLES = (
     "investigation_actions",
     "attempts",
     "submission_scores",
+    "submission_question_scores",
     "action_logs",
     "assignments",
     "learner_profiles",

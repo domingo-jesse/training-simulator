@@ -397,8 +397,18 @@ def init_db() -> None:
                     graded_by_type TEXT,
                     graded_by_user_id BIGINT,
                     graded_at TIMESTAMPTZ,
-                    result_status TEXT NOT NULL DEFAULT 'pending_review'
-                        CHECK (result_status IN ('pending_review', 'approved')),
+                    result_status TEXT NOT NULL DEFAULT 'submitted'
+                        CHECK (
+                            result_status IN (
+                                'submitted',
+                                'ai_grading',
+                                'ai_graded_pending_review',
+                                'pending_review',
+                                'approved',
+                                'returned',
+                                'grading_failed'
+                            )
+                        ),
                     result_approved_at TIMESTAMPTZ,
                     result_approved_by_user_id BIGINT,
                     diagnosis_answer TEXT,
@@ -439,15 +449,15 @@ def init_db() -> None:
                     submission_score_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                     attempt_id BIGINT NOT NULL UNIQUE,
                     scoring_version TEXT NOT NULL DEFAULT 'heuristic_v1',
-                    understanding_score DOUBLE PRECISION NOT NULL,
-                    investigation_score DOUBLE PRECISION NOT NULL,
-                    solution_score DOUBLE PRECISION NOT NULL,
-                    communication_score DOUBLE PRECISION NOT NULL,
+                    understanding_score DOUBLE PRECISION,
+                    investigation_score DOUBLE PRECISION,
+                    solution_score DOUBLE PRECISION,
+                    communication_score DOUBLE PRECISION,
                     understanding_rationale TEXT,
                     investigation_rationale TEXT,
                     solution_rationale TEXT,
                     communication_rationale TEXT,
-                    total_score DOUBLE PRECISION NOT NULL,
+                    total_score DOUBLE PRECISION,
                     scoring_provider TEXT,
                     scoring_model_name TEXT,
                     scoring_prompt_template_id TEXT,
@@ -455,7 +465,40 @@ def init_db() -> None:
                     scoring_config_json TEXT,
                     scored_at TIMESTAMPTZ DEFAULT NOW(),
                     score_inputs_json TEXT,
+                    ai_total_score DOUBLE PRECISION,
+                    admin_total_score DOUBLE PRECISION,
+                    final_total_score DOUBLE PRECISION,
+                    max_total_score DOUBLE PRECISION,
+                    percentage DOUBLE PRECISION,
+                    grading_status TEXT DEFAULT 'submitted',
+                    overall_ai_feedback TEXT,
+                    overall_admin_feedback TEXT,
+                    learner_visible_feedback TEXT,
+                    approved_by BIGINT,
+                    approved_at TIMESTAMPTZ,
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS submission_question_scores (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    attempt_id BIGINT NOT NULL,
+                    question_id BIGINT,
+                    learner_answer TEXT,
+                    ai_awarded_points DOUBLE PRECISION,
+                    ai_max_points DOUBLE PRECISION,
+                    ai_feedback TEXT,
+                    ai_reasoning TEXT,
+                    missing_key_concepts TEXT,
+                    admin_awarded_points DOUBLE PRECISION,
+                    admin_feedback TEXT,
+                    final_awarded_points DOUBLE PRECISION,
+                    visible_to_learner BOOLEAN DEFAULT FALSE,
+                    is_admin_override BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(attempt_id, question_id),
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                    FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE SET NULL
                 );
 
                 CREATE TABLE IF NOT EXISTS submission_regrade_history (
@@ -611,6 +654,9 @@ def init_db() -> None:
                     question_order INTEGER NOT NULL,
                     question_text TEXT NOT NULL,
                     rationale TEXT,
+                    expected_answer TEXT,
+                    rubric TEXT,
+                    max_points DOUBLE PRECISION DEFAULT 10,
                     question_type TEXT DEFAULT 'open_text',
                     options_text TEXT,
                     source_run_id BIGINT,
@@ -692,8 +738,8 @@ def init_db() -> None:
                 graded_by_type TEXT,
                 graded_by_user_id INTEGER,
                 graded_at TEXT,
-                result_status TEXT NOT NULL DEFAULT 'pending_review'
-                    CHECK (result_status IN ('pending_review', 'approved')),
+                result_status TEXT NOT NULL DEFAULT 'submitted'
+                    CHECK (result_status IN ('submitted', 'ai_grading', 'ai_graded_pending_review', 'pending_review', 'approved', 'returned', 'grading_failed')),
                 result_approved_at TEXT,
                 result_approved_by_user_id INTEGER,
                 diagnosis_answer TEXT,
@@ -734,15 +780,15 @@ def init_db() -> None:
                 submission_score_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 attempt_id INTEGER NOT NULL UNIQUE,
                 scoring_version TEXT NOT NULL DEFAULT 'heuristic_v1',
-                understanding_score REAL NOT NULL,
-                investigation_score REAL NOT NULL,
-                solution_score REAL NOT NULL,
-                communication_score REAL NOT NULL,
+                understanding_score REAL,
+                investigation_score REAL,
+                solution_score REAL,
+                communication_score REAL,
                 understanding_rationale TEXT,
                 investigation_rationale TEXT,
                 solution_rationale TEXT,
                 communication_rationale TEXT,
-                total_score REAL NOT NULL,
+                total_score REAL,
                 scoring_provider TEXT,
                 scoring_model_name TEXT,
                 scoring_prompt_template_id TEXT,
@@ -750,7 +796,40 @@ def init_db() -> None:
                 scoring_config_json TEXT,
                 scored_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 score_inputs_json TEXT,
+                ai_total_score REAL,
+                admin_total_score REAL,
+                final_total_score REAL,
+                max_total_score REAL,
+                percentage REAL,
+                grading_status TEXT DEFAULT 'submitted',
+                overall_ai_feedback TEXT,
+                overall_admin_feedback TEXT,
+                learner_visible_feedback TEXT,
+                approved_by INTEGER,
+                approved_at TEXT,
                 FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS submission_question_scores (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id INTEGER NOT NULL,
+                question_id INTEGER,
+                learner_answer TEXT,
+                ai_awarded_points REAL,
+                ai_max_points REAL,
+                ai_feedback TEXT,
+                ai_reasoning TEXT,
+                missing_key_concepts TEXT,
+                admin_awarded_points REAL,
+                admin_feedback TEXT,
+                final_awarded_points REAL,
+                visible_to_learner INTEGER DEFAULT 0,
+                is_admin_override INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(attempt_id, question_id),
+                FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE SET NULL
             );
 
             CREATE TABLE IF NOT EXISTS submission_regrade_history (
@@ -906,6 +985,9 @@ def init_db() -> None:
                 question_order INTEGER NOT NULL,
                 question_text TEXT NOT NULL,
                 rationale TEXT,
+                expected_answer TEXT,
+                rubric TEXT,
+                max_points REAL DEFAULT 10,
                 question_type TEXT DEFAULT 'open_text',
                 options_text TEXT,
                 source_run_id INTEGER,
@@ -1099,7 +1181,7 @@ def init_db() -> None:
                 conn,
                 "attempts",
                 "result_status",
-                "TEXT DEFAULT 'pending_review' CHECK (result_status IN ('pending_review', 'approved'))",
+                "TEXT DEFAULT 'submitted'",
             )
             result_approved_at_added = _ensure_column(conn, "attempts", "result_approved_at", "TIMESTAMPTZ")
             result_approved_by_added = _ensure_column(conn, "attempts", "result_approved_by_user_id", "BIGINT")
@@ -1111,30 +1193,33 @@ def init_db() -> None:
                         """
                         UPDATE attempts
                         SET result_status = CASE
-                            WHEN LOWER(BTRIM(COALESCE(result_status, ''))) IN ('approved', 'pending_review')
+                            WHEN LOWER(BTRIM(COALESCE(result_status, ''))) IN (
+                                'submitted', 'ai_grading', 'ai_graded_pending_review', 'pending_review', 'approved', 'returned', 'grading_failed'
+                            )
                                 THEN LOWER(BTRIM(result_status))
                             WHEN total_score IS NOT NULL
-                                THEN 'approved'
+                                THEN 'ai_graded_pending_review'
                             ELSE 'pending_review'
                         END
                         """
                     )
-                    cur.execute("ALTER TABLE attempts ALTER COLUMN result_status SET DEFAULT 'pending_review'")
+                    cur.execute("ALTER TABLE attempts ALTER COLUMN result_status SET DEFAULT 'submitted'")
+                    cur.execute("ALTER TABLE attempts DROP CONSTRAINT IF EXISTS attempts_result_status_valid")
                     cur.execute(
                         """
-                        DO $$
-                        BEGIN
-                          IF NOT EXISTS (
-                            SELECT 1
-                            FROM pg_constraint
-                            WHERE conname = 'attempts_result_status_valid'
-                          ) THEN
-                            ALTER TABLE attempts
-                            ADD CONSTRAINT attempts_result_status_valid
-                            CHECK (result_status IN ('pending_review', 'approved'));
-                          END IF;
-                        END
-                        $$;
+                        ALTER TABLE attempts
+                        ADD CONSTRAINT attempts_result_status_valid
+                        CHECK (
+                            result_status IN (
+                                'submitted',
+                                'ai_grading',
+                                'ai_graded_pending_review',
+                                'pending_review',
+                                'approved',
+                                'returned',
+                                'grading_failed'
+                            )
+                        );
                         """
                     )
                 _ensure_attempts_result_approver_fk_postgres(conn)
@@ -1143,10 +1228,10 @@ def init_db() -> None:
                     """
                     UPDATE attempts
                     SET result_status = CASE
-                        WHEN LOWER(TRIM(COALESCE(result_status, ''))) IN ('approved', 'pending_review')
+                        WHEN LOWER(TRIM(COALESCE(result_status, ''))) IN ('submitted', 'ai_grading', 'ai_graded_pending_review', 'pending_review', 'approved', 'returned', 'grading_failed')
                             THEN LOWER(TRIM(result_status))
                         WHEN total_score IS NOT NULL
-                            THEN 'approved'
+                            THEN 'ai_graded_pending_review'
                         ELSE 'pending_review'
                     END
                     """
@@ -1192,6 +1277,17 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "scoring_prompt_template_id", "TEXT")
             _ensure_column(conn, "submission_scores", "scoring_temperature", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "scoring_config_json", "TEXT")
+            _ensure_column(conn, "submission_scores", "ai_total_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "admin_total_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "final_total_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "max_total_score", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "percentage", "DOUBLE PRECISION")
+            _ensure_column(conn, "submission_scores", "grading_status", "TEXT DEFAULT 'submitted'")
+            _ensure_column(conn, "submission_scores", "overall_ai_feedback", "TEXT")
+            _ensure_column(conn, "submission_scores", "overall_admin_feedback", "TEXT")
+            _ensure_column(conn, "submission_scores", "learner_visible_feedback", "TEXT")
+            _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
+            _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'pending'")
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
@@ -1229,9 +1325,65 @@ def init_db() -> None:
             _ensure_column(conn, "module_generation_questions", "options_text", "TEXT")
             _ensure_column(conn, "module_questions", "question_type", "TEXT DEFAULT 'open_text'")
             _ensure_column(conn, "module_questions", "options_text", "TEXT")
+            _ensure_column(conn, "module_questions", "expected_answer", "TEXT")
+            _ensure_column(conn, "module_questions", "rubric", "TEXT")
+            _ensure_column(conn, "module_questions", "max_points", "DOUBLE PRECISION DEFAULT 10")
             _ensure_column(conn, "assignment_workspace_state", "time_limit_minutes", "INTEGER")
             _ensure_column(conn, "assignment_workspace_state", "end_time", "TEXT")
             _ensure_column(conn, "assignment_workspace_state", "auto_submitted_state", "INTEGER DEFAULT 0")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS submission_question_scores (
+                            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            attempt_id BIGINT NOT NULL,
+                            question_id BIGINT,
+                            learner_answer TEXT,
+                            ai_awarded_points DOUBLE PRECISION,
+                            ai_max_points DOUBLE PRECISION,
+                            ai_feedback TEXT,
+                            ai_reasoning TEXT,
+                            missing_key_concepts TEXT,
+                            admin_awarded_points DOUBLE PRECISION,
+                            admin_feedback TEXT,
+                            final_awarded_points DOUBLE PRECISION,
+                            visible_to_learner BOOLEAN DEFAULT FALSE,
+                            is_admin_override BOOLEAN DEFAULT FALSE,
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ DEFAULT NOW(),
+                            UNIQUE(attempt_id, question_id),
+                            FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                            FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE SET NULL
+                        )
+                        """
+                    )
+            else:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS submission_question_scores (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        attempt_id INTEGER NOT NULL,
+                        question_id INTEGER,
+                        learner_answer TEXT,
+                        ai_awarded_points REAL,
+                        ai_max_points REAL,
+                        ai_feedback TEXT,
+                        ai_reasoning TEXT,
+                        missing_key_concepts TEXT,
+                        admin_awarded_points REAL,
+                        admin_feedback TEXT,
+                        final_awarded_points REAL,
+                        visible_to_learner INTEGER DEFAULT 0,
+                        is_admin_override INTEGER DEFAULT 0,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(attempt_id, question_id),
+                        FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                        FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE SET NULL
+                    )
+                    """
+                )
 
             if RUNTIME_USE_POSTGRES:
                 _executescript(
@@ -1322,12 +1474,12 @@ def init_db() -> None:
                         RETURNS TRIGGER AS $$
                         BEGIN
                             UPDATE attempts
-                            SET result_status = 'pending_review',
+                            SET result_status = 'ai_graded_pending_review',
                                 result_approved_at = NULL,
                                 result_approved_by_user_id = NULL
                             WHERE attempt_id = NEW.attempt_id
                               AND (
-                                  COALESCE(result_status, 'pending_review') <> 'pending_review'
+                                  COALESCE(result_status, 'submitted') <> 'ai_graded_pending_review'
                                   OR result_approved_at IS NOT NULL
                                   OR result_approved_by_user_id IS NOT NULL
                               );
@@ -1399,7 +1551,7 @@ def init_db() -> None:
                 BEFORE INSERT ON attempts
                 FOR EACH ROW
                 WHEN NEW.result_status IS NOT NULL
-                  AND LOWER(TRIM(NEW.result_status)) NOT IN ('pending_review', 'approved')
+                  AND LOWER(TRIM(NEW.result_status)) NOT IN ('submitted', 'ai_grading', 'ai_graded_pending_review', 'pending_review', 'approved', 'returned', 'grading_failed')
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid attempts.result_status');
                 END;
@@ -1409,7 +1561,7 @@ def init_db() -> None:
                 BEFORE UPDATE OF result_status ON attempts
                 FOR EACH ROW
                 WHEN NEW.result_status IS NOT NULL
-                  AND LOWER(TRIM(NEW.result_status)) NOT IN ('pending_review', 'approved')
+                  AND LOWER(TRIM(NEW.result_status)) NOT IN ('submitted', 'ai_grading', 'ai_graded_pending_review', 'pending_review', 'approved', 'returned', 'grading_failed')
                 BEGIN
                     SELECT RAISE(ABORT, 'invalid attempts.result_status');
                 END;
@@ -1428,12 +1580,12 @@ def init_db() -> None:
                 )
                 BEGIN
                     UPDATE attempts
-                    SET result_status = 'pending_review',
+                    SET result_status = 'ai_graded_pending_review',
                         result_approved_at = NULL,
                         result_approved_by_user_id = NULL
                     WHERE attempt_id = NEW.attempt_id
                       AND (
-                        COALESCE(result_status, 'pending_review') <> 'pending_review'
+                        COALESCE(result_status, 'submitted') <> 'ai_graded_pending_review'
                         OR result_approved_at IS NOT NULL
                         OR result_approved_by_user_id IS NOT NULL
                       );
@@ -1626,6 +1778,8 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
         organization_id = user["organization_id"] if user else None
     timed_out_value = 1 if bool(payload.get("timed_out")) else 0
 
+    category_scores = payload.get("category_scores") or {}
+    has_legacy_scores = isinstance(category_scores, dict) and bool(category_scores)
     attempt_id = execute(
         """
         INSERT INTO attempts (
@@ -1651,7 +1805,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("graded_by_type", "system"),
             payload.get("graded_by_user_id"),
             payload.get("graded_at", payload.get("submitted_at")),
-            "pending_review",
+            payload.get("result_status", "submitted"),
             None,
             None,
             payload.get("diagnosis_answer"),
@@ -1661,68 +1815,99 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("notes"),
             timed_out_value,
             payload.get("question_responses"),
-            payload["category_scores"]["understanding"],
-            payload["category_scores"]["investigation"],
-            payload["category_scores"]["solution_quality"],
-            payload["category_scores"]["communication"],
-            payload["total_score"],
-            payload["coaching_feedback"],
-            json.dumps(payload["strengths"]),
-            json.dumps(payload["missed_points"]),
-            payload["best_practice_reasoning"],
-            payload["recommended_response"],
-            payload["takeaway_summary"],
+            category_scores.get("understanding"),
+            category_scores.get("investigation"),
+            category_scores.get("solution_quality"),
+            category_scores.get("communication"),
+            payload.get("total_score"),
+            payload.get("coaching_feedback"),
+            json.dumps(payload.get("strengths", [])),
+            json.dumps(payload.get("missed_points", [])),
+            payload.get("best_practice_reasoning"),
+            payload.get("recommended_response"),
+            payload.get("takeaway_summary"),
         ),
     )
 
-    execute(
-        """
-        INSERT INTO submission_scores (
-            attempt_id,
-            scoring_version,
-            understanding_score,
-            investigation_score,
-            solution_score,
-            communication_score,
-            understanding_rationale,
-            investigation_rationale,
-            solution_rationale,
-            communication_rationale,
-            total_score,
-            scoring_provider,
-            scoring_model_name,
-            scoring_prompt_template_id,
-            scoring_temperature,
-            scoring_config_json,
-            score_inputs_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            attempt_id,
-            payload.get("scoring_version", "heuristic_v1"),
-            payload["category_scores"]["understanding"],
-            payload["category_scores"]["investigation"],
-            payload["category_scores"]["solution_quality"],
-            payload["category_scores"]["communication"],
-            payload.get("category_rationales", {}).get("understanding"),
-            payload.get("category_rationales", {}).get("investigation"),
-            payload.get("category_rationales", {}).get("solution_quality"),
-            payload.get("category_rationales", {}).get("communication"),
-            payload["total_score"],
-            payload.get("scoring_engine", {}).get("provider"),
-            payload.get("scoring_engine", {}).get("model_name"),
-            payload.get("scoring_engine", {}).get("prompt_template_id"),
-            payload.get("scoring_engine", {}).get("temperature"),
-            json.dumps(payload.get("scoring_engine", {}).get("config", {})),
-            json.dumps(
-                {
-                    "actions_used": payload.get("actions_used", []),
-                    "actions_used_count": payload.get("actions_used_count", 0),
-                    "escalation_choice": payload.get("escalation_choice"),
-                }
+    if has_legacy_scores:
+        execute(
+            """
+            INSERT INTO submission_scores (
+                attempt_id,
+                scoring_version,
+                understanding_score,
+                investigation_score,
+                solution_score,
+                communication_score,
+                understanding_rationale,
+                investigation_rationale,
+                solution_rationale,
+                communication_rationale,
+                total_score,
+                scoring_provider,
+                scoring_model_name,
+                scoring_prompt_template_id,
+                scoring_temperature,
+                scoring_config_json,
+                score_inputs_json,
+                grading_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(attempt_id) DO UPDATE SET
+                understanding_score = excluded.understanding_score,
+                investigation_score = excluded.investigation_score,
+                solution_score = excluded.solution_score,
+                communication_score = excluded.communication_score,
+                total_score = excluded.total_score,
+                grading_status = excluded.grading_status
+            """,
+            (
+                attempt_id,
+                payload.get("scoring_version", "heuristic_v1"),
+                category_scores.get("understanding"),
+                category_scores.get("investigation"),
+                category_scores.get("solution_quality"),
+                category_scores.get("communication"),
+                payload.get("category_rationales", {}).get("understanding"),
+                payload.get("category_rationales", {}).get("investigation"),
+                payload.get("category_rationales", {}).get("solution_quality"),
+                payload.get("category_rationales", {}).get("communication"),
+                payload.get("total_score"),
+                payload.get("scoring_engine", {}).get("provider"),
+                payload.get("scoring_engine", {}).get("model_name"),
+                payload.get("scoring_engine", {}).get("prompt_template_id"),
+                payload.get("scoring_engine", {}).get("temperature"),
+                json.dumps(payload.get("scoring_engine", {}).get("config", {})),
+                json.dumps(
+                    {
+                        "actions_used": payload.get("actions_used", []),
+                        "actions_used_count": payload.get("actions_used_count", 0),
+                        "escalation_choice": payload.get("escalation_choice"),
+                    }
+                ),
+                payload.get("result_status", "ai_graded_pending_review"),
             ),
-        ),
-    )
+        )
+    else:
+        execute(
+            """
+            INSERT INTO submission_scores (attempt_id, grading_status, score_inputs_json)
+            VALUES (?, ?, ?)
+            ON CONFLICT(attempt_id) DO UPDATE SET
+                grading_status = excluded.grading_status,
+                score_inputs_json = excluded.score_inputs_json
+            """,
+            (
+                attempt_id,
+                payload.get("result_status", "submitted"),
+                json.dumps(
+                    {
+                        "actions_used": payload.get("actions_used", []),
+                        "actions_used_count": payload.get("actions_used_count", 0),
+                        "escalation_choice": payload.get("escalation_choice"),
+                    }
+                ),
+            ),
+        )
     return attempt_id
 
 
