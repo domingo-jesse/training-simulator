@@ -892,7 +892,22 @@ def _render_assignment_tool(current_user: dict) -> None:
             if not st.session_state[due_date_enabled_key]:
                 st.session_state[due_date_value_key] = None
 
-        selected_module = st.selectbox("Module", list(module_map.keys()))
+        module_select_key = "assignment_tool_selected_module_label"
+        module_id_to_label = {module_id: title for title, module_id in module_map.items()}
+        pending_prefill_module_id = st.session_state.pop("assignment_tool_prefill_module_id", None)
+        default_prefill_module_id = pending_prefill_module_id
+        if default_prefill_module_id is None:
+            default_prefill_module_id = st.session_state.get("recently_created_module_id")
+        if (
+            isinstance(default_prefill_module_id, int)
+            and default_prefill_module_id in module_id_to_label
+            and (module_select_key not in st.session_state or st.session_state.get(module_select_key) not in module_map)
+        ):
+            st.session_state[module_select_key] = module_id_to_label[default_prefill_module_id]
+        elif module_select_key not in st.session_state or st.session_state.get(module_select_key) not in module_map:
+            st.session_state[module_select_key] = next(iter(module_map.keys()))
+
+        selected_module = st.selectbox("Module", list(module_map.keys()), key=module_select_key)
         selected_learners = st.multiselect(
             "Selected learners (from table)",
             selectbox_options,
@@ -1030,6 +1045,11 @@ def _render_assignment_tool(current_user: dict) -> None:
 
 def render_assignment_management(current_user: dict) -> None:
     render_page_header("Assignment Management", "Assign modules in bulk and monitor assignment status.")
+    recently_created_module_id = st.session_state.get("recently_created_module_id")
+    recently_created_module_title = st.session_state.get("recently_created_module_title")
+    if isinstance(recently_created_module_id, int):
+        module_label = str(recently_created_module_title or f"Module #{recently_created_module_id}")
+        st.caption(f"Assigning newly created module: {module_label}")
     current_tab, tool_tab = st.tabs(["Current Assignments", "Assignment Tool"])
     with current_tab:
         render_current_assignments(current_user)
@@ -2212,6 +2232,8 @@ def render_module_builder(current_user: dict) -> None:
     ai_keep_editing_key = "module_builder_ai_keep_editing"
     ai_question_count_key = "ai_question_count"
     pending_reset_mode_key = "module_builder_pending_reset_mode"
+    recently_created_module_id_key = "recently_created_module_id"
+    recently_created_module_title_key = "recently_created_module_title"
     widget_keys = [
         "module_builder_title",
         "module_builder_description",
@@ -2894,7 +2916,10 @@ def render_module_builder(current_user: dict) -> None:
             ],
         )
 
-        st.success(f"Module published successfully (Module #{int(module_id)}).")
+        created_module_id = int(module_id)
+        created_module_title = module_form["title"].strip() or f"Module {created_module_id}"
+        st.session_state[recently_created_module_id_key] = created_module_id
+        st.session_state[recently_created_module_title_key] = created_module_title
         st.session_state[form_key] = dict(default_form)
         st.session_state[save_status_key] = "Saved"
         st.session_state[publish_attempted_key] = False
@@ -2904,11 +2929,18 @@ def render_module_builder(current_user: dict) -> None:
             st.session_state.pop(key, None)
         for key in widget_keys:
             st.session_state.pop(key, None)
+        st.session_state["admin_nav_group"] = "Operations"
+        st.session_state["admin_page"] = "📚 Manage Modules"
+        st.session_state["current_page"] = "admin:manage-modules"
+        st.session_state["nav"] = "manage-modules"
+        st.query_params["page"] = "manage-modules"
         st.rerun()
 
 
 def render_manage_modules(current_user: dict) -> None:
     org_id = current_user["organization_id"]
+    recently_created_module_id = st.session_state.get("recently_created_module_id")
+    recently_created_module_title = st.session_state.get("recently_created_module_title")
     st.subheader("Manage Modules")
     st.caption("Browse active and archived modules in separate tabs, then edit a selected module.")
 
@@ -2929,6 +2961,27 @@ def render_manage_modules(current_user: dict) -> None:
 
     modules_df["status"] = modules_df["status"].fillna("existing").astype(str).str.lower()
     modules_df.loc[~modules_df["status"].isin(["existing", "archived"]), "status"] = "existing"
+    module_ids = set(modules_df["module_id"].astype(int).tolist())
+    has_recent_module = isinstance(recently_created_module_id, int) and recently_created_module_id in module_ids
+
+    if has_recent_module:
+        st.success("Module created successfully.")
+        action_col_1, action_col_2 = st.columns([2, 1])
+        with action_col_1:
+            if st.button("Assign Recently Created Module", type="primary", use_container_width=True):
+                st.session_state["assignment_tool_prefill_module_id"] = int(recently_created_module_id)
+                st.session_state["admin_nav_group"] = "Operations"
+                st.session_state["admin_page"] = "🗂️ Assignment Management"
+                st.session_state["current_page"] = "admin:assignment-management"
+                st.session_state["nav"] = "assignment-management"
+                st.query_params["page"] = "assignment-management"
+                st.rerun()
+        with action_col_2:
+            if st.button("Continue Editing", use_container_width=True):
+                st.rerun()
+        if recently_created_module_title:
+            st.caption(f"Editing newly created module: {recently_created_module_title}")
+        st.session_state["manage_modules_selected_module_id_existing"] = int(recently_created_module_id)
 
     def _render_module_management_tab(tab_df: pd.DataFrame, tab_label: str, state_prefix: str) -> None:
         if tab_df.empty:
