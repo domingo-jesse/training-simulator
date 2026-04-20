@@ -2095,1015 +2095,294 @@ def _render_named_step_indicator(step_index: int, labels: list[str]) -> None:
 
 def render_module_builder(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    render_page_header("Module Builder", "Guided wizard for structured module generation and approval.")
+    render_page_header("Module Builder", "Single-page module editor with autosave and inline validation.")
 
-    module_builder_current_step_key = "module_builder_current_step"
-    module_builder_phase_labels = ["Enter module goals", "Review and approve generated preview", "Module completed"]
-    module_builder_completed_module_id_key = "module_builder_completed_module_id"
-    module_builder_selected_run_id_key = "module_builder_selected_run_id"
-    if module_builder_current_step_key not in st.session_state:
-        st.session_state[module_builder_current_step_key] = 1
-    current_step = max(1, min(int(st.session_state.get(module_builder_current_step_key, 1)), len(module_builder_phase_labels)))
-    st.session_state[module_builder_current_step_key] = current_step
-    _render_wizard_progress(current_step - 1, len(module_builder_phase_labels), module_builder_phase_labels[current_step - 1])
+    form_key = "module_builder_editor_form"
+    dirty_key = "module_builder_editor_dirty"
+    save_status_key = "module_builder_editor_save_status"
+    last_input_key = "module_builder_editor_last_input_ts"
+    last_save_key = "module_builder_editor_last_save_ts"
 
-    module_builder_step_key = "module_builder_step"
-    module_builder_form_key = "module_builder_form"
-    module_builder_defaults = {
+    default_form = {
         "title": "",
+        "description": "",
+        "scenario_constraints": "",
         "category": "General",
         "difficulty": "Beginner",
         "role_focus": "",
         "test_focus": "",
-        "description": "",
         "learning_objectives": "",
-        "scenario_constraints": "",
         "content_sections": "",
         "completion_requirements": "",
         "quiz_required": True,
         "estimated_minutes": 20,
-        "question_count": 5,
+        "question_count": 1,
+        "attempt_limit": 1,
+        "questions": [
+            {
+                "question_text": "",
+                "question_type": "open_text",
+                "options_text": "",
+                "rationale": "",
+            }
+        ],
     }
-    if module_builder_step_key not in st.session_state:
-        st.session_state[module_builder_step_key] = 0
-    if module_builder_form_key not in st.session_state:
-        st.session_state[module_builder_form_key] = dict(module_builder_defaults)
-    module_form = st.session_state[module_builder_form_key]
 
-    def _init_module_builder_widget_state(widget_key: str, fallback_value):
-        if widget_key not in st.session_state:
-            st.session_state[widget_key] = fallback_value
+    if form_key not in st.session_state:
+        st.session_state[form_key] = dict(default_form)
+    if save_status_key not in st.session_state:
+        st.session_state[save_status_key] = "Saved"
+    st.session_state.setdefault(dirty_key, False)
+    st.session_state.setdefault(last_input_key, 0.0)
+    st.session_state.setdefault(last_save_key, 0.0)
 
-    def _sync_module_builder_form_from_widgets() -> None:
+    module_form = st.session_state[form_key]
+    now_ts = time.time()
+
+    def _mark_dirty() -> None:
+        st.session_state[dirty_key] = True
+        st.session_state[last_input_key] = time.time()
+        st.session_state[save_status_key] = "Saving..."
+
+    def _sync_form_from_widgets() -> None:
         module_form["title"] = st.session_state.get("module_builder_title", module_form.get("title", ""))
+        module_form["description"] = st.session_state.get("module_builder_description", module_form.get("description", ""))
+        module_form["scenario_constraints"] = st.session_state.get(
+            "module_builder_scenario_constraints", module_form.get("scenario_constraints", "")
+        )
         module_form["category"] = st.session_state.get("module_builder_category", module_form.get("category", "General"))
         module_form["difficulty"] = st.session_state.get("module_builder_difficulty", module_form.get("difficulty", "Beginner"))
         module_form["role_focus"] = st.session_state.get("module_builder_role_focus", module_form.get("role_focus", ""))
         module_form["test_focus"] = st.session_state.get("module_builder_test_focus", module_form.get("test_focus", ""))
-        module_form["description"] = st.session_state.get("module_builder_description", module_form.get("description", ""))
         module_form["learning_objectives"] = st.session_state.get(
-            "module_builder_learning_objectives",
-            module_form.get("learning_objectives", ""),
+            "module_builder_learning_objectives", module_form.get("learning_objectives", "")
         )
-        module_form["scenario_constraints"] = st.session_state.get(
-            "module_builder_scenario_constraints",
-            module_form.get("scenario_constraints", ""),
+        module_form["content_sections"] = st.session_state.get(
+            "module_builder_content_sections", module_form.get("content_sections", "")
         )
-        module_form["content_sections"] = st.session_state.get("module_builder_content_sections", module_form.get("content_sections", ""))
         module_form["completion_requirements"] = st.session_state.get(
-            "module_builder_completion_requirements",
-            module_form.get("completion_requirements", ""),
+            "module_builder_completion_requirements", module_form.get("completion_requirements", "")
         )
-        module_form["quiz_required"] = _normalize_bool(
-            st.session_state.get("module_builder_quiz_required", module_form.get("quiz_required", True)),
-            default=True,
-        )
-        module_form["estimated_minutes"] = int(
-            st.session_state.get("module_builder_estimated_minutes", module_form.get("estimated_minutes", 20))
-        )
-        module_form["question_count"] = int(
-            st.session_state.get("module_builder_question_count", module_form.get("question_count", 5))
-        )
+        module_form["quiz_required"] = _normalize_bool(st.session_state.get("module_builder_quiz_required", True), default=True)
+        module_form["estimated_minutes"] = int(st.session_state.get("module_builder_estimated_minutes", 20))
+        module_form["attempt_limit"] = int(st.session_state.get("module_builder_attempt_limit", 1))
 
-    module_builder_steps = [
-        {"title": "Module title", "field": "title", "required": True},
-        {"title": "Category", "field": "category", "required": True},
-        {"title": "Difficulty", "field": "difficulty", "required": True},
-        {"title": "Role being simulated", "field": "role_focus", "required": True},
-        {"title": "What should this module test?", "field": "test_focus", "required": True},
-        {"title": "Description", "field": "description", "required": True},
-        {"title": "Learning objectives", "field": "learning_objectives", "required": True},
-        {"title": "Scenario context / constraints", "field": "scenario_constraints", "required": True},
-        {"title": "Ordered content sections", "field": "content_sections", "required": True},
-        {"title": "Completion requirements", "field": "completion_requirements", "required": True},
-        {"title": "Assessment settings", "field": "assessment_settings", "required": True},
-        {"title": "Review and submit", "field": "review", "required": True},
-    ]
-
-    if current_step == 1:
-        st.markdown("#### Step 1: Enter module goals")
-        current_step = int(st.session_state[module_builder_step_key])
-        total_steps = len(module_builder_steps)
-        step_config = module_builder_steps[current_step]
-        _render_named_step_indicator(current_step, [step["title"] for step in module_builder_steps])
-
-        # Wizard: render exactly one step at a time and persist each input in session state.
-        with st.container(border=True):
-            step_valid = True
-            required_message = ""
-            step_errors: list[str] = []
-            if step_config["field"] == "title":
-                current_key = "module_builder_title"
-                _init_module_builder_widget_state(current_key, module_form["title"])
-                st.text_input("Title", key=current_key)
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["title"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please enter a module title to continue."
-            elif step_config["field"] == "category":
-                current_key = "module_builder_category"
-                _init_module_builder_widget_state(current_key, module_form["category"])
-                st.text_input("Category", key=current_key)
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["category"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please enter a category to continue."
-            elif step_config["field"] == "difficulty":
-                difficulty_options = ["Beginner", "Intermediate", "Advanced"]
-                current_difficulty = module_form["difficulty"] if module_form["difficulty"] in difficulty_options else "Beginner"
-                _init_module_builder_widget_state("module_builder_difficulty", current_difficulty)
-                st.selectbox(
-                    "Difficulty",
-                    difficulty_options,
-                    key="module_builder_difficulty",
-                )
-                module_form["difficulty"] = st.session_state.get("module_builder_difficulty", current_difficulty)
-            elif step_config["field"] == "role_focus":
-                current_key = "module_builder_role_focus"
-                _init_module_builder_widget_state(current_key, module_form["role_focus"])
-                st.text_input(
-                    "Role being simulated (e.g., Support Tier 1, Team Lead)",
-                    key=current_key,
-                )
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["role_focus"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please describe the role being simulated."
-            elif step_config["field"] == "test_focus":
-                current_key = "module_builder_test_focus"
-                _init_module_builder_widget_state(current_key, module_form["test_focus"])
-                st.text_input(
-                    "What should this module test?",
-                    key=current_key,
-                )
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["test_focus"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please describe what this module should test."
-            elif step_config["field"] == "description":
-                current_key = "module_builder_description"
-                _init_module_builder_widget_state(current_key, module_form["description"])
-                st.text_area("Description", key=current_key)
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["description"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please enter a description to continue."
-            elif step_config["field"] == "learning_objectives":
-                current_key = "module_builder_learning_objectives"
-                _init_module_builder_widget_state(current_key, module_form["learning_objectives"])
-                st.text_area(
-                    "Learning objectives (one per line)",
-                    key=current_key,
-                )
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["learning_objectives"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please add at least one learning objective."
-            elif step_config["field"] == "scenario_constraints":
-                current_key = "module_builder_scenario_constraints"
-                _init_module_builder_widget_state(current_key, module_form["scenario_constraints"])
-                st.text_area(
-                    "Scenario context / constraints",
-                    key=current_key,
-                )
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["scenario_constraints"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please provide scenario context or constraints."
-            elif step_config["field"] == "content_sections":
-                current_key = "module_builder_content_sections"
-                _init_module_builder_widget_state(current_key, module_form["content_sections"])
-                st.text_area(
-                    "Ordered content sections (one per line)",
-                    key=current_key,
-                )
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["content_sections"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please add at least one content section."
-            elif step_config["field"] == "completion_requirements":
-                current_key = "module_builder_completion_requirements"
-                _init_module_builder_widget_state(current_key, module_form["completion_requirements"])
-                st.text_area(
-                    "Completion requirements",
-                    key=current_key,
-                )
-                current_value = st.session_state.get(current_key, "").strip()
-                module_form["completion_requirements"] = st.session_state.get(current_key, "")
-                step_valid = bool(current_value)
-                required_message = "Please enter completion requirements."
-            elif step_config["field"] == "assessment_settings":
-                _init_module_builder_widget_state(
-                    "module_builder_quiz_required",
-                    _normalize_bool(module_form.get("quiz_required"), default=True),
-                )
-                _init_module_builder_widget_state("module_builder_estimated_minutes", int(module_form["estimated_minutes"]))
-                _init_module_builder_widget_state("module_builder_question_count", int(module_form["question_count"]))
-                st.checkbox(
-                    "Quiz required",
-                    key="module_builder_quiz_required",
-                )
-                st.number_input(
-                    "Estimated assessment time (minutes)",
-                    min_value=1,
-                    max_value=240,
-                    step=1,
-                    key="module_builder_estimated_minutes",
-                )
-                st.slider(
-                    "AI-generated questions",
-                    min_value=0,
-                    max_value=10,
-                    key="module_builder_question_count",
-                )
-                module_form["quiz_required"] = _normalize_bool(
-                    st.session_state.get("module_builder_quiz_required", True),
-                    default=True,
-                )
-                module_form["estimated_minutes"] = int(st.session_state.get("module_builder_estimated_minutes", 20))
-                module_form["question_count"] = int(st.session_state.get("module_builder_question_count", 5))
-            else:
-                st.markdown("##### Review")
-                st.write("Please review your values before saving.")
-                _render_module_review_summary(module_form)
-                required_fields = [
-                    ("title", "Module title"),
-                    ("category", "Category"),
-                    ("role_focus", "Role being simulated"),
-                    ("test_focus", "What this module should test"),
-                    ("description", "Description"),
-                    ("learning_objectives", "Learning objectives"),
-                    ("scenario_constraints", "Scenario context / constraints"),
-                    ("content_sections", "Ordered content sections"),
-                    ("completion_requirements", "Completion requirements"),
-                ]
-                missing_labels = [label for field, label in required_fields if not _is_present(module_form.get(field))]
-                if missing_labels:
-                    step_errors.append("Please complete these items before saving: " + ", ".join(missing_labels) + ".")
-                step_valid = not step_errors
-
-            if step_errors:
-                for error in step_errors:
-                    st.error(error)
-
-        _sync_module_builder_form_from_widgets()
-
-        if not step_valid and required_message and step_config["field"] != "review":
-            st.error(required_message)
-
-        nav_left, nav_right = st.columns([1, 1])
-        with nav_left:
-            if st.button("Previous", key="module_builder_previous", disabled=current_step == 0):
-                _sync_module_builder_form_from_widgets()
-                st.session_state[module_builder_step_key] = max(0, current_step - 1)
-                st.rerun()
-        with nav_right:
-            if current_step < total_steps - 2:
-                if st.button("Next", key="module_builder_next"):
-                    _sync_module_builder_form_from_widgets()
-                    st.session_state[module_builder_step_key] = current_step + 1
-                    st.rerun()
-            elif current_step == total_steps - 2:
-                if st.button("Next", key="module_builder_review"):
-                    _sync_module_builder_form_from_widgets()
-                    st.session_state[module_builder_step_key] = current_step + 1
-                    st.rerun()
-            if current_step == total_steps - 1:
-                if st.button("Save Module", key="module_builder_save_module", type="primary", disabled=not step_valid):
-                    _sync_module_builder_form_from_widgets()
-                    is_valid = bool(step_valid)
-                    if not is_valid:
-                        st.error("Please complete required fields")
-                        return
-
-                    payload = ModuleGenerationInput(
-                        title=module_form["title"].strip(),
-                        category=module_form["category"].strip() or "General",
-                        difficulty=module_form["difficulty"],
-                        description=module_form["description"].strip(),
-                        role_focus=module_form["role_focus"].strip(),
-                        test_focus=module_form["test_focus"].strip(),
-                        learning_objectives=[line.strip() for line in module_form["learning_objectives"].splitlines() if line.strip()],
-                        scenario_constraints=module_form["scenario_constraints"].strip(),
-                        completion_requirements=module_form["completion_requirements"].strip(),
-                        question_count=int(module_form["question_count"]),
-                    )
-                    try:
-                        preview, warning = generate_module_preview(payload)
-                        run_id = execute(
-                            """
-                            INSERT INTO module_generation_runs (
-                                organization_id, created_by, input_title, input_category, input_difficulty,
-                                input_description, role_focus, test_focus, learning_objectives, input_content_sections,
-                                scenario_constraints, completion_requirements, input_quiz_required, requested_question_count,
-                                input_estimated_minutes, generated_title, generated_description, generated_scenario_overview,
-                                generation_status, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-                            RETURNING run_id AS id
-                            """,
-                            (
-                                org_id,
-                                current_user["user_id"],
-                                payload.title,
-                                payload.category,
-                                payload.difficulty,
-                                payload.description,
-                                payload.role_focus,
-                                payload.test_focus,
-                                "\n".join(payload.learning_objectives),
-                                _parse_lines(module_form["content_sections"]),
-                                payload.scenario_constraints,
-                                payload.completion_requirements,
-                                _normalize_bool(module_form.get("quiz_required"), default=True),
-                                payload.question_count,
-                                int(module_form["estimated_minutes"]),
-                                preview.get("title"),
-                                preview.get("description"),
-                                preview.get("scenario_overview"),
-                            ),
-                        )
-                        execute("DELETE FROM module_generation_questions WHERE run_id = ?", (run_id,))
-                        executemany(
-                            """
-                            INSERT INTO module_generation_questions (
-                                run_id, question_order, question_text, rationale, question_type, options_text, approval_status, updated_at
-                            ) VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP)
-                            """,
-                            [
-                                (
-                                    run_id,
-                                    idx + 1,
-                                    item.get("question", ""),
-                                    item.get("rationale", ""),
-                                    "open_text",
-                                    "",
-                                )
-                                for idx, item in enumerate(preview.get("questions", []))
-                            ],
-                        )
-                        if warning:
-                            st.warning(warning)
-                        st.session_state[module_builder_current_step_key] = 2
-                        st.session_state[module_builder_selected_run_id_key] = int(run_id)
-                        st.success("Preview generated. Continue to Step 2 to review and approve.")
-                        st.session_state[module_builder_step_key] = 0
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Could not save module preview: {exc}")
-
-    elif current_step == 2:
-        st.markdown("#### Step 2: Review and approve generated preview")
-
-        runs_df = to_df(
-            fetch_all(
-                """
-                SELECT * FROM module_generation_runs
-                WHERE organization_id = ?
-                ORDER BY updated_at DESC
-                """,
-                (org_id,),
-            )
-        )
-        if runs_df.empty:
-            st.info("No AI previews yet. Complete Step 1 first.")
+    def _autosave(force: bool = False) -> None:
+        _sync_form_from_widgets()
+        if not st.session_state.get(dirty_key):
             return
+        debounce_ready = now_ts - float(st.session_state.get(last_input_key, 0.0)) >= 0.8
+        if force or debounce_ready:
+            module_form["question_count"] = len(module_form.get("questions", []))
+            st.session_state[last_save_key] = time.time()
+            st.session_state[dirty_key] = False
+            st.session_state[save_status_key] = "Saved"
 
-        ordered_run_ids = [int(row["run_id"]) for _, row in runs_df.iterrows()]
-        selected_run_id = st.session_state.get(module_builder_selected_run_id_key)
-        if selected_run_id not in ordered_run_ids:
-            selected_run_id = ordered_run_ids[0]
-            st.session_state[module_builder_selected_run_id_key] = selected_run_id
-        run_id = int(selected_run_id)
-        run = fetch_one("SELECT * FROM module_generation_runs WHERE run_id = ? AND organization_id = ?", (run_id, org_id))
-        if not run:
-            st.info("No accessible preview found for final review.")
-            return
-        run_title = run.get("generated_title") or run.get("input_title") or "Untitled"
-        st.markdown(f"**Reviewing Preview:** {run_title}")
-        generated_questions = fetch_all(
+    widget_defaults = {
+        "module_builder_title": module_form.get("title", ""),
+        "module_builder_description": module_form.get("description", ""),
+        "module_builder_scenario_constraints": module_form.get("scenario_constraints", ""),
+        "module_builder_category": module_form.get("category", "General"),
+        "module_builder_difficulty": module_form.get("difficulty", "Beginner"),
+        "module_builder_role_focus": module_form.get("role_focus", ""),
+        "module_builder_test_focus": module_form.get("test_focus", ""),
+        "module_builder_learning_objectives": module_form.get("learning_objectives", ""),
+        "module_builder_content_sections": module_form.get("content_sections", ""),
+        "module_builder_completion_requirements": module_form.get("completion_requirements", ""),
+        "module_builder_quiz_required": _normalize_bool(module_form.get("quiz_required"), default=True),
+        "module_builder_estimated_minutes": int(module_form.get("estimated_minutes", 20)),
+        "module_builder_attempt_limit": int(module_form.get("attempt_limit", 1)),
+    }
+    for key, value in widget_defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+    top_left, top_right = st.columns([3, 1])
+    with top_left:
+        st.subheader("Module editor")
+    with top_right:
+        st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
+
+    st.markdown("### Basic Info")
+    st.text_input("Title *", key="module_builder_title", on_change=_mark_dirty)
+    st.text_area("Description *", key="module_builder_description", on_change=_mark_dirty)
+
+    st.markdown("### Scenario")
+    st.text_area("Scenario text *", key="module_builder_scenario_constraints", on_change=_mark_dirty, height=180)
+
+    st.markdown("### Questions")
+    module_form.setdefault("questions", [])
+    if not module_form["questions"]:
+        module_form["questions"] = [dict(default_form["questions"][0])]
+
+    delete_index = None
+    for idx, question in enumerate(module_form["questions"]):
+        q_prefix = f"module_builder_q_{idx}"
+        st.markdown(f"#### Question {idx + 1}")
+        if f"{q_prefix}_text" not in st.session_state:
+            st.session_state[f"{q_prefix}_text"] = question.get("question_text", "")
+        if f"{q_prefix}_type" not in st.session_state:
+            st.session_state[f"{q_prefix}_type"] = question.get("question_type", "open_text")
+        if f"{q_prefix}_options" not in st.session_state:
+            st.session_state[f"{q_prefix}_options"] = question.get("options_text", "")
+        if f"{q_prefix}_rationale" not in st.session_state:
+            st.session_state[f"{q_prefix}_rationale"] = question.get("rationale", "")
+
+        st.text_area("Question text *", key=f"{q_prefix}_text", on_change=_mark_dirty, height=110)
+        st.selectbox(
+            "Question type",
+            ["open_text", "multiple_choice"],
+            key=f"{q_prefix}_type",
+            on_change=_mark_dirty,
+        )
+        st.text_area(
+            "Answer choices (one per line)",
+            key=f"{q_prefix}_options",
+            on_change=_mark_dirty,
+            disabled=st.session_state.get(f"{q_prefix}_type") != "multiple_choice",
+            height=100,
+        )
+        st.text_area("Rubric / rationale", key=f"{q_prefix}_rationale", on_change=_mark_dirty, height=90)
+        if st.button("Delete question", key=f"delete_question_{idx}"):
+            delete_index = idx
+
+    if delete_index is not None:
+        module_form["questions"].pop(delete_index)
+        if not module_form["questions"]:
+            module_form["questions"].append(dict(default_form["questions"][0]))
+        keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
+        for key in keys_to_clear:
+            st.session_state.pop(key, None)
+        _mark_dirty()
+        st.rerun()
+
+    if st.button("+ Add Question", key="module_builder_add_question"):
+        module_form["questions"].append(dict(default_form["questions"][0]))
+        _mark_dirty()
+        st.rerun()
+
+    for idx, question in enumerate(module_form["questions"]):
+        q_prefix = f"module_builder_q_{idx}"
+        question["question_text"] = st.session_state.get(f"{q_prefix}_text", "")
+        question["question_type"] = st.session_state.get(f"{q_prefix}_type", "open_text")
+        question["options_text"] = _parse_lines(st.session_state.get(f"{q_prefix}_options", ""))
+        question["rationale"] = st.session_state.get(f"{q_prefix}_rationale", "")
+
+    st.markdown("### Scoring / Rubric")
+    st.text_area(
+        "Completion requirements / passing rubric *",
+        key="module_builder_completion_requirements",
+        on_change=_mark_dirty,
+        height=120,
+    )
+
+    st.markdown("### Settings")
+    settings_col_1, settings_col_2 = st.columns(2)
+    with settings_col_1:
+        st.text_input("Category", key="module_builder_category", on_change=_mark_dirty)
+        st.selectbox("Difficulty", ["Beginner", "Intermediate", "Advanced"], key="module_builder_difficulty", on_change=_mark_dirty)
+        st.checkbox("Quiz required", key="module_builder_quiz_required", on_change=_mark_dirty)
+    with settings_col_2:
+        st.number_input("Time limit (minutes)", min_value=1, max_value=240, step=1, key="module_builder_estimated_minutes", on_change=_mark_dirty)
+        st.number_input("Attempt limit", min_value=1, max_value=10, step=1, key="module_builder_attempt_limit", on_change=_mark_dirty)
+        st.text_input("Role being simulated", key="module_builder_role_focus", on_change=_mark_dirty)
+
+    st.text_input("What should this module test?", key="module_builder_test_focus", on_change=_mark_dirty)
+    st.text_area("Learning objectives (one per line)", key="module_builder_learning_objectives", on_change=_mark_dirty, height=120)
+    st.text_area("Content sections (one per line)", key="module_builder_content_sections", on_change=_mark_dirty, height=120)
+
+    _autosave()
+
+    _sync_form_from_widgets()
+    required_errors = {
+        "title": "Title is required.",
+        "description": "Description is required.",
+        "scenario_constraints": "Scenario text is required.",
+        "completion_requirements": "Completion requirements are required.",
+    }
+    validation_errors = {
+        key: message
+        for key, message in required_errors.items()
+        if not _is_present(module_form.get(key))
+    }
+
+    for idx, question in enumerate(module_form.get("questions", []), start=1):
+        if not _is_present(question.get("question_text")):
+            validation_errors[f"question_{idx}"] = f"Question {idx} text is required."
+        if question.get("question_type") == "multiple_choice":
+            option_lines = [line.strip() for line in str(question.get("options_text") or "").splitlines() if line.strip()]
+            if len(option_lines) < 2:
+                validation_errors[f"question_{idx}_options"] = f"Question {idx} needs at least two answer choices."
+
+    if "title" in validation_errors:
+        st.error(validation_errors["title"])
+    if "description" in validation_errors:
+        st.error(validation_errors["description"])
+    if "scenario_constraints" in validation_errors:
+        st.error(validation_errors["scenario_constraints"])
+    if "completion_requirements" in validation_errors:
+        st.error(validation_errors["completion_requirements"])
+    for key, message in validation_errors.items():
+        if key.startswith("question_"):
+            st.error(message)
+
+    publish_disabled = bool(validation_errors)
+    if st.button("Publish Module", key="module_builder_publish", type="primary", disabled=publish_disabled):
+        _autosave(force=True)
+        module_id = execute(
             """
-            SELECT * FROM module_generation_questions
-            WHERE run_id = ?
-            ORDER BY question_order
+            INSERT INTO modules (
+                title, category, difficulty, description, estimated_time,
+                scenario_context, organization_id, status, learning_objectives, content_sections,
+                completion_requirements, quiz_required, created_by, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'existing', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            RETURNING module_id AS id
             """,
-            (run_id,),
+            (
+                module_form["title"].strip(),
+                module_form["category"].strip() or "General",
+                module_form["difficulty"],
+                module_form["description"].strip(),
+                f"{int(module_form['estimated_minutes'])} min",
+                module_form["scenario_constraints"].strip(),
+                org_id,
+                module_form["learning_objectives"].strip(),
+                _parse_lines(module_form["content_sections"]),
+                module_form["completion_requirements"].strip(),
+                _normalize_bool(module_form.get("quiz_required"), default=False),
+                current_user["user_id"],
+            ),
         )
-        review_step_key = f"module_review_step_{run_id}"
-        if review_step_key not in st.session_state:
-            st.session_state[review_step_key] = 0
-        review_step = int(st.session_state[review_step_key])
 
-        non_custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") != "custom_question"]
-        custom_questions = [q for q in generated_questions if (q.get("admin_feedback") or "") == "custom_question"]
-        wizard_labels = ["Review Scenario", "Review Questions", "Custom Questions", "Finalize"]
-        wizard_step_index = review_step
-        _render_named_step_indicator(wizard_step_index, wizard_labels)
-
-        step_valid = True
-        if review_step == 0:
-            with st.container(border=True):
-                st.markdown("##### Review Scenario")
-                run_title_key = f"scenario_title_{run_id}"
-                run_summary_key = f"scenario_summary_{run_id}"
-                run_feedback_key = f"scenario_feedback_{run_id}"
-                run_status_key = f"scenario_status_{run_id}"
-                if run_title_key not in st.session_state:
-                    st.session_state[run_title_key] = run.get("generated_title") or run.get("input_title") or ""
-                if run_summary_key not in st.session_state:
-                    st.session_state[run_summary_key] = run.get("generated_description") or run.get("input_description") or ""
-                if run_feedback_key not in st.session_state:
-                    st.session_state[run_feedback_key] = run.get("test_focus") or ""
-                scenario_context_key = f"scenario_context_{run_id}"
-                if scenario_context_key not in st.session_state:
-                    st.session_state[scenario_context_key] = run.get("generated_scenario_overview") or ""
-                if run_status_key not in st.session_state:
-                    initial_status = run.get("generation_status", "pending")
-                    st.session_state[run_status_key] = initial_status if initial_status in {"approved", "denied", "pending"} else "pending"
-
-                st.text_input("Scenario title", key=run_title_key)
-                st.text_area("Scenario summary / metadata", key=run_summary_key, height=120)
-                st.text_area(
-                    "Scenario description / context",
-                    key=scenario_context_key,
-                    height=180,
+        executemany(
+            """
+            INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    module_id,
+                    idx + 1,
+                    q.get("question_text", "").strip(),
+                    q.get("rationale", "").strip(),
+                    q.get("question_type") or "open_text",
+                    q.get("options_text") or "",
+                    None,
                 )
-                st.selectbox(
-                    "Scenario decision",
-                    ["approved", "denied", "pending"],
-                    key=run_status_key,
-                )
-                st.text_area("Scenario feedback", key=run_feedback_key)
-                step_valid = bool(st.session_state.get(run_title_key, "").strip()) and bool(st.session_state.get(scenario_context_key, "").strip())
-                if st.button("Save scenario decision", key=f"save_scenario_decision_{run_id}"):
-                    execute(
-                        """
-                        UPDATE module_generation_runs
-                        SET generation_status = ?, test_focus = ?, generated_title = ?, generated_description = ?, generated_scenario_overview = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE run_id = ? AND organization_id = ?
-                        """,
-                        (
-                            st.session_state[run_status_key],
-                            st.session_state[run_feedback_key],
-                            st.session_state[run_title_key],
-                            st.session_state[run_summary_key],
-                            st.session_state[scenario_context_key],
-                            run_id,
-                            org_id,
-                        ),
-                    )
-                    st.success("Scenario decision saved.")
-                    st.rerun()
+                for idx, q in enumerate(module_form.get("questions", []))
+                if _is_present(q.get("question_text"))
+            ],
+        )
 
-        elif review_step == 1:
-            with st.container(border=True):
-                st.markdown("##### Review Generated Questions")
-                if not non_custom_questions:
-                    st.info("No generated questions remain in this preview. Continue to the next step or add custom questions.")
-                else:
-                    for idx, q in enumerate(non_custom_questions, start=1):
-                        question_id = q.get("generated_question_id")
-                        if question_id is None:
-                            fallback_key = q.get("question_stable_key")
-                            if not fallback_key:
-                                fallback_key = f"temp_q_{run_id}_{q.get('question_order', idx)}_{idx}"
-                                q["question_stable_key"] = fallback_key
-                            question_identity = fallback_key
-                        else:
-                            question_identity = str(question_id)
-                        qtext_key = f"qtext_{question_identity}"
-                        qrationale_key = f"qrationale_{question_identity}"
-                        qdifficulty_key = f"qdifficulty_{question_identity}"
-                        qpoints_key = f"qpoints_{question_identity}"
-                        qtype_key = f"qtype_{question_identity}"
-                        qstatus_key = f"qstatus_{question_identity}"
-                        qfeedback_key = f"qfeedback_{question_identity}"
-                        qoptions_key = f"qoptions_{question_identity}"
-                        if qtext_key not in st.session_state:
-                            st.session_state[qtext_key] = q.get("question_text") or ""
-                        if qrationale_key not in st.session_state:
-                            st.session_state[qrationale_key] = q.get("rationale") or ""
-                        if qdifficulty_key not in st.session_state:
-                            level = run.get("input_difficulty") or "Beginner"
-                            st.session_state[qdifficulty_key] = level if level in {"Beginner", "Intermediate", "Advanced"} else "Beginner"
-                        if qpoints_key not in st.session_state:
-                            st.session_state[qpoints_key] = "N/A"
-                        if qtype_key not in st.session_state:
-                            st.session_state[qtype_key] = q.get("question_type") or "open_text"
-                        if qstatus_key not in st.session_state:
-                            st.session_state[qstatus_key] = q.get("approval_status") or "pending"
-                        if qfeedback_key not in st.session_state:
-                            st.session_state[qfeedback_key] = q.get("admin_feedback") or ""
-                        if qoptions_key not in st.session_state:
-                            st.session_state[qoptions_key] = q.get("options_text") or ""
-
-                        with st.container(border=True):
-                            st.markdown(f"###### Question {idx}")
-                            st.text_area("Question text", key=qtext_key, height=120)
-                            st.text_area("Expected / ideal answer", key=qrationale_key, height=100)
-                            meta_col1, meta_col2, meta_col3 = st.columns(3)
-                            with meta_col1:
-                                st.selectbox(
-                                    "Difficulty",
-                                    ["Beginner", "Intermediate", "Advanced"],
-                                    key=qdifficulty_key,
-                                    disabled=True,
-                                )
-                            with meta_col2:
-                                st.text_input("Point value", key=qpoints_key, disabled=True)
-                            with meta_col3:
-                                st.selectbox(
-                                    "Question type",
-                                    ["open_text", "multiple_choice"],
-                                    key=qtype_key,
-                                )
-                            st.selectbox(
-                                "Decision",
-                                ["pending", "approved", "denied"],
-                                key=qstatus_key,
-                            )
-                            st.text_input("Admin feedback", key=qfeedback_key)
-                            st.text_area(
-                                "Choices for this question (one per line)",
-                                disabled=st.session_state[qtype_key] != "multiple_choice",
-                                key=qoptions_key,
-                            )
-                            if st.button("Delete Question", key=f"delete_q_{question_identity}"):
-                                if question_id is not None:
-                                    execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (question_id,))
-                                    st.success(f"Question {idx} deleted.")
-                                else:
-                                    st.warning("Unable to delete this question because it has no identifier.")
-                                st.rerun()
-        elif review_step == 2:
-            with st.container(border=True):
-                st.markdown("##### Custom Questions")
-                custom_form_mode_key = f"custom_question_form_mode_{run_id}"
-                custom_edit_id_key = f"custom_question_edit_id_{run_id}"
-                custom_form_text_key = f"custom_form_question_text_{run_id}"
-                custom_form_type_key = f"custom_form_question_type_{run_id}"
-                custom_form_options_key = f"custom_form_question_options_{run_id}"
-                custom_form_rubric_key = f"custom_form_question_rubric_{run_id}"
-
-                if custom_form_mode_key not in st.session_state:
-                    st.session_state[custom_form_mode_key] = None
-                if custom_edit_id_key not in st.session_state:
-                    st.session_state[custom_edit_id_key] = None
-                if custom_form_text_key not in st.session_state:
-                    st.session_state[custom_form_text_key] = ""
-                if custom_form_type_key not in st.session_state:
-                    st.session_state[custom_form_type_key] = "open_text"
-                if custom_form_options_key not in st.session_state:
-                    st.session_state[custom_form_options_key] = ""
-                if custom_form_rubric_key not in st.session_state:
-                    st.session_state[custom_form_rubric_key] = ""
-
-                def _open_add_form() -> None:
-                    st.session_state[custom_form_mode_key] = "add"
-                    st.session_state[custom_edit_id_key] = None
-                    st.session_state[custom_form_text_key] = ""
-                    st.session_state[custom_form_type_key] = "open_text"
-                    st.session_state[custom_form_options_key] = ""
-                    st.session_state[custom_form_rubric_key] = ""
-
-                def _open_edit_form(question: dict) -> None:
-                    st.session_state[custom_form_mode_key] = "edit"
-                    st.session_state[custom_edit_id_key] = question["generated_question_id"]
-                    st.session_state[custom_form_text_key] = question.get("question_text") or ""
-                    st.session_state[custom_form_type_key] = question.get("question_type") or "open_text"
-                    st.session_state[custom_form_options_key] = question.get("options_text") or ""
-                    st.session_state[custom_form_rubric_key] = question.get("rationale") or ""
-
-                form_is_open = st.session_state[custom_form_mode_key] in {"add", "edit"}
-                add_button_label = "Cancel" if form_is_open else "+ Add Question"
-                if st.button(add_button_label, key=f"toggle_custom_question_form_{run_id}"):
-                    if form_is_open:
-                        st.session_state[custom_form_mode_key] = None
-                        st.session_state[custom_edit_id_key] = None
-                    else:
-                        _open_add_form()
-                    st.rerun()
-
-                if form_is_open:
-                    with st.form(f"custom_question_form_{run_id}"):
-                        st.text_area("Question text", key=custom_form_text_key)
-                        st.selectbox("Question type", ["open_text", "multiple_choice"], key=custom_form_type_key)
-                        custom_form_options = st.text_area(
-                            "Multiple choice options (one per line)",
-                            key=custom_form_options_key,
-                            disabled=st.session_state[custom_form_type_key] != "multiple_choice",
-                        )
-                        st.text_area("Ideal answer / rubric", key=custom_form_rubric_key)
-                        save_label = "Save Question" if st.session_state[custom_form_mode_key] == "edit" else "Add Question"
-                        save_question = st.form_submit_button(save_label)
-                        if save_question:
-                            if st.session_state[custom_form_mode_key] == "edit" and st.session_state[custom_edit_id_key]:
-                                execute(
-                                    """
-                                    UPDATE module_generation_questions
-                                    SET question_text = ?, rationale = ?, question_type = ?, options_text = ?, admin_feedback = 'custom_question', updated_at = CURRENT_TIMESTAMP
-                                    WHERE generated_question_id = ?
-                                    """,
-                                    (
-                                        st.session_state[custom_form_text_key].strip(),
-                                        st.session_state[custom_form_rubric_key].strip(),
-                                        st.session_state[custom_form_type_key],
-                                        _parse_lines(custom_form_options) if st.session_state[custom_form_type_key] == "multiple_choice" else "",
-                                        st.session_state[custom_edit_id_key],
-                                    ),
-                                )
-                                st.success("Custom question saved.")
-                            else:
-                                max_order_row = fetch_one(
-                                    "SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_generation_questions WHERE run_id = ?",
-                                    (run_id,),
-                                )
-                                next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
-                                execute(
-                                    """
-                                    INSERT INTO module_generation_questions (
-                                        run_id, question_order, question_text, rationale, question_type, options_text, approval_status, admin_feedback, updated_at
-                                    ) VALUES (?, ?, ?, ?, ?, ?, 'approved', 'custom_question', CURRENT_TIMESTAMP)
-                                    """,
-                                    (
-                                        run_id,
-                                        next_order,
-                                        st.session_state[custom_form_text_key].strip(),
-                                        st.session_state[custom_form_rubric_key].strip() or "Admin added",
-                                        st.session_state[custom_form_type_key],
-                                        _parse_lines(custom_form_options) if st.session_state[custom_form_type_key] == "multiple_choice" else "",
-                                    ),
-                                )
-                                st.success("Question added.")
-                            st.session_state[custom_form_mode_key] = None
-                            st.session_state[custom_edit_id_key] = None
-                            st.rerun()
-
-                st.markdown("###### Added Questions")
-                if not custom_questions:
-                    st.caption("No custom questions added yet.")
-                for q in custom_questions:
-                    st.markdown(f"**{q.get('question_text') or 'Untitled question'}**")
-                    st.caption(f"Type: {q.get('question_type') or 'open_text'}")
-                    edit_col, delete_col = st.columns([1, 1])
-                    with edit_col:
-                        if st.button("Edit", key=f"edit_custom_{q['generated_question_id']}"):
-                            _open_edit_form(q)
-                            st.rerun()
-                    with delete_col:
-                        if st.button("Delete", key=f"delete_custom_{q['generated_question_id']}"):
-                            execute("DELETE FROM module_generation_questions WHERE generated_question_id = ?", (q["generated_question_id"],))
-                            if st.session_state[custom_edit_id_key] == q["generated_question_id"]:
-                                st.session_state[custom_form_mode_key] = None
-                                st.session_state[custom_edit_id_key] = None
-                            st.success("Custom question deleted.")
-                            st.rerun()
-                    st.markdown("")
-
-        else:
-            st.markdown(
-                """
-                <style>
-                .stApp .block-container {
-                    max-width: 1320px;
-                    padding-top: 1.5rem;
-                    padding-bottom: 2rem;
-                    padding-left: 1.5rem;
-                    padding-right: 1.5rem;
-                }
-                .review-page-title {
-                    font-size: 1.8rem;
-                    font-weight: 700;
-                    margin-bottom: 1.15rem;
-                }
-                .review-section {
-                    margin-bottom: 1.35rem;
-                }
-                .review-section-inner {
-                    border: 1px solid rgba(120, 120, 140, 0.2);
-                    border-radius: 12px;
-                    padding: 1rem 1.1rem;
-                    background: rgba(130, 130, 150, 0.04);
-                }
-                .review-section-title {
-                    font-size: 1.22rem;
-                    font-weight: 700;
-                    margin: 0 0 0.9rem 0;
-                }
-                .review-value-row {
-                    margin-bottom: 0.65rem;
-                    line-height: 1.5;
-                }
-                .review-value-row b {
-                    font-weight: 700;
-                }
-                .review-scenario-title {
-                    font-size: 1.5rem;
-                    line-height: 1.35;
-                    font-weight: 700;
-                    margin: 0 0 0.8rem 0;
-                }
-                .review-summary-panel {
-                    position: sticky;
-                    top: 1rem;
-                    border: 1px solid rgba(120, 120, 140, 0.22);
-                    border-radius: 12px;
-                    background: rgba(130, 130, 150, 0.1);
-                    padding: 1rem 1.05rem;
-                }
-                .review-summary-title {
-                    font-size: 1.05rem;
-                    font-weight: 700;
-                    margin-bottom: 0.85rem;
-                }
-                .review-questions-section {
-                    margin-top: 1.1rem;
-                    border-top: 1px solid rgba(120, 120, 140, 0.18);
-                    padding-top: 1rem;
-                }
-                .review-question-block {
-                    padding: 0.9rem 0 1.15rem 0;
-                    border-bottom: 1px solid rgba(120, 120, 140, 0.22);
-                }
-                .review-question-title {
-                    font-size: 1.05rem;
-                    font-weight: 700;
-                    margin-bottom: 0.45rem;
-                }
-                .review-question-text {
-                    font-size: 1.12rem;
-                    line-height: 1.45;
-                    margin-bottom: 0.65rem;
-                }
-                .review-muted-empty {
-                    text-align: center;
-                    color: rgba(120, 120, 140, 0.95);
-                    padding: 1.75rem 0;
-                }
-                .review-highlight-answer {
-                    background: rgba(64, 145, 108, 0.12);
-                    border: 1px solid rgba(64, 145, 108, 0.25);
-                    border-radius: 8px;
-                    padding: 0.45rem 0.6rem;
-                    margin: 0.4rem 0 0.55rem 0;
-                }
-                </style>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            def _review_value_row(label: str, value: object, *, fallback: str = "—") -> None:
-                normalized = _normalize_text(value) or fallback
-                st.markdown(
-                    f"<div class='review-value-row'><b>{label}:</b> {normalized}</div>",
-                    unsafe_allow_html=True,
-                )
-
-            def _question_type_label(value: str) -> str:
-                return "Multiple Choice" if value == "multiple_choice" else "Open Text"
-
-            def _render_question_block(question: dict, display_index: int) -> None:
-                question_id = question.get("generated_question_id")
-                question_order = question.get("question_order") or display_index
-                question_identity = str(question_id) if question_id is not None else f"temp_{run_id}_{question_order}_{display_index}"
-                is_custom_question = (question.get("admin_feedback") or "") == "custom_question"
-                qtext = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtext_{question_identity}", question.get("question_text") or "")
-                qtype = st.session_state.get(f"{'custom_' if is_custom_question else ''}qtype_{question_identity}", question.get("question_type") or "open_text")
-                qoptions = st.session_state.get(f"{'custom_' if is_custom_question else ''}qoptions_{question_identity}", question.get("options_text") or "")
-                qrationale = st.session_state.get(f"{'custom_' if is_custom_question else ''}qrationale_{question_identity}", question.get("rationale") or "")
-
-                st.markdown("<div class='review-question-block'>", unsafe_allow_html=True)
-                st.markdown(f"<div class='review-question-title'>Question {display_index}</div>", unsafe_allow_html=True)
-                st.markdown(
-                    f"<div class='review-question-text'>{_normalize_text(qtext) or 'No question text provided.'}</div>",
-                    unsafe_allow_html=True,
-                )
-                _review_value_row("Question type", _question_type_label(qtype))
-                if qtype == "multiple_choice":
-                    option_lines = [line.strip() for line in _normalize_text(qoptions).splitlines() if line.strip()]
-                    st.markdown("**Answer choices:**")
-                    if option_lines:
-                        for option_idx, option in enumerate(option_lines, start=1):
-                            st.write(f"{option_idx}. {option}")
-                    else:
-                        st.write("No options provided.")
-                st.markdown(
-                    "<div class='review-highlight-answer'><b>Correct answer:</b> See explanation / rubric below</div>",
-                    unsafe_allow_html=True,
-                )
-                _review_value_row("Explanation", qrationale, fallback="No rationale provided.")
-                _review_value_row("Points / scoring", "N/A")
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            scenario_title = st.session_state.get(f"scenario_title_{run_id}", run.get("generated_title") or run.get("input_title") or "Untitled")
-            scenario_summary = st.session_state.get(f"scenario_summary_{run_id}", run.get("generated_description") or run.get("input_description") or "")
-            scenario_context = st.session_state.get(f"scenario_context_{run_id}", run.get("generated_scenario_overview") or "")
-            learning_objectives_text = run.get("learning_objectives") or ""
-            learning_objectives = [line.strip() for line in learning_objectives_text.splitlines() if line.strip()]
-            reviewed_questions = list(generated_questions)
-            generated_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") != "custom_question"]
-            custom_review_questions = [q for q in reviewed_questions if (q.get("admin_feedback") or "") == "custom_question"]
-            total_review_count = len(reviewed_questions)
-            estimated_minutes = safe_int(run.get("input_estimated_minutes"), 20)
-
-            st.markdown("<div class='review-page-title'>Final Review and Save</div>", unsafe_allow_html=True)
-            primary_col, summary_col = st.columns([7, 3], gap="large")
-
-            with primary_col:
-                st.markdown("<div class='review-section'><div class='review-section-inner'>", unsafe_allow_html=True)
-                st.markdown("<div class='review-section-title'>Scenario Overview</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='review-scenario-title'>{_normalize_text(scenario_title) or 'Untitled'}</div>", unsafe_allow_html=True)
-                _review_value_row("Category", run.get("input_category") or "General")
-                _review_value_row("Difficulty", run.get("input_difficulty") or "Beginner")
-                _review_value_row("Target Role / Audience", run.get("role_focus"), fallback="Not specified.")
-                st.markdown("</div></div>", unsafe_allow_html=True)
-
-                st.markdown("<div class='review-section'><div class='review-section-inner'>", unsafe_allow_html=True)
-                st.markdown("<div class='review-section-title'>Scenario Content</div>", unsafe_allow_html=True)
-                _review_value_row("Scenario Summary", scenario_summary, fallback="No summary provided.")
-                _review_value_row("Scenario Context", scenario_context, fallback="No scenario context provided.")
-                st.markdown("</div></div>", unsafe_allow_html=True)
-
-                st.markdown("<div class='review-section'><div class='review-section-inner'>", unsafe_allow_html=True)
-                st.markdown("<div class='review-section-title'>Learning Setup</div>", unsafe_allow_html=True)
-                st.markdown("**Learning Objectives:**")
-                if learning_objectives:
-                    for objective in learning_objectives:
-                        st.write(f"- {objective}")
-                else:
-                    st.write("No learning objectives provided.")
-                _review_value_row("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
-                _review_value_row("Time Limit", f"{estimated_minutes} minutes")
-                st.markdown("</div></div>", unsafe_allow_html=True)
-
-            with summary_col:
-                st.markdown("<div class='review-summary-panel'>", unsafe_allow_html=True)
-                st.markdown("<div class='review-summary-title'>Summary</div>", unsafe_allow_html=True)
-                _review_value_row("Total Questions", str(total_review_count))
-                _review_value_row("Generated Questions", str(len(generated_review_questions)))
-                _review_value_row("Custom Questions", str(len(custom_review_questions)))
-                _review_value_row("Estimated Time", f"{estimated_minutes} minutes")
-                _review_value_row("Passing Score", run.get("completion_requirements"), fallback="Not specified.")
-                st.markdown("</div>", unsafe_allow_html=True)
-
-            st.markdown("<div class='review-questions-section'>", unsafe_allow_html=True)
-            st.markdown("<div class='review-section-title'>Questions Review</div>", unsafe_allow_html=True)
-            if reviewed_questions:
-                for idx, question in enumerate(reviewed_questions, start=1):
-                    _render_question_block(question, idx)
-            else:
-                st.markdown(
-                    "<div class='review-muted-empty'>No questions have been generated or added yet.</div>",
-                    unsafe_allow_html=True,
-                )
-            st.markdown("</div>", unsafe_allow_html=True)
-
-        approved_questions = [q for q in generated_questions if q.get("approval_status") == "approved"]
-        total_review_steps = 4
-        is_final_step = review_step >= total_review_steps - 1
-        nav_back, nav_spacer, nav_next, nav_action = st.columns([1, 1, 1, 1])
-        reviewing_generated_questions = review_step == 1
-
-        def _save_current_review_questions() -> bool:
-            if not reviewing_generated_questions:
-                return True
-            for idx, q in enumerate(non_custom_questions, start=1):
-                question_id = q.get("generated_question_id")
-                if question_id is None:
-                    continue
-                question_identity = str(question_id)
-                current_qtext_key = f"qtext_{question_identity}"
-                current_qtype_key = f"qtype_{question_identity}"
-                if not st.session_state.get(current_qtext_key, "").strip():
-                    st.warning(f"Question {idx} text is required before continuing.")
-                    return False
-                execute(
-                    """
-                    UPDATE module_generation_questions
-                    SET question_text = ?, rationale = ?, approval_status = ?, admin_feedback = ?, question_type = ?, options_text = ?, updated_at = CURRENT_TIMESTAMP
-                    WHERE generated_question_id = ?
-                    """,
-                    (
-                        st.session_state[current_qtext_key],
-                        st.session_state.get(f"qrationale_{question_identity}", ""),
-                        st.session_state.get(f"qstatus_{question_identity}", "pending"),
-                        st.session_state.get(f"qfeedback_{question_identity}", ""),
-                        st.session_state.get(current_qtype_key, "open_text"),
-                        _parse_lines(st.session_state.get(f"qoptions_{question_identity}", ""))
-                        if st.session_state.get(current_qtype_key, "open_text") == "multiple_choice"
-                        else "",
-                        question_id,
-                    ),
-                )
-            return True
-
-        with nav_back:
-            back_label = "Back to Scenario" if reviewing_generated_questions else "Back"
-            back_disabled = review_step == 0
-            if st.button(back_label, key=f"review_back_{run_id}", disabled=back_disabled):
-                st.session_state[review_step_key] = max(0, review_step - 1)
-                st.rerun()
-        with nav_spacer:
-            st.write("")
-        with nav_next:
-            if not is_final_step:
-                next_label = "Continue to Custom Questions" if reviewing_generated_questions else "Next"
-                if st.button(next_label, key=f"review_next_{run_id}", type="primary" if reviewing_generated_questions else "secondary"):
-                    if _save_current_review_questions():
-                        st.session_state[review_step_key] = min(total_review_steps - 1, review_step + 1)
-                        st.rerun()
-        with nav_action:
-            if is_final_step:
-                if st.button("Create Module", key=f"finalize_run_{run_id}", type="primary"):
-                    module_id = execute(
-                        """
-                        INSERT INTO modules (
-                            title, category, difficulty, description, estimated_time,
-                            scenario_context, organization_id, status, learning_objectives, content_sections,
-                            completion_requirements, quiz_required, created_by, updated_at
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'existing', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                        RETURNING module_id AS id
-                        """,
-                        (
-                            run.get("generated_title") or run.get("input_title") or "AI Module",
-                            run.get("input_category") or "General",
-                            run.get("input_difficulty") or "Beginner",
-                            run.get("generated_description") or run.get("input_description") or "",
-                            f"{safe_int(run.get('input_estimated_minutes'), 20)} min",
-                            run.get("generated_scenario_overview") or "",
-                            org_id,
-                            run.get("learning_objectives") or "",
-                            run.get("input_content_sections") or "",
-                            run.get("completion_requirements") or "",
-                            _normalize_bool(run.get("input_quiz_required"), default=False),
-                            current_user["user_id"],
-                        ),
-                    )
-                    executemany(
-                        """
-                        INSERT INTO module_questions (module_id, question_order, question_text, rationale, question_type, options_text, source_run_id)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        [
-                            (
-                                module_id,
-                                idx + 1,
-                                q["question_text"],
-                                q.get("rationale") or q.get("admin_feedback") or "",
-                                q.get("question_type") or "open_text",
-                                q.get("options_text") or "",
-                                run_id,
-                            )
-                            for idx, q in enumerate(approved_questions)
-                        ],
-                    )
-                    execute(
-                        """
-                        UPDATE module_generation_runs
-                        SET generation_status = 'built', updated_at = CURRENT_TIMESTAMP
-                        WHERE run_id = ? AND organization_id = ?
-                        """,
-                        (run_id, org_id),
-                    )
-                    st.session_state[module_builder_current_step_key] = 3
-                    st.session_state[module_builder_completed_module_id_key] = int(module_id)
-                    st.rerun()
-
-    else:
-        completed_module_id = st.session_state.get(module_builder_completed_module_id_key)
-        st.success("You've completed your module.")
-        if completed_module_id:
-            st.caption(f"Module #{int(completed_module_id)} was created successfully.")
-        action_col_1, action_col_2 = st.columns(2)
-        with action_col_1:
-            if st.button("Create a new module", key="module_builder_create_new", type="primary"):
-                st.session_state[module_builder_form_key] = dict(module_builder_defaults)
-                st.session_state[module_builder_step_key] = 0
-                st.session_state[module_builder_current_step_key] = 1
-                st.session_state.pop(module_builder_completed_module_id_key, None)
-                for widget_key in (
-                    "module_builder_title",
-                    "module_builder_category",
-                    "module_builder_difficulty",
-                    "module_builder_role_focus",
-                    "module_builder_test_focus",
-                    "module_builder_description",
-                    "module_builder_learning_objectives",
-                    "module_builder_scenario_constraints",
-                    "module_builder_content_sections",
-                    "module_builder_completion_requirements",
-                    "module_builder_quiz_required",
-                    "module_builder_estimated_minutes",
-                    "module_builder_question_count",
-                ):
-                    st.session_state.pop(widget_key, None)
-                st.rerun()
-        with action_col_2:
-            if st.button("Go to Manage Modules", key="module_builder_go_manage"):
-                st.session_state[module_builder_current_step_key] = 1
-                st.session_state.pop(module_builder_completed_module_id_key, None)
-                st.session_state["admin_page"] = "📚 Manage Modules"
-                st.session_state["nav"] = "manage-modules"
-                st.rerun()
+        st.success(f"Module published successfully (Module #{int(module_id)}).")
+        st.session_state[form_key] = dict(default_form)
+        st.session_state[save_status_key] = "Saved"
+        keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
+        for key in keys_to_clear:
+            st.session_state.pop(key, None)
+        for key in widget_defaults:
+            st.session_state.pop(key, None)
+        st.rerun()
 
 
 def render_manage_modules(current_user: dict) -> None:
