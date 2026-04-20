@@ -2245,25 +2245,30 @@ def render_module_builder(current_user: dict) -> None:
 
     st.session_state.setdefault(mode_key, None)
 
-    st.markdown("### Create a Module")
-    st.caption("Choose how you want to begin before opening the full module builder.")
-    mode_col_1, mode_col_2 = st.columns(2)
-    if mode_col_1.button("Start from Scratch", use_container_width=True):
-        _reset_builder_state("manual")
-        st.rerun()
-    if mode_col_2.button("Generate with AI", use_container_width=True):
-        _reset_builder_state("ai")
-        st.rerun()
-
     selected_mode = st.session_state.get(mode_key)
     if selected_mode is None:
+        st.markdown("### Create a Module")
+        st.caption("Choose how you want to begin before opening the full module builder.")
+        mode_col_1, mode_col_2 = st.columns(2)
+        if mode_col_1.button("Start from Scratch", use_container_width=True):
+            _reset_builder_state("manual")
+            st.rerun()
+        if mode_col_2.button("Generate with AI", use_container_width=True):
+            _reset_builder_state("ai")
+            st.rerun()
         st.info("Select a creation mode to continue.")
         return
 
-    if selected_mode == "manual":
-        st.caption("Mode: Start from Scratch")
-    elif selected_mode == "ai":
-        st.caption("Mode: Generate with AI (AI prompt + generated draft editor)")
+    mode_summary_col, mode_action_col = st.columns([3, 1])
+    with mode_summary_col:
+        if selected_mode == "manual":
+            st.caption("Mode: Start from Scratch")
+        elif selected_mode == "ai":
+            st.caption("Mode: Generate with AI (AI prompt + generated draft editor)")
+    with mode_action_col:
+        if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
+            _reset_builder_state(None)
+            st.rerun()
 
     if form_key not in st.session_state:
         st.session_state[form_key] = dict(default_form)
@@ -2425,6 +2430,9 @@ def render_module_builder(current_user: dict) -> None:
     with top_right:
         st.caption(f"Save status: {st.session_state.get(save_status_key, 'Saved')}")
 
+    ai_has_generated_draft = bool(st.session_state.get(ai_draft_key))
+    show_builder_editor = selected_mode == "manual"
+
     if selected_mode == "ai":
         st.markdown("### AI Module Generation")
         st.caption("Describe the training topic, then click **Generate Module** to build a complete editable draft.")
@@ -2489,6 +2497,11 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[ai_feedback_key] = None
             if st.session_state.get(ai_keep_editing_key):
                 st.caption("Keep editing mode enabled. Generated content is loaded and fully editable.")
+
+        show_builder_editor = ai_has_generated_draft
+
+    if not show_builder_editor:
+        return
 
     close_col_1, close_col_2 = st.columns([1, 2])
     with close_col_1:
