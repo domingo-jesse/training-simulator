@@ -1317,6 +1317,10 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "learner_missed_points", "TEXT")
             _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
             _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
+            _ensure_column(conn, "submission_scores", "scoring_method", "TEXT DEFAULT 'keyword'")
+            _ensure_column(conn, "submission_scores", "scoring_breakdown_json", "TEXT")
+            _ensure_column(conn, "submission_scores", "ai_reasoning_json", "TEXT")
+            _ensure_column(conn, "submission_scores", "grading_error", "TEXT")
             _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'pending'")
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
@@ -1357,6 +1361,14 @@ def init_db() -> None:
             _ensure_column(conn, "module_questions", "expected_answer", "TEXT")
             _ensure_column(conn, "module_questions", "rubric", "TEXT")
             _ensure_column(conn, "module_questions", "max_points", "DOUBLE PRECISION DEFAULT 10")
+            _ensure_column(conn, "module_questions", "scoring_style", "TEXT")
+            _ensure_column(conn, "module_questions", "llm_grading_instructions", "TEXT")
+            _ensure_column(conn, "module_questions", "rubric_criteria_json", "TEXT")
+            _ensure_column(conn, "modules", "llm_scoring_enabled", "BOOLEAN DEFAULT FALSE")
+            _ensure_column(conn, "modules", "scoring_style", "TEXT DEFAULT 'keyword'")
+            _ensure_column(conn, "modules", "llm_grader_instructions", "TEXT")
+            _ensure_column(conn, "modules", "learner_feedback_visibility", "TEXT DEFAULT 'admin_approved_only'")
+            _ensure_column(conn, "modules", "scoring_config_json", "TEXT")
             _ensure_column(conn, "assignment_workspace_state", "time_limit_minutes", "INTEGER")
             _ensure_column(conn, "assignment_workspace_state", "end_time", "TEXT")
             _ensure_column(conn, "assignment_workspace_state", "auto_submitted_state", "INTEGER DEFAULT 0")
@@ -1417,6 +1429,52 @@ def init_db() -> None:
             _ensure_column(conn, "submission_question_scores", "admin_score", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_question_scores", "final_score", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_question_scores", "feedback", "TEXT")
+            _ensure_column(conn, "submission_question_scores", "scoring_method", "TEXT")
+            _ensure_column(conn, "submission_question_scores", "score_breakdown_json", "TEXT")
+
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS module_rubric_criteria (
+                            criteria_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            module_id BIGINT NOT NULL,
+                            question_id BIGINT,
+                            criterion_order INTEGER NOT NULL DEFAULT 1,
+                            label TEXT NOT NULL,
+                            description TEXT,
+                            weight DOUBLE PRECISION DEFAULT 1,
+                            max_points DOUBLE PRECISION DEFAULT 1,
+                            grading_guidance TEXT,
+                            is_active BOOLEAN DEFAULT TRUE,
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            updated_at TIMESTAMPTZ DEFAULT NOW(),
+                            FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
+                            FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
+                        )
+                        """
+                    )
+            else:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS module_rubric_criteria (
+                        criteria_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        module_id INTEGER NOT NULL,
+                        question_id INTEGER,
+                        criterion_order INTEGER NOT NULL DEFAULT 1,
+                        label TEXT NOT NULL,
+                        description TEXT,
+                        weight REAL DEFAULT 1,
+                        max_points REAL DEFAULT 1,
+                        grading_guidance TEXT,
+                        is_active INTEGER DEFAULT 1,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(module_id) REFERENCES modules(module_id) ON DELETE CASCADE,
+                        FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
+                    )
+                    """
+                )
 
             if RUNTIME_USE_POSTGRES:
                 _executescript(
