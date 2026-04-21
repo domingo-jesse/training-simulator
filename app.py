@@ -52,6 +52,7 @@ EXPECTED_PLATFORM_TABLES = (
     "module_generation_runs",
     "module_generation_questions",
     "assignment_workspace_state",
+    "module_rubric_criteria",
 )
 
 
