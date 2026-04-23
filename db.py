@@ -1364,6 +1364,11 @@ def init_db() -> None:
             _ensure_column(conn, "module_questions", "scoring_style", "TEXT")
             _ensure_column(conn, "module_questions", "llm_grading_instructions", "TEXT")
             _ensure_column(conn, "module_questions", "rubric_criteria_json", "TEXT")
+            _ensure_column(conn, "module_questions", "ai_conversation_prompt", "TEXT")
+            _ensure_column(conn, "module_questions", "ai_role_or_persona", "TEXT")
+            _ensure_column(conn, "module_questions", "evaluation_focus", "TEXT")
+            _ensure_column(conn, "module_questions", "max_learner_responses", "INTEGER DEFAULT 3")
+            _ensure_column(conn, "module_questions", "wrap_up_message_optional", "TEXT")
             _ensure_column(conn, "modules", "llm_scoring_enabled", "BOOLEAN DEFAULT FALSE")
             _ensure_column(conn, "modules", "scoring_style", "TEXT DEFAULT 'keyword'")
             _ensure_column(conn, "modules", "llm_grader_instructions", "TEXT")
@@ -1431,6 +1436,7 @@ def init_db() -> None:
             _ensure_column(conn, "submission_question_scores", "feedback", "TEXT")
             _ensure_column(conn, "submission_question_scores", "scoring_method", "TEXT")
             _ensure_column(conn, "submission_question_scores", "score_breakdown_json", "TEXT")
+            _ensure_column(conn, "submission_question_scores", "conversation_transcript", "TEXT")
 
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:

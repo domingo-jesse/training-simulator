@@ -55,6 +55,8 @@ QUESTION_SCORING_LABELS = {
     "keyword": "Keyword",
     "llm": "LLM",
 }
+QUESTION_TYPE_OPTIONS = ["open_text", "multiple_choice", "ai_conversation"]
+AI_CONVERSATION_MAX_RESPONSE_OPTIONS = [3, 4]
 
 
 def _format_datetime_for_admin_grid(value) -> str:
@@ -1730,6 +1732,7 @@ def render_grading_center(current_user: dict) -> None:
             mq.question_id,
             mq.question_order,
             mq.question_text,
+            COALESCE(mq.question_type, 'open_text') AS question_type,
             COALESCE(mq.expected_answer, mq.rationale, '') AS expected_answer,
             COALESCE(mq.rubric, mq.rationale, '') AS rubric,
             COALESCE(mq.max_points, 10) AS max_points,
@@ -1756,7 +1759,24 @@ def render_grading_center(current_user: dict) -> None:
                 st.markdown(f"**Q{row['question_order']}** {row['question_text']}")
                 st.caption(f"Expected: {row.get('expected_answer') or '—'}")
                 st.caption(f"Rubric: {row.get('rubric') or '—'}")
-                st.write(f"Learner answer: {row.get('learner_answer') or '—'}")
+                if str(row.get("question_type") or "").strip() == "ai_conversation":
+                    transcript_raw = str(row.get("learner_answer") or "[]")
+                    try:
+                        transcript_payload = json.loads(transcript_raw)
+                    except Exception:
+                        transcript_payload = []
+                    st.write("Conversation transcript")
+                    if isinstance(transcript_payload, list) and transcript_payload:
+                        for turn in transcript_payload:
+                            if not isinstance(turn, dict):
+                                continue
+                            role = str(turn.get("role") or "unknown").strip().title()
+                            content = str(turn.get("content") or "").strip()
+                            st.markdown(f"- **{role}:** {content}")
+                    else:
+                        st.caption("No transcript available.")
+                else:
+                    st.write(f"Learner answer: {row.get('learner_answer') or '—'}")
                 st.write(f"AI score: {row.get('ai_awarded_points') if row.get('ai_awarded_points') is not None else 0} / {row.get('ai_max_points') or row.get('max_points')}")
                 st.write(f"AI rationale: {row.get('ai_reasoning') or '—'}")
                 with st.form(f"grade_edit_{selected_attempt_id}_{row['question_id']}"):
@@ -1966,6 +1986,30 @@ def render_admin_assignment_review(current_user: dict, assignment_id: int | None
         st.code(attempt.get("next_steps_answer") or "N/A")
         st.write("Customer response")
         st.code(attempt.get("customer_response") or "N/A")
+        try:
+            question_payload = json.loads(attempt.get("question_responses") or "{}")
+        except Exception:
+            question_payload = {}
+        module_question_rows = fetch_all(
+            "SELECT question_id, question_order, question_text, question_type FROM module_questions WHERE module_id = ? ORDER BY question_order",
+            (assignment["module_id"],),
+        )
+        if module_question_rows:
+            st.markdown("#### Assessment question responses")
+            for question_row in module_question_rows:
+                qid = str(question_row.get("question_id"))
+                st.markdown(f"**Q{question_row.get('question_order')}. {question_row.get('question_text')}**")
+                answer = question_payload.get(qid)
+                if str(question_row.get("question_type") or "").strip() == "ai_conversation":
+                    transcript = answer.get("transcript") if isinstance(answer, dict) else []
+                    if isinstance(transcript, list) and transcript:
+                        for turn in transcript:
+                            role = "AI" if str(turn.get("role")) == "assistant" else "Learner"
+                            st.markdown(f"- **{role}:** {turn.get('content') or ''}")
+                    else:
+                        st.caption("No conversation transcript.")
+                else:
+                    st.code(str(answer or "N/A"))
 
     selected_attempt = st.selectbox(
         "Submission feedback",
@@ -2177,7 +2221,16 @@ def _normalize_module_scoring_fallback(module_value: object) -> str:
 def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, object]:
     scoring_type = _normalize_question_scoring_type(question.get("scoring_style"), fallback="keyword")
     cleaned = dict(question)
+    question_type = str(cleaned.get("question_type") or "").strip().lower()
+    if question_type == "ai_conversation" and scoring_type == "keyword":
+        scoring_type = "manual_review"
     cleaned["scoring_style"] = scoring_type
+    if question_type != "ai_conversation":
+        cleaned["ai_conversation_prompt"] = ""
+        cleaned["ai_role_or_persona"] = ""
+        cleaned["evaluation_focus"] = ""
+        cleaned["max_learner_responses"] = 3
+        cleaned["wrap_up_message_optional"] = ""
     if scoring_type == "manual_review":
         cleaned["expected_answer"] = ""
         cleaned["llm_grading_instructions"] = ""
@@ -2188,6 +2241,13 @@ def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, obj
     elif scoring_type == "llm":
         cleaned["expected_answer"] = ""
     return cleaned
+
+
+def _normalize_scoring_for_question_type(question_type: object, scoring_style: object, fallback: str = "keyword") -> str:
+    normalized = _normalize_question_scoring_type(scoring_style, fallback=fallback)
+    if str(question_type or "").strip().lower() == "ai_conversation" and normalized == "keyword":
+        return "manual_review"
+    return normalized
 
 
 def _coerce_choice_list(value: object) -> list[str]:
@@ -2227,6 +2287,14 @@ def _serialize_question_options(question: dict[str, object]) -> str:
     if isinstance(correct_choice_index, int) and 0 <= correct_choice_index < len(choices):
         payload["correct_choice_index"] = correct_choice_index
     return json.dumps(payload)
+
+
+def _normalize_ai_max_responses(value: object) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 3
+    return parsed if parsed in AI_CONVERSATION_MAX_RESPONSE_OPTIONS else 3
 
 
 def _parse_rubric_criteria_lines(value: str) -> list[dict[str, object]]:
@@ -2588,6 +2656,11 @@ def render_module_builder(current_user: dict) -> None:
                 "scoring_style": "keyword",
                 "llm_grading_instructions": "",
                 "rubric_criteria_text": "",
+                "ai_conversation_prompt": "",
+                "ai_role_or_persona": "",
+                "evaluation_focus": "",
+                "max_learner_responses": 3,
+                "wrap_up_message_optional": "",
             }
         ],
     }
@@ -2772,6 +2845,8 @@ def render_module_builder(current_user: dict) -> None:
         if question_type == "multiple_choice" and not st.session_state.get(choices_key):
             st.session_state[choices_key] = ["", ""]
             st.session_state[f"{q_prefix}_correct_choice"] = None
+        if question_type == "ai_conversation":
+            st.session_state[f"{q_prefix}_scoring_style"] = "manual_review"
         _mark_dirty(f"question_{current_idx + 1}")
 
     def _sync_form_from_widgets() -> None:
@@ -3002,6 +3077,18 @@ def render_module_builder(current_user: dict) -> None:
                 st.session_state[f"{q_prefix}_llm_instructions"] = question.get("llm_grading_instructions", "")
             if f"{q_prefix}_rubric_criteria" not in st.session_state:
                 st.session_state[f"{q_prefix}_rubric_criteria"] = question.get("rubric_criteria_text", "")
+            if f"{q_prefix}_ai_prompt" not in st.session_state:
+                st.session_state[f"{q_prefix}_ai_prompt"] = question.get("ai_conversation_prompt", "")
+            if f"{q_prefix}_ai_persona" not in st.session_state:
+                st.session_state[f"{q_prefix}_ai_persona"] = question.get("ai_role_or_persona", "")
+            if f"{q_prefix}_evaluation_focus" not in st.session_state:
+                st.session_state[f"{q_prefix}_evaluation_focus"] = question.get("evaluation_focus", "")
+            if f"{q_prefix}_max_responses" not in st.session_state:
+                st.session_state[f"{q_prefix}_max_responses"] = _normalize_ai_max_responses(
+                    question.get("max_learner_responses")
+                )
+            if f"{q_prefix}_wrap_up" not in st.session_state:
+                st.session_state[f"{q_prefix}_wrap_up"] = question.get("wrap_up_message_optional", "")
 
             st.text_area(
                 "Question text *",
@@ -3011,11 +3098,13 @@ def render_module_builder(current_user: dict) -> None:
             )
             st.selectbox(
                 "Question type",
-                ["open_text", "multiple_choice"],
+                QUESTION_TYPE_OPTIONS,
                 key=f"{q_prefix}_type",
                 on_change=lambda current_idx=idx: _on_question_type_change(current_idx),
             )
-            is_multiple_choice = st.session_state.get(f"{q_prefix}_type") == "multiple_choice"
+            active_question_type = st.session_state.get(f"{q_prefix}_type")
+            is_multiple_choice = active_question_type == "multiple_choice"
+            is_ai_conversation = active_question_type == "ai_conversation"
             if is_multiple_choice:
                 choices_key = f"{q_prefix}_choices"
                 choices = list(st.session_state.get(choices_key, []))
@@ -3073,17 +3162,48 @@ def render_module_builder(current_user: dict) -> None:
                         key=f"{q_prefix}_correct_choice_select",
                         on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}_options"),
                     )
-            st.text_area(
-                "Rubric / rationale",
-                key=f"{q_prefix}_rationale",
-                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
-                height=90,
-            )
+            if not is_ai_conversation:
+                st.text_area(
+                    "Rubric / rationale",
+                    key=f"{q_prefix}_rationale",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                    height=90,
+                )
+            else:
+                st.markdown("**AI Conversation setup**")
+                st.text_area(
+                    "Scenario prompt / conversation setup *",
+                    key=f"{q_prefix}_ai_prompt",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                    height=90,
+                )
+                st.text_input(
+                    "AI persona / role *",
+                    key=f"{q_prefix}_ai_persona",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                )
+                st.text_input(
+                    "What skill is being evaluated *",
+                    key=f"{q_prefix}_evaluation_focus",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                )
+                st.selectbox(
+                    "Max learner responses",
+                    options=AI_CONVERSATION_MAX_RESPONSE_OPTIONS,
+                    key=f"{q_prefix}_max_responses",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                )
+                st.text_area(
+                    "Optional closing instruction for AI",
+                    key=f"{q_prefix}_wrap_up",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                    height=70,
+                )
             scoring_type = _normalize_question_scoring_type(st.session_state.get(f"{q_prefix}_scoring_style"), fallback="keyword")
             st.markdown("**Scoring method**")
             st.radio(
                 "Scoring method",
-                options=QUESTION_SCORING_OPTIONS,
+                options=QUESTION_SCORING_OPTIONS if not is_ai_conversation else ["manual_review", "llm"],
                 key=f"{q_prefix}_scoring_style",
                 format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                 horizontal=True,
@@ -3101,7 +3221,7 @@ def render_module_builder(current_user: dict) -> None:
             )
             if scoring_type == "manual_review":
                 st.caption("This question will be scored by an admin during manual review.")
-            elif scoring_type == "keyword":
+            elif scoring_type == "keyword" and not is_ai_conversation:
                 st.text_area(
                     "Expected answer (reference)",
                     key=f"{q_prefix}_expected_answer",
@@ -3159,6 +3279,13 @@ def render_module_builder(current_user: dict) -> None:
         )
         question["llm_grading_instructions"] = st.session_state.get(f"{q_prefix}_llm_instructions", "")
         question["rubric_criteria_text"] = st.session_state.get(f"{q_prefix}_rubric_criteria", "")
+        question["ai_conversation_prompt"] = st.session_state.get(f"{q_prefix}_ai_prompt", "")
+        question["ai_role_or_persona"] = st.session_state.get(f"{q_prefix}_ai_persona", "")
+        question["evaluation_focus"] = st.session_state.get(f"{q_prefix}_evaluation_focus", "")
+        question["max_learner_responses"] = _normalize_ai_max_responses(
+            st.session_state.get(f"{q_prefix}_max_responses", 3)
+        )
+        question["wrap_up_message_optional"] = st.session_state.get(f"{q_prefix}_wrap_up", "")
         normalized_question = _clean_question_scoring_fields(question)
         question.update(normalized_question)
 
@@ -3247,6 +3374,13 @@ def render_module_builder(current_user: dict) -> None:
             option_lines = [choice.strip() for choice in _coerce_choice_list(question.get("choices")) if str(choice).strip()]
             if len(option_lines) < 2:
                 validation_errors[f"question_{idx}_options"] = f"Question {idx} needs at least two answer choices."
+        if question.get("question_type") == "ai_conversation":
+            if not _is_present(question.get("ai_conversation_prompt")):
+                validation_errors[f"question_{idx}"] = f"Question {idx} needs a scenario prompt."
+            if not _is_present(question.get("ai_role_or_persona")):
+                validation_errors[f"question_{idx}"] = f"Question {idx} needs an AI persona/role."
+            if not _is_present(question.get("evaluation_focus")):
+                validation_errors[f"question_{idx}"] = f"Question {idx} needs an evaluation focus."
 
     touched_fields = set(st.session_state.get(touched_key, set()))
     show_all_errors = bool(st.session_state.get(publish_attempted_key, False))
@@ -3305,9 +3439,10 @@ def render_module_builder(current_user: dict) -> None:
             """
             INSERT INTO module_questions (
                 module_id, question_order, question_text, rationale, rubric, expected_answer, max_points,
-                question_type, options_text, source_run_id, scoring_style, llm_grading_instructions, rubric_criteria_json
+                question_type, options_text, source_run_id, scoring_style, llm_grading_instructions, rubric_criteria_json,
+                ai_conversation_prompt, ai_role_or_persona, evaluation_focus, max_learner_responses, wrap_up_message_optional
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -3321,13 +3456,28 @@ def render_module_builder(current_user: dict) -> None:
                     q.get("question_type") or "open_text",
                     _serialize_question_options(q),
                     None,
-                    _normalize_question_scoring_type(q.get("scoring_style"), fallback="keyword"),
+                    _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_style"), fallback="keyword"),
                     q.get("llm_grading_instructions", "").strip()
-                    if _normalize_question_scoring_type(q.get("scoring_style"), fallback="keyword") == "llm"
+                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_style"), fallback="keyword") == "llm"
                     else "",
                     json.dumps(_parse_rubric_criteria_lines(str(q.get("rubric_criteria_text") or "")))
-                    if _normalize_question_scoring_type(q.get("scoring_style"), fallback="keyword") == "llm"
+                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_style"), fallback="keyword") == "llm"
                     else "[]",
+                    q.get("ai_conversation_prompt", "").strip()
+                    if str(q.get("question_type") or "").strip() == "ai_conversation"
+                    else "",
+                    q.get("ai_role_or_persona", "").strip()
+                    if str(q.get("question_type") or "").strip() == "ai_conversation"
+                    else "",
+                    q.get("evaluation_focus", "").strip()
+                    if str(q.get("question_type") or "").strip() == "ai_conversation"
+                    else "",
+                    _normalize_ai_max_responses(q.get("max_learner_responses"))
+                    if str(q.get("question_type") or "").strip() == "ai_conversation"
+                    else 3,
+                    q.get("wrap_up_message_optional", "").strip()
+                    if str(q.get("question_type") or "").strip() == "ai_conversation"
+                    else "",
                 )
                 for idx, q in enumerate(module_form.get("questions", []))
                 if _is_present(q.get("question_text"))
@@ -3710,8 +3860,10 @@ def render_manage_modules(current_user: dict) -> None:
                         )
                         edit_question_type = st.selectbox(
                             "Question type",
-                            options=["open_text", "multiple_choice"],
-                            index=0 if question.get("question_type") != "multiple_choice" else 1,
+                            options=QUESTION_TYPE_OPTIONS,
+                            index=QUESTION_TYPE_OPTIONS.index(question.get("question_type"))
+                            if question.get("question_type") in QUESTION_TYPE_OPTIONS
+                            else 0,
                             key=f"edit_question_type_{state_prefix}_{question['question_id']}",
                         )
                         edit_question_rubric = st.text_area(
@@ -3745,12 +3897,45 @@ def render_manage_modules(current_user: dict) -> None:
                             key=f"edit_question_options_{state_prefix}_{question['question_id']}",
                             disabled=edit_question_type != "multiple_choice",
                         )
+                        edit_ai_prompt = st.text_area(
+                            "Scenario prompt / conversation setup",
+                            value=question.get("ai_conversation_prompt") or "",
+                            key=f"edit_question_ai_prompt_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type != "ai_conversation",
+                        )
+                        edit_ai_persona = st.text_input(
+                            "AI persona / role",
+                            value=question.get("ai_role_or_persona") or "",
+                            key=f"edit_question_ai_persona_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type != "ai_conversation",
+                        )
+                        edit_evaluation_focus = st.text_input(
+                            "What skill is being evaluated",
+                            value=question.get("evaluation_focus") or "",
+                            key=f"edit_question_eval_focus_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type != "ai_conversation",
+                        )
+                        edit_max_responses = st.selectbox(
+                            "Max learner responses",
+                            options=AI_CONVERSATION_MAX_RESPONSE_OPTIONS,
+                            index=AI_CONVERSATION_MAX_RESPONSE_OPTIONS.index(
+                                _normalize_ai_max_responses(question.get("max_learner_responses"))
+                            ),
+                            key=f"edit_question_max_responses_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type != "ai_conversation",
+                        )
+                        edit_wrap_up = st.text_area(
+                            "Optional closing instruction for AI",
+                            value=question.get("wrap_up_message_optional") or "",
+                            key=f"edit_question_wrap_up_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type != "ai_conversation",
+                        )
                         edit_question_expected_answer = ""
                         edit_question_llm_instructions = ""
                         edit_question_rubric_criteria = ""
                         if edit_question_scoring_style == "manual_review":
                             st.caption("This question will be scored by an admin during manual review.")
-                        elif edit_question_scoring_style == "keyword":
+                        elif edit_question_scoring_style == "keyword" and edit_question_type != "ai_conversation":
                             edit_question_expected_answer = st.text_area(
                                 "Expected answer (reference)",
                                 value=question.get("expected_answer") or "",
@@ -3790,7 +3975,8 @@ def render_manage_modules(current_user: dict) -> None:
                                 """
                                 UPDATE module_questions
                                 SET question_text = ?, question_type = ?, rationale = ?, rubric = ?, expected_answer = ?, max_points = ?, options_text = ?,
-                                    scoring_style = ?, llm_grading_instructions = ?, rubric_criteria_json = ?
+                                    scoring_style = ?, llm_grading_instructions = ?, rubric_criteria_json = ?,
+                                    ai_conversation_prompt = ?, ai_role_or_persona = ?, evaluation_focus = ?, max_learner_responses = ?, wrap_up_message_optional = ?
                                 WHERE question_id = ? AND module_id = ?
                                 """,
                                 (
@@ -3803,11 +3989,16 @@ def render_manage_modules(current_user: dict) -> None:
                                     json.dumps({"choices": _coerce_choice_list(_parse_lines(edit_question_options))})
                                     if edit_question_type == "multiple_choice"
                                     else "",
-                                    _normalize_question_scoring_type(edit_question_scoring_style, fallback="keyword"),
+                                    _normalize_scoring_for_question_type(edit_question_type, edit_question_scoring_style, fallback="keyword"),
                                     edit_question_llm_instructions.strip() if edit_question_scoring_style == "llm" else "",
                                     json.dumps(_parse_rubric_criteria_lines(edit_question_rubric_criteria))
                                     if edit_question_scoring_style == "llm"
                                     else "[]",
+                                    edit_ai_prompt.strip() if edit_question_type == "ai_conversation" else "",
+                                    edit_ai_persona.strip() if edit_question_type == "ai_conversation" else "",
+                                    edit_evaluation_focus.strip() if edit_question_type == "ai_conversation" else "",
+                                    _normalize_ai_max_responses(edit_max_responses) if edit_question_type == "ai_conversation" else 3,
+                                    edit_wrap_up.strip() if edit_question_type == "ai_conversation" else "",
                                     question["question_id"],
                                     module_id,
                                 ),
@@ -3822,7 +4013,7 @@ def render_manage_modules(current_user: dict) -> None:
             with st.form(f"add_module_question_{state_prefix}_{module_id}"):
                 st.markdown("Add question")
                 add_question_text = st.text_area("Question text", key=f"add_question_text_{state_prefix}_{module_id}")
-                add_question_type = st.selectbox("Question type", ["open_text", "multiple_choice"], key=f"add_question_type_{state_prefix}_{module_id}")
+                add_question_type = st.selectbox("Question type", QUESTION_TYPE_OPTIONS, key=f"add_question_type_{state_prefix}_{module_id}")
                 add_question_rubric = st.text_area("Rubric / expected answer", key=f"add_question_rubric_{state_prefix}_{module_id}")
                 add_question_max_points = st.number_input(
                     "Max points",
@@ -3835,6 +4026,32 @@ def render_manage_modules(current_user: dict) -> None:
                     "Options (one per line; multiple choice only)",
                     key=f"add_question_options_{state_prefix}_{module_id}",
                     disabled=add_question_type != "multiple_choice",
+                )
+                add_ai_prompt = st.text_area(
+                    "Scenario prompt / conversation setup",
+                    key=f"add_question_ai_prompt_{state_prefix}_{module_id}",
+                    disabled=add_question_type != "ai_conversation",
+                )
+                add_ai_persona = st.text_input(
+                    "AI persona / role",
+                    key=f"add_question_ai_persona_{state_prefix}_{module_id}",
+                    disabled=add_question_type != "ai_conversation",
+                )
+                add_evaluation_focus = st.text_input(
+                    "What skill is being evaluated",
+                    key=f"add_question_eval_focus_{state_prefix}_{module_id}",
+                    disabled=add_question_type != "ai_conversation",
+                )
+                add_max_responses = st.selectbox(
+                    "Max learner responses",
+                    options=AI_CONVERSATION_MAX_RESPONSE_OPTIONS,
+                    key=f"add_question_max_responses_{state_prefix}_{module_id}",
+                    disabled=add_question_type != "ai_conversation",
+                )
+                add_wrap_up = st.text_area(
+                    "Optional closing instruction for AI",
+                    key=f"add_question_wrap_up_{state_prefix}_{module_id}",
+                    disabled=add_question_type != "ai_conversation",
                 )
                 add_question_scoring_style = st.radio(
                     "Scoring method",
@@ -3849,7 +4066,7 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_expected_answer = ""
                 if add_question_scoring_style == "manual_review":
                     st.caption("This question will be scored by an admin during manual review.")
-                elif add_question_scoring_style == "keyword":
+                elif add_question_scoring_style == "keyword" and add_question_type != "ai_conversation":
                     add_question_expected_answer = st.text_area("Expected answer (reference)", key=f"add_question_expected_{state_prefix}_{module_id}")
                 elif add_question_scoring_style == "llm":
                     add_question_llm_instructions = st.text_area(
@@ -3869,9 +4086,10 @@ def render_manage_modules(current_user: dict) -> None:
                         """
                         INSERT INTO module_questions (
                             module_id, question_order, question_text, rationale, rubric, expected_answer, max_points, question_type, options_text, source_run_id,
-                            scoring_style, llm_grading_instructions, rubric_criteria_json
+                            scoring_style, llm_grading_instructions, rubric_criteria_json,
+                            ai_conversation_prompt, ai_role_or_persona, evaluation_focus, max_learner_responses, wrap_up_message_optional
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             module_id,
@@ -3886,11 +4104,16 @@ def render_manage_modules(current_user: dict) -> None:
                             if add_question_type == "multiple_choice"
                             else "",
                             None,
-                            _normalize_question_scoring_type(add_question_scoring_style, fallback="keyword"),
+                            _normalize_scoring_for_question_type(add_question_type, add_question_scoring_style, fallback="keyword"),
                             add_question_llm_instructions.strip() if add_question_scoring_style == "llm" else "",
                             json.dumps(_parse_rubric_criteria_lines(add_question_rubric_criteria))
                             if add_question_scoring_style == "llm"
                             else "[]",
+                            add_ai_prompt.strip() if add_question_type == "ai_conversation" else "",
+                            add_ai_persona.strip() if add_question_type == "ai_conversation" else "",
+                            add_evaluation_focus.strip() if add_question_type == "ai_conversation" else "",
+                            _normalize_ai_max_responses(add_max_responses) if add_question_type == "ai_conversation" else 3,
+                            add_wrap_up.strip() if add_question_type == "ai_conversation" else "",
                         ),
                     )
                     st.success("Question added.")
