@@ -1373,6 +1373,7 @@ def render_grading_center(current_user: dict) -> None:
                 u.name AS learner_name,
                 m.title AS module_title,
                 COALESCE(a.result_status, 'submitted') AS result_status,
+                COALESCE(ss.review_status, ss.grading_status, a.result_status, 'pending_review') AS review_status,
                 a.result_approved_at,
                 a.result_approved_by_user_id,
                 approver.name AS approved_by_name,
@@ -1381,6 +1382,13 @@ def render_grading_center(current_user: dict) -> None:
                 COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
                 COALESCE(ss.solution_score, a.solution_score) AS solution_score,
                 COALESCE(ss.communication_score, a.communication_score) AS communication_score,
+                COALESCE(ss.show_results_to_learner, FALSE) AS show_results_to_learner,
+                COALESCE(ss.show_overall_score_to_learner, FALSE) AS show_overall_score_to_learner,
+                COALESCE(ss.show_question_scores_to_learner, FALSE) AS show_question_scores_to_learner,
+                COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
+                COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
+                COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
+                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
                 ss.scoring_version,
                 a.ai_feedback
             FROM attempts a
@@ -1401,6 +1409,7 @@ def render_grading_center(current_user: dict) -> None:
             "learner_name",
             "module_title",
             "result_status",
+            "review_status",
             "result_approved_at",
             "result_approved_by_user_id",
             "approved_by_name",
@@ -1409,6 +1418,13 @@ def render_grading_center(current_user: dict) -> None:
             "investigation_score",
             "solution_score",
             "communication_score",
+            "show_results_to_learner",
+            "show_overall_score_to_learner",
+            "show_question_scores_to_learner",
+            "show_feedback_to_learner",
+            "show_expected_answers_to_learner",
+            "show_grading_criteria_to_learner",
+            "show_ai_evaluation_details_to_learner",
             "scoring_version",
             "ai_feedback",
         ],
@@ -1428,8 +1444,8 @@ def render_grading_center(current_user: dict) -> None:
         default=[],
     )
     approval_filter = st.multiselect(
-        "Filter approval status",
-        options=["submitted", "ai_grading", "ai_graded_pending_review", "grading_failed", "approved", "returned", "pending_review"],
+        "Filter review status",
+        options=["submitted", "pending_review", "approved"],
         format_func=format_status_display,
         default=[],
     )
@@ -1439,7 +1455,7 @@ def render_grading_center(current_user: dict) -> None:
     if module_filter:
         filtered = filtered[filtered["module_title"].isin(module_filter)]
     if approval_filter:
-        filtered = filtered[filtered["result_status"].isin(approval_filter)]
+        filtered = filtered[filtered["review_status"].isin(approval_filter)]
 
     metric_row(
         {
@@ -1450,7 +1466,7 @@ def render_grading_center(current_user: dict) -> None:
     )
 
     display_filtered = filtered.copy()
-    display_filtered["result_status"] = display_filtered["result_status"].apply(format_status_display)
+    display_filtered["review_status"] = display_filtered["review_status"].apply(format_status_display)
 
     table_col, review_col = st.columns([5.4, 1.3], gap="small")
     with table_col:
@@ -1460,7 +1476,7 @@ def render_grading_center(current_user: dict) -> None:
                     "created_at",
                     "learner_name",
                     "module_title",
-                    "result_status",
+                    "review_status",
                     "total_score",
                     "understanding_score",
                     "investigation_score",
@@ -1546,7 +1562,7 @@ def render_grading_center(current_user: dict) -> None:
         ),
     )
     selected_attempt_row = filtered[filtered["attempt_id"] == selected_attempt_id].iloc[0]
-    selected_result_status = str(selected_attempt_row.get("result_status") or "").strip().lower()
+    selected_result_status = str(selected_attempt_row.get("review_status") or "").strip().lower()
     is_approved = selected_result_status == "approved"
     is_rejected = selected_result_status == "rejected"
     status_label = format_status_display(selected_result_status)
@@ -1661,10 +1677,10 @@ def render_grading_center(current_user: dict) -> None:
                 """
                 UPDATE submission_scores
                 SET grading_status = 'approved',
+                    review_status = 'approved',
                     final_total_score = COALESCE(admin_total_score, ai_total_score, final_total_score),
                     approved_by = ?,
                     approved_at = CURRENT_TIMESTAMP,
-                    learner_visible_feedback = COALESCE(learner_visible_feedback, overall_admin_feedback, overall_ai_feedback),
                     best_practice_reasoning = COALESCE(
                         best_practice_reasoning,
                         (SELECT best_practice_reasoning FROM attempts WHERE attempt_id = ?)
@@ -1708,7 +1724,7 @@ def render_grading_center(current_user: dict) -> None:
                     int(selected_attempt_id),
                 ),
             )
-            st.session_state[approval_status_key] = ("success", "Result approved. Learner can now see full results.")
+            st.session_state[approval_status_key] = ("success", "Result approved. Configure learner visibility controls below to publish learner-facing sections.")
             st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
     with action_columns[1]:
@@ -1716,7 +1732,7 @@ def render_grading_center(current_user: dict) -> None:
             execute(
                 """
                 UPDATE attempts
-                SET result_status = 'returned',
+                SET result_status = 'pending_review',
                     result_approved_at = NULL,
                     result_approved_by_user_id = NULL
                 WHERE attempt_id = ?
@@ -1727,16 +1743,93 @@ def render_grading_center(current_user: dict) -> None:
             execute(
                 """
                 UPDATE submission_scores
-                SET grading_status = 'returned',
+                SET grading_status = 'pending_review',
+                    review_status = 'pending_review',
                     approved_by = NULL,
                     approved_at = NULL
                 WHERE attempt_id = ?
                 """,
                 (int(selected_attempt_id),),
             )
-            st.session_state[approval_status_key] = ("warning", "Approval revoked. Learner result visibility has been removed.")
+            st.session_state[approval_status_key] = ("warning", "Approval revoked. Learner-facing results are now hidden until re-approved.")
             st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
+
+    st.markdown("#### Learner visibility")
+    st.caption("Approval and learner visibility are separate controls. Learners only see sections that are both approved and enabled.")
+    visibility_defaults = {
+        "show_results_to_learner": bool(selected_attempt_row.get("show_results_to_learner")),
+        "show_overall_score_to_learner": bool(selected_attempt_row.get("show_overall_score_to_learner")),
+        "show_question_scores_to_learner": bool(selected_attempt_row.get("show_question_scores_to_learner")),
+        "show_feedback_to_learner": bool(selected_attempt_row.get("show_feedback_to_learner")),
+        "show_expected_answers_to_learner": bool(selected_attempt_row.get("show_expected_answers_to_learner")),
+        "show_grading_criteria_to_learner": bool(selected_attempt_row.get("show_grading_criteria_to_learner")),
+        "show_ai_evaluation_details_to_learner": bool(selected_attempt_row.get("show_ai_evaluation_details_to_learner")),
+    }
+    with st.form(f"learner_visibility_form_{selected_attempt_id}"):
+        show_results_to_learner = st.checkbox(
+            "Show results shell to learner",
+            value=visibility_defaults["show_results_to_learner"],
+            disabled=not is_approved,
+        )
+        show_overall_score_to_learner = st.checkbox(
+            "Show overall and category scores",
+            value=visibility_defaults["show_overall_score_to_learner"],
+            disabled=not is_approved or not show_results_to_learner,
+        )
+        show_question_scores_to_learner = st.checkbox(
+            "Show question scores",
+            value=visibility_defaults["show_question_scores_to_learner"],
+            disabled=not is_approved or not show_results_to_learner,
+        )
+        show_feedback_to_learner = st.checkbox(
+            "Show feedback",
+            value=visibility_defaults["show_feedback_to_learner"],
+            disabled=not is_approved or not show_results_to_learner,
+        )
+        show_expected_answers_to_learner = st.checkbox(
+            "Show expected answers",
+            value=visibility_defaults["show_expected_answers_to_learner"],
+            disabled=not is_approved or not show_results_to_learner,
+        )
+        show_grading_criteria_to_learner = st.checkbox(
+            "Show grading criteria",
+            value=visibility_defaults["show_grading_criteria_to_learner"],
+            disabled=not is_approved or not show_results_to_learner,
+        )
+        show_ai_evaluation_details_to_learner = st.checkbox(
+            "Show AI evaluation details",
+            value=visibility_defaults["show_ai_evaluation_details_to_learner"],
+            disabled=not is_approved or not show_results_to_learner,
+        )
+        saved_visibility = st.form_submit_button("Save learner visibility", use_container_width=True, disabled=not is_approved)
+    if saved_visibility and is_approved:
+        execute(
+            """
+            UPDATE submission_scores
+            SET show_results_to_learner = ?,
+                show_overall_score_to_learner = ?,
+                show_question_scores_to_learner = ?,
+                show_feedback_to_learner = ?,
+                show_expected_answers_to_learner = ?,
+                show_grading_criteria_to_learner = ?,
+                show_ai_evaluation_details_to_learner = ?
+            WHERE attempt_id = ?
+            """,
+            (
+                show_results_to_learner,
+                show_overall_score_to_learner,
+                show_question_scores_to_learner,
+                show_feedback_to_learner,
+                show_expected_answers_to_learner,
+                show_grading_criteria_to_learner,
+                show_ai_evaluation_details_to_learner,
+                int(selected_attempt_id),
+            ),
+        )
+        st.session_state[approval_status_key] = ("success", "Learner visibility settings saved.")
+        st.session_state[approval_status_expiry_key] = time.time() + 8
+        st.rerun()
 
     st.markdown("#### AI Question Grading Review")
     question_rows = fetch_all(
