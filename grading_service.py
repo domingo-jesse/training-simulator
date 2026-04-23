@@ -9,18 +9,18 @@ from logger import get_logger
 
 grading_service_logger = get_logger(module="grading_service")
 
-SCORING_APPROACHES = {"keyword", "llm", "manual_review"}
+SCORING_APPROACHES = {"keyword", "llm", "manual"}
 
 
-def _normalize_scoring_type(value: object, fallback: str = "keyword") -> str:
+def _normalize_scoring_type(value: object, fallback: str = "manual") -> str:
     normalized = str(value or "").strip().lower()
     if normalized in SCORING_APPROACHES:
         return normalized
+    if normalized == "manual_review":
+        return "manual"
     if normalized in {"rubric_llm", "llm_rubric"}:
         return "llm"
-    if normalized == "hybrid":
-        return "keyword"
-    return fallback if fallback in SCORING_APPROACHES else "keyword"
+    return fallback if fallback in SCORING_APPROACHES else "manual"
 
 
 def _keywords(text: str) -> list[str]:
@@ -123,8 +123,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
     attempt = fetch_one(
         """
         SELECT a.*, m.organization_id AS module_org_id, m.expected_customer_response, m.lesson_takeaway,
-               COALESCE(m.scoring_style, 'keyword') AS module_scoring_style,
-               COALESCE(m.llm_scoring_enabled, FALSE) AS llm_scoring_enabled,
+               COALESCE(m.scoring_style, 'manual') AS module_scoring_style,
                COALESCE(m.llm_grader_instructions, '') AS llm_grader_instructions,
                COALESCE(m.learner_feedback_visibility, 'admin_approved_only') AS learner_feedback_visibility,
                COALESCE(m.scoring_config_json, '') AS module_scoring_config_json
@@ -143,8 +142,9 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                COALESCE(rubric, rationale, '') AS rubric,
                COALESCE(max_points, 10) AS max_points,
                COALESCE(question_type, 'open_text') AS question_type,
-               COALESCE(scoring_style, '') AS scoring_style,
-               COALESCE(llm_grading_instructions, '') AS llm_grading_instructions,
+               COALESCE(scoring_type, scoring_style, '') AS scoring_type,
+               COALESCE(llm_grading_criteria, llm_grading_instructions, '') AS llm_grading_criteria,
+               COALESCE(keyword_expected_terms, '') AS keyword_expected_terms,
                COALESCE(rubric_criteria_json, '') AS rubric_criteria_json
         FROM module_questions
         WHERE module_id = ?
@@ -159,9 +159,8 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
     except Exception:
         question_responses = {}
 
-    module_scoring_style = _normalize_scoring_type(attempt.get("module_scoring_style"), fallback="keyword")
-    llm_enabled = bool(attempt.get("llm_scoring_enabled"))
-    default_style = module_scoring_style if llm_enabled else "keyword"
+    module_scoring_style = _normalize_scoring_type(attempt.get("module_scoring_style"), fallback="manual")
+    default_style = module_scoring_style
 
     execute("UPDATE attempts SET result_status = 'ai_grading' WHERE attempt_id = ?", (attempt_id,))
     execute(
@@ -180,16 +179,19 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
         for question in module_questions:
             question_id = int(question["question_id"])
             raw_answer = question_responses.get(str(question_id), "")
+            transcript_payload: list[dict[str, Any]] = []
             if isinstance(raw_answer, dict):
                 transcript = raw_answer.get("transcript")
+                if isinstance(transcript, list):
+                    transcript_payload = [turn for turn in transcript if isinstance(turn, dict)]
                 learner_answer = json.dumps(transcript) if isinstance(transcript, list) else json.dumps(raw_answer)
             else:
                 learner_answer = str(raw_answer or "")
             max_points = float(question.get("max_points") or 0)
-            q_style = _normalize_scoring_type(question.get("scoring_style"), fallback=default_style)
+            q_style = _normalize_scoring_type(question.get("scoring_type"), fallback=default_style)
             if str(question.get("question_type") or "").strip() == "ai_conversation" and q_style == "keyword":
-                q_style = "manual_review"
-            if q_style == "manual_review":
+                q_style = "manual"
+            if q_style == "manual":
                 graded = {
                     "awarded_points": 0.0,
                     "max_points": max_points,
@@ -201,12 +203,13 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             elif q_style == "llm":
                 graded = _rubric_grade(
                     learner_answer,
-                    str(question.get("rubric") or ""),
+                    str(question.get("llm_grading_criteria") or question.get("rubric") or ""),
                     str(question.get("rubric_criteria_json") or ""),
                     max_points,
                 )
             else:
-                graded = _keyword_grade(learner_answer, str(question.get("expected_answer") or ""), str(question.get("rubric") or ""), max_points)
+                keyword_terms = str(question.get("keyword_expected_terms") or "").strip()
+                graded = _keyword_grade(learner_answer, keyword_terms, str(question.get("rubric") or ""), max_points)
 
             total_score += float(graded["awarded_points"])
             max_total_score += max_points
@@ -253,11 +256,31 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     learner_answer if str(question.get("question_type") or "").strip() == "ai_conversation" else "",
                 ),
             )
+            if str(question.get("question_type") or "").strip() == "ai_conversation":
+                execute(
+                    "DELETE FROM question_conversation_messages WHERE attempt_id = ? AND question_id = ?",
+                    (attempt_id, question_id),
+                )
+                for order, turn in enumerate(transcript_payload, start=1):
+                    execute(
+                        """
+                        INSERT INTO question_conversation_messages (
+                            attempt_id, question_id, message_role, message_content, message_order
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            attempt_id,
+                            question_id,
+                            "ai" if str(turn.get("role") or "").strip() in {"assistant", "ai"} else "learner",
+                            str(turn.get("content") or ""),
+                            order,
+                        ),
+                    )
             question_scores.append({"question_id": question_id, "scoring_method": q_style, **graded})
 
         percentage = round((total_score / max_total_score) * 100, 1) if max_total_score else None
         overall_feedback = "Strong performance across rubric criteria." if (percentage or 0) >= 80 else "Partial understanding shown; review missed concepts and add more detail."
-        any_manual_review = any(row.get("scoring_method") == "manual_review" for row in question_scores)
+        any_manual_review = any(row.get("scoring_method") == "manual" for row in question_scores)
         grading_status = "pending_review" if any_manual_review else "ai_graded_pending_review"
 
         execute(

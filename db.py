@@ -1361,24 +1361,73 @@ def init_db() -> None:
             _ensure_column(conn, "module_questions", "expected_answer", "TEXT")
             _ensure_column(conn, "module_questions", "rubric", "TEXT")
             _ensure_column(conn, "module_questions", "max_points", "DOUBLE PRECISION DEFAULT 10")
+            _ensure_column(conn, "module_questions", "scoring_type", "TEXT DEFAULT 'manual'")
             _ensure_column(conn, "module_questions", "scoring_style", "TEXT")
+            _ensure_column(conn, "module_questions", "keyword_expected_terms", "TEXT")
+            _ensure_column(conn, "module_questions", "llm_grading_criteria", "TEXT")
             _ensure_column(conn, "module_questions", "llm_grading_instructions", "TEXT")
+            _ensure_column(conn, "module_questions", "learner_visible_feedback_mode", "TEXT DEFAULT 'admin_approved_only'")
             _ensure_column(conn, "module_questions", "rubric_criteria_json", "TEXT")
             _ensure_column(conn, "module_questions", "ai_conversation_prompt", "TEXT")
             _ensure_column(conn, "module_questions", "ai_role_or_persona", "TEXT")
             _ensure_column(conn, "module_questions", "evaluation_focus", "TEXT")
             _ensure_column(conn, "module_questions", "max_learner_responses", "INTEGER DEFAULT 3")
+            _ensure_column(conn, "module_questions", "optional_wrap_up_instruction", "TEXT")
             _ensure_column(conn, "module_questions", "wrap_up_message_optional", "TEXT")
             _ensure_column(conn, "modules", "llm_scoring_enabled", "BOOLEAN DEFAULT FALSE")
             _ensure_column(conn, "modules", "scoring_style", "TEXT DEFAULT 'keyword'")
             _ensure_column(conn, "modules", "llm_grader_instructions", "TEXT")
             _ensure_column(conn, "modules", "learner_feedback_visibility", "TEXT DEFAULT 'admin_approved_only'")
             _ensure_column(conn, "modules", "scoring_config_json", "TEXT")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE module_questions
+                        SET scoring_type = CASE
+                            WHEN LOWER(COALESCE(scoring_type, '')) IN ('manual', 'keyword', 'llm') THEN LOWER(scoring_type)
+                            WHEN LOWER(COALESCE(scoring_style, '')) = 'manual_review' THEN 'manual'
+                            WHEN LOWER(COALESCE(scoring_style, '')) IN ('llm', 'rubric_llm', 'llm_rubric') THEN 'llm'
+                            WHEN LOWER(COALESCE(scoring_style, '')) = 'keyword' THEN 'keyword'
+                            ELSE 'manual'
+                        END
+                        WHERE COALESCE(scoring_type, '') = ''
+                        """
+                    )
+            else:
+                conn.execute(
+                    """
+                    UPDATE module_questions
+                    SET scoring_type = CASE
+                        WHEN LOWER(COALESCE(scoring_type, '')) IN ('manual', 'keyword', 'llm') THEN LOWER(scoring_type)
+                        WHEN LOWER(COALESCE(scoring_style, '')) = 'manual_review' THEN 'manual'
+                        WHEN LOWER(COALESCE(scoring_style, '')) IN ('llm', 'rubric_llm', 'llm_rubric') THEN 'llm'
+                        WHEN LOWER(COALESCE(scoring_style, '')) = 'keyword' THEN 'keyword'
+                        ELSE 'manual'
+                    END
+                    WHERE COALESCE(scoring_type, '') = ''
+                    """
+                )
             _ensure_column(conn, "assignment_workspace_state", "time_limit_minutes", "INTEGER")
             _ensure_column(conn, "assignment_workspace_state", "end_time", "TEXT")
             _ensure_column(conn, "assignment_workspace_state", "auto_submitted_state", "INTEGER DEFAULT 0")
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS question_conversation_messages (
+                            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                            attempt_id BIGINT NOT NULL,
+                            question_id BIGINT NOT NULL,
+                            message_role TEXT NOT NULL,
+                            message_content TEXT NOT NULL,
+                            message_order INTEGER NOT NULL,
+                            created_at TIMESTAMPTZ DEFAULT NOW(),
+                            FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                            FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
+                        )
+                        """
+                    )
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS submission_question_scores (
@@ -1405,6 +1454,21 @@ def init_db() -> None:
                         """
                     )
             else:
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS question_conversation_messages (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        attempt_id INTEGER NOT NULL,
+                        question_id INTEGER NOT NULL,
+                        message_role TEXT NOT NULL,
+                        message_content TEXT NOT NULL,
+                        message_order INTEGER NOT NULL,
+                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                        FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
+                    )
+                    """
+                )
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS submission_question_scores (
