@@ -743,6 +743,7 @@ def _render_assignment_tool(current_user: dict) -> None:
     assign_in_progress_key = "assignment_tool_is_assigning"
     pending_payload_key = "assignment_tool_pending_assignment_payload"
 
+    current_user_is_dev = is_dev_account(current_user)
     learners = fetch_all(
         """
         SELECT
@@ -750,10 +751,12 @@ def _render_assignment_tool(current_user: dict) -> None:
             u.name,
             u.team,
             u.is_active,
+            u.role,
+            u.email,
             o.name AS organization_name
         FROM users u
         LEFT JOIN organizations o ON o.organization_id = u.organization_id
-        WHERE u.role='learner' AND u.organization_id=?
+        WHERE u.organization_id=?
         ORDER BY u.name
         """,
         (org_id,),
@@ -776,7 +779,13 @@ def _render_assignment_tool(current_user: dict) -> None:
             module_title_counts[base_title] = occurrence
             display_title = base_title if occurrence == 1 else f"{base_title} #{occurrence}"
             module_map[display_title] = int(module["module_id"])
-        learners_df = to_df(learners, columns=["user_id", "name", "team", "organization_name"])
+        assignable_learners = [
+            learner
+            for learner in learners
+            if learner.get("role") == "learner"
+            or (current_user_is_dev and is_dev_account(learner))
+        ]
+        learners_df = to_df(assignable_learners, columns=["user_id", "name", "team", "organization_name"])
         learners_df["team"] = learners_df["team"].fillna("")
         learners_df["organization_name"] = learners_df["organization_name"].fillna("Unassigned")
 
@@ -997,16 +1006,20 @@ def _render_assignment_tool(current_user: dict) -> None:
                     with st.spinner("Assigning training..."):
                         active_rows = fetch_all(
                             """
-                            SELECT user_id
+                            SELECT user_id, role, email
                             FROM users
-                            WHERE role = 'learner'
-                              AND organization_id = ?
+                            WHERE organization_id = ?
                               AND is_active = TRUE
                               AND user_id = ANY(?)
                             """,
                             (org_id, selected_ids),
                         )
-                        active_ids = {int(row["user_id"]) for row in active_rows}
+                        active_ids = {
+                            int(row["user_id"])
+                            for row in active_rows
+                            if row.get("role") == "learner"
+                            or (current_user_is_dev and is_dev_account(row))
+                        }
                         valid_ids = [learner_id for learner_id in selected_ids if learner_id in active_ids]
                         skipped_count = len(selected_ids) - len(valid_ids)
                         if not valid_ids:
