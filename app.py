@@ -404,6 +404,20 @@ def _get_or_create_platform_user(auth_user: dict[str, Any]) -> dict[str, Any]:
         app_logger.info("Using existing platform user.", user_email=auth_user["email"].strip().lower(), role=normalized_role)
         return dict(existing)
 
+    if is_dev_account(auth_user):
+        existing_dev_user = fetch_one(
+            "SELECT * FROM users WHERE LOWER(email) = ? LIMIT 1",
+            (auth_user["email"].strip().lower(),),
+        )
+        if existing_dev_user:
+            app_logger.info(
+                "Using existing dev platform user across role tabs.",
+                user_email=auth_user["email"].strip().lower(),
+                role=normalized_role,
+                stored_role=existing_dev_user.get("role"),
+            )
+            return dict(existing_dev_user)
+
     org_id = _default_org_id()
     user_id = execute(
         """
@@ -541,7 +555,9 @@ def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str |
     if fallback_user is None:
         fallback_user = find_user_by_username(ident, role=None)
     if fallback_user and is_dev_account(fallback_user):
-        return True, None, fallback_user
+        fallback_with_selected_role = dict(fallback_user)
+        fallback_with_selected_role["role"] = expected_role
+        return True, None, fallback_with_selected_role
 
     return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
 
