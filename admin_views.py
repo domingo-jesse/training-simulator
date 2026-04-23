@@ -1362,7 +1362,7 @@ def render_grading_center(current_user: dict) -> None:
     st.subheader("Submission Grading")
     st.caption("Review learner submissions and scoring results for assigned modules.")
 
-    total_score_expr = "COALESCE(ss.final_total_score, ss.admin_total_score, ss.ai_total_score, 0)"
+    total_score_expr = "COALESCE(sc.final_total_score, sc.admin_total_score, sc.ai_total_score, 0)"
 
     attempts = to_df(
         fetch_all(
@@ -1373,30 +1373,31 @@ def render_grading_center(current_user: dict) -> None:
                 u.name AS learner_name,
                 m.title AS module_title,
                 COALESCE(a.result_status, 'submitted') AS result_status,
-                COALESCE(ss.review_status, ss.grading_status, a.result_status, 'pending_review') AS review_status,
+                COALESCE(sc.review_status, sc.grading_status, a.result_status, 'pending_review') AS review_status,
                 a.result_approved_at,
                 a.result_approved_by_user_id,
                 approver.name AS approved_by_name,
                 {total_score_expr} AS total_score,
-                COALESCE(ss.understanding_score, a.understanding_score) AS understanding_score,
-                COALESCE(ss.investigation_score, a.investigation_score) AS investigation_score,
-                COALESCE(ss.solution_score, a.solution_score) AS solution_score,
-                COALESCE(ss.communication_score, a.communication_score) AS communication_score,
-                COALESCE(ss.show_results_to_learner, FALSE) AS show_results_to_learner,
-                COALESCE(ss.show_overall_score_to_learner, FALSE) AS show_overall_score_to_learner,
-                COALESCE(ss.show_question_scores_to_learner, FALSE) AS show_question_scores_to_learner,
-                COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
-                COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
-                COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
-                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
-                COALESCE(ss.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
-                COALESCE(ss.results_visibility_json, '') AS results_visibility_json,
-                ss.scoring_version,
+                COALESCE(sc.understanding_score, a.understanding_score) AS understanding_score,
+                COALESCE(sc.investigation_score, a.investigation_score) AS investigation_score,
+                COALESCE(sc.solution_score, a.solution_score) AS solution_score,
+                COALESCE(sc.communication_score, a.communication_score) AS communication_score,
+                COALESCE(st.show_results_to_learner, FALSE) AS show_results_to_learner,
+                COALESCE(st.show_overall_score_to_learner, FALSE) AS show_overall_score_to_learner,
+                COALESCE(st.show_question_scores_to_learner, FALSE) AS show_question_scores_to_learner,
+                COALESCE(st.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
+                COALESCE(st.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
+                COALESCE(st.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
+                COALESCE(st.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
+                COALESCE(st.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
+                COALESCE(st.results_visibility_json, '') AS results_visibility_json,
+                sc.scoring_version,
                 a.ai_feedback
             FROM attempts a
             JOIN users u ON u.user_id = a.user_id
             JOIN modules m ON m.module_id = a.module_id
-            LEFT JOIN submission_scores ss ON ss.attempt_id = a.attempt_id
+            LEFT JOIN submission_scores sc ON sc.attempt_id = a.attempt_id
+            LEFT JOIN public.submission_settings st ON st.module_id = a.module_id
             LEFT JOIN users approver ON approver.user_id = a.result_approved_by_user_id
             WHERE a.organization_id = ?
               AND u.is_active = TRUE
