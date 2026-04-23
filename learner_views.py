@@ -1390,16 +1390,7 @@ def render_scenario_page(user: Dict) -> None:
     _render_assessment_workspace()
 
 
-def _render_result_detail(attempt: Dict, question_results: list[Dict] | None = None) -> None:
-    st.markdown(f"### Result details • {attempt['title']}")
-    if safe_int(attempt.get("timed_out")) == 1 or attempt.get("attempt_state") == "time_expired":
-        st.warning("This assessment was auto-submitted because the time limit expired.")
-    st.caption(
-        "Time given: "
-        f"{_format_duration(attempt.get('time_limit_seconds'))} • "
-        f"Time taken: {_format_duration(attempt.get('elapsed_seconds'))} • "
-        f"Time left: {_format_duration(attempt.get('time_remaining_seconds'))}"
-    )
+def _render_results_summary_tab(attempt: Dict, question_results: list[Dict] | None = None) -> None:
     visibility = attempt.get("visibility") or {}
     if visibility.get("show_overall_score_to_learner"):
         metric_row(
@@ -1469,6 +1460,83 @@ def _render_result_detail(attempt: Dict, question_results: list[Dict] | None = N
                     st.caption(f"Grading criteria: {row.get('rubric') or '—'}")
                 if visibility.get("show_ai_evaluation_details_to_learner"):
                     st.caption(f"AI reasoning: {row.get('ai_reasoning') or '—'}")
+
+
+def _render_ai_transcript(transcript_raw: object) -> bool:
+    transcript_text = str(transcript_raw or "").strip()
+    if not transcript_text:
+        return False
+    try:
+        transcript_payload = json.loads(transcript_text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if not isinstance(transcript_payload, list) or not transcript_payload:
+        return False
+
+    for turn in transcript_payload:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role") or "assistant").strip().lower()
+        content = str(turn.get("content") or "").strip()
+        if not content:
+            continue
+        speaker = "You" if role == "user" else "AI"
+        with st.chat_message("user" if role == "user" else "assistant"):
+            st.markdown(f"**{speaker}:** {content}")
+    return True
+
+
+def _render_your_responses_tab(question_results: list[Dict] | None, visibility: Dict) -> None:
+    if not question_results:
+        st.info("No learner responses were found for this module yet.")
+        return
+
+    for row in question_results:
+        with st.container(border=True):
+            question_order = row.get("question_order") or "—"
+            question_text = row.get("question_text") or ""
+            question_type = str(row.get("question_type") or "").strip()
+            st.markdown(f"#### Question {question_order}")
+            st.write(question_text)
+            if question_type:
+                st.caption(f"Type: {question_type.replace('_', ' ').title()}")
+
+            learner_answer = row.get("learner_answer")
+            if question_type.lower() == "ai_conversation":
+                st.markdown("**Conversation transcript**")
+                has_transcript = _render_ai_transcript(row.get("conversation_transcript") or learner_answer)
+                if not has_transcript:
+                    st.caption("No response submitted.")
+            else:
+                st.markdown("**Your response**")
+                answer_text = str(learner_answer or "").strip()
+                st.write(answer_text if answer_text else "No response submitted.")
+
+            if visibility.get("show_question_scores_to_learner"):
+                st.caption(f"Score: {row.get('final_awarded_points') or 0}/{row.get('max_points') or 0}")
+            if visibility.get("show_feedback_to_learner"):
+                st.caption(f"Feedback: {row.get('feedback') or 'No question-level feedback shared.'}")
+            if visibility.get("show_expected_answers_to_learner"):
+                st.caption(f"Expected answer: {row.get('expected_answer') or '—'}")
+
+
+def _render_result_detail(attempt: Dict, question_results: list[Dict] | None = None) -> None:
+    st.markdown(f"### Result details • {attempt['title']}")
+    if safe_int(attempt.get("timed_out")) == 1 or attempt.get("attempt_state") == "time_expired":
+        st.warning("This assessment was auto-submitted because the time limit expired.")
+    st.caption(
+        "Time given: "
+        f"{_format_duration(attempt.get('time_limit_seconds'))} • "
+        f"Time taken: {_format_duration(attempt.get('elapsed_seconds'))} • "
+        f"Time left: {_format_duration(attempt.get('time_remaining_seconds'))}"
+    )
+
+    visibility = attempt.get("visibility") or {}
+    tab_results, tab_responses = st.tabs(["Results", "Your Responses"])
+    with tab_results:
+        _render_results_summary_tab(attempt, question_results)
+    with tab_responses:
+        _render_your_responses_tab(question_results, visibility)
 
     c1, _ = st.columns(2)
     with c1:
@@ -1651,12 +1719,15 @@ def render_progress_results_page(user: Dict) -> None:
         SELECT
             mq.question_order,
             mq.question_text,
+            mq.question_type,
             COALESCE(mq.expected_answer, mq.rationale, '') AS expected_answer,
             COALESCE(mq.rubric, mq.rationale, '') AS rubric,
             COALESCE(mq.max_points, 10) AS max_points,
             COALESCE(sqs.final_awarded_points, sqs.final_score, sqs.ai_awarded_points, sqs.ai_score) AS final_awarded_points,
             COALESCE(sqs.admin_feedback, sqs.ai_feedback, sqs.feedback, '') AS feedback,
-            COALESCE(sqs.ai_reasoning, '') AS ai_reasoning
+            COALESCE(sqs.ai_reasoning, '') AS ai_reasoning,
+            COALESCE(sqs.learner_answer, '') AS learner_answer,
+            COALESCE(sqs.conversation_transcript, '') AS conversation_transcript
         FROM module_questions mq
         LEFT JOIN submission_question_scores sqs
           ON sqs.question_id = mq.question_id
