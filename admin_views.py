@@ -2202,9 +2202,25 @@ def _normalize_question_scoring_type(value: object, fallback: str = "manual") ->
     normalized = str(value or "").strip().lower()
     if normalized in QUESTION_SCORING_OPTIONS:
         return normalized
+    if normalized == "hybrid":
+        return "manual"
     if normalized in {"rubric_llm", "llm_rubric"}:
         return "llm"
-        return fallback if fallback in QUESTION_SCORING_OPTIONS else "manual"
+    normalized_fallback = str(fallback or "").strip().lower()
+    return normalized_fallback if normalized_fallback in QUESTION_SCORING_OPTIONS else "manual"
+
+
+def _safe_scoring_option_index(
+    scoring_type: object, options: list[str] | tuple[str, ...], fallback: str = "manual"
+) -> int:
+    normalized = _normalize_question_scoring_type(scoring_type, fallback=fallback)
+    options_list = [str(option).strip().lower() for option in options]
+    if normalized in options_list:
+        return options_list.index(normalized)
+    fallback_normalized = _normalize_question_scoring_type(fallback, fallback="manual")
+    if fallback_normalized in options_list:
+        return options_list.index(fallback_normalized)
+    return 0
 
 
 def _normalize_module_scoring_fallback(module_value: object) -> str:
@@ -2651,7 +2667,7 @@ def render_module_builder(current_user: dict) -> None:
                 "rationale": "",
                 "expected_answer": "",
                 "max_points": 10.0,
-                "scoring_style": "keyword",
+                "scoring_type": "manual",
                 "llm_grading_criteria": "",
                 "rubric_criteria_text": "",
                 "ai_conversation_prompt": "",
@@ -3894,7 +3910,11 @@ def render_manage_modules(current_user: dict) -> None:
                         edit_question_scoring_type = st.radio(
                             "Scoring method",
                             options=QUESTION_SCORING_OPTIONS,
-                            index=QUESTION_SCORING_OPTIONS.index(current_q_style),
+                            index=_safe_scoring_option_index(
+                                current_q_style,
+                                QUESTION_SCORING_OPTIONS,
+                                fallback="manual",
+                            ),
                             format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                             key=f"edit_question_scoring_type_{state_prefix}_{question['question_id']}",
                             horizontal=True,
@@ -4073,7 +4093,7 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_scoring_type = st.radio(
                     "Scoring method",
                     QUESTION_SCORING_OPTIONS,
-                    index=QUESTION_SCORING_OPTIONS.index("keyword"),
+                    index=_safe_scoring_option_index("manual", QUESTION_SCORING_OPTIONS, fallback="manual"),
                     format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                     key=f"add_question_scoring_type_{state_prefix}_{module_id}",
                     horizontal=True,
