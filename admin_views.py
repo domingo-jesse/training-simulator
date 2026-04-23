@@ -49,6 +49,13 @@ from module_generation import (
 
 admin_logger = get_logger(module="admin_views")
 
+QUESTION_SCORING_OPTIONS = ["manual_review", "keyword", "llm"]
+QUESTION_SCORING_LABELS = {
+    "manual_review": "Manual Review",
+    "keyword": "Keyword",
+    "llm": "LLM",
+}
+
 
 def _format_datetime_for_admin_grid(value) -> str:
     if value is None or value == "":
@@ -2147,6 +2154,42 @@ def _parse_lines(value: str) -> str:
     return "\n".join([line.strip() for line in value.splitlines() if line.strip()])
 
 
+def _normalize_question_scoring_type(value: object, fallback: str = "keyword") -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in QUESTION_SCORING_OPTIONS:
+        return normalized
+    if normalized in {"rubric_llm", "llm_rubric"}:
+        return "llm"
+    if normalized == "hybrid":
+        return "keyword"
+    return fallback if fallback in QUESTION_SCORING_OPTIONS else "keyword"
+
+
+def _normalize_module_scoring_fallback(module_value: object) -> str:
+    normalized = str(module_value or "").strip().lower()
+    if normalized == "manual_review":
+        return "manual_review"
+    if normalized in {"rubric_llm", "llm"}:
+        return "llm"
+    return "keyword"
+
+
+def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, object]:
+    scoring_type = _normalize_question_scoring_type(question.get("scoring_style"), fallback="keyword")
+    cleaned = dict(question)
+    cleaned["scoring_style"] = scoring_type
+    if scoring_type == "manual_review":
+        cleaned["expected_answer"] = ""
+        cleaned["llm_grading_instructions"] = ""
+        cleaned["rubric_criteria_text"] = ""
+    elif scoring_type == "keyword":
+        cleaned["llm_grading_instructions"] = ""
+        cleaned["rubric_criteria_text"] = ""
+    elif scoring_type == "llm":
+        cleaned["expected_answer"] = ""
+    return cleaned
+
+
 def _coerce_choice_list(value: object) -> list[str]:
     if isinstance(value, list):
         return [str(choice) for choice in value]
@@ -2513,9 +2556,6 @@ def render_module_builder(current_user: dict) -> None:
         "module_builder_quiz_required",
         "module_builder_estimated_minutes",
         "module_builder_attempt_limit",
-        "module_builder_llm_scoring_enabled",
-        "module_builder_scoring_style",
-        "module_builder_llm_grader_instructions",
         "module_builder_learner_feedback_visibility",
     ]
 
@@ -2534,9 +2574,6 @@ def render_module_builder(current_user: dict) -> None:
         "estimated_minutes": 20,
         "question_count": 1,
         "attempt_limit": 1,
-        "llm_scoring_enabled": False,
-        "scoring_style": "keyword",
-        "llm_grader_instructions": "",
         "learner_feedback_visibility": "admin_approved_only",
         "questions": [
             {
@@ -2548,7 +2585,7 @@ def render_module_builder(current_user: dict) -> None:
                 "rationale": "",
                 "expected_answer": "",
                 "max_points": 10.0,
-                "scoring_style": "",
+                "scoring_style": "keyword",
                 "llm_grading_instructions": "",
                 "rubric_criteria_text": "",
             }
@@ -2759,13 +2796,6 @@ def render_module_builder(current_user: dict) -> None:
         module_form["quiz_required"] = _normalize_bool(st.session_state.get("module_builder_quiz_required", True), default=True)
         module_form["estimated_minutes"] = int(st.session_state.get("module_builder_estimated_minutes", 20))
         module_form["attempt_limit"] = int(st.session_state.get("module_builder_attempt_limit", 1))
-        module_form["llm_scoring_enabled"] = _normalize_bool(
-            st.session_state.get("module_builder_llm_scoring_enabled", False), default=False
-        )
-        module_form["scoring_style"] = st.session_state.get("module_builder_scoring_style", "keyword")
-        module_form["llm_grader_instructions"] = st.session_state.get(
-            "module_builder_llm_grader_instructions", ""
-        )
         module_form["learner_feedback_visibility"] = st.session_state.get(
             "module_builder_learner_feedback_visibility", "admin_approved_only"
         )
@@ -2795,9 +2825,6 @@ def render_module_builder(current_user: dict) -> None:
         "module_builder_quiz_required": _normalize_bool(module_form.get("quiz_required"), default=True),
         "module_builder_estimated_minutes": int(module_form.get("estimated_minutes", 20)),
         "module_builder_attempt_limit": int(module_form.get("attempt_limit", 1)),
-        "module_builder_llm_scoring_enabled": _normalize_bool(module_form.get("llm_scoring_enabled"), default=False),
-        "module_builder_scoring_style": module_form.get("scoring_style", "keyword"),
-        "module_builder_llm_grader_instructions": module_form.get("llm_grader_instructions", ""),
         "module_builder_learner_feedback_visibility": module_form.get("learner_feedback_visibility", "admin_approved_only"),
     }
     for key, value in widget_defaults.items():
@@ -2967,7 +2994,10 @@ def render_module_builder(current_user: dict) -> None:
             if f"{q_prefix}_max_points" not in st.session_state:
                 st.session_state[f"{q_prefix}_max_points"] = float(question.get("max_points") or 10)
             if f"{q_prefix}_scoring_style" not in st.session_state:
-                st.session_state[f"{q_prefix}_scoring_style"] = question.get("scoring_style", "")
+                st.session_state[f"{q_prefix}_scoring_style"] = _normalize_question_scoring_type(
+                    question.get("scoring_style"),
+                    fallback=_normalize_module_scoring_fallback(module_form.get("scoring_style")),
+                )
             if f"{q_prefix}_llm_instructions" not in st.session_state:
                 st.session_state[f"{q_prefix}_llm_instructions"] = question.get("llm_grading_instructions", "")
             if f"{q_prefix}_rubric_criteria" not in st.session_state:
@@ -3049,12 +3079,18 @@ def render_module_builder(current_user: dict) -> None:
                 on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
                 height=90,
             )
-            st.text_area(
-                "Expected answer (reference)",
-                key=f"{q_prefix}_expected_answer",
+            scoring_type = _normalize_question_scoring_type(st.session_state.get(f"{q_prefix}_scoring_style"), fallback="keyword")
+            st.markdown("**Scoring method**")
+            st.radio(
+                "Scoring method",
+                options=QUESTION_SCORING_OPTIONS,
+                key=f"{q_prefix}_scoring_style",
+                format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
+                horizontal=True,
+                label_visibility="collapsed",
                 on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
-                height=80,
             )
+            scoring_type = _normalize_question_scoring_type(st.session_state.get(f"{q_prefix}_scoring_style"), fallback="keyword")
             st.number_input(
                 "Max points",
                 min_value=0.0,
@@ -3063,24 +3099,28 @@ def render_module_builder(current_user: dict) -> None:
                 key=f"{q_prefix}_max_points",
                 on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
             )
-            st.selectbox(
-                "Question scoring style (optional override)",
-                options=["", "keyword", "hybrid", "rubric_llm", "manual_review"],
-                key=f"{q_prefix}_scoring_style",
-                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
-            )
-            st.text_area(
-                "Question-level grader instructions (optional)",
-                key=f"{q_prefix}_llm_instructions",
-                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
-                height=90,
-            )
-            st.text_area(
-                "Rubric criteria (one per line: Criterion | points | guidance)",
-                key=f"{q_prefix}_rubric_criteria",
-                on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
-                height=110,
-            )
+            if scoring_type == "manual_review":
+                st.caption("This question will be scored by an admin during manual review.")
+            elif scoring_type == "keyword":
+                st.text_area(
+                    "Expected answer (reference)",
+                    key=f"{q_prefix}_expected_answer",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                    height=80,
+                )
+            else:
+                st.text_area(
+                    "Question-level grader instructions",
+                    key=f"{q_prefix}_llm_instructions",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                    height=90,
+                )
+                st.text_area(
+                    "Rubric criteria (one per line: Criterion | points | guidance)",
+                    key=f"{q_prefix}_rubric_criteria",
+                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                    height=110,
+                )
             if st.button("Delete question", key=f"delete_question_{idx}"):
                 delete_index = idx
 
@@ -3113,9 +3153,14 @@ def render_module_builder(current_user: dict) -> None:
         question["rationale"] = st.session_state.get(f"{q_prefix}_rationale", "")
         question["expected_answer"] = st.session_state.get(f"{q_prefix}_expected_answer", "")
         question["max_points"] = float(st.session_state.get(f"{q_prefix}_max_points", 10) or 10)
-        question["scoring_style"] = st.session_state.get(f"{q_prefix}_scoring_style", "")
+        question["scoring_style"] = _normalize_question_scoring_type(
+            st.session_state.get(f"{q_prefix}_scoring_style"),
+            fallback=_normalize_module_scoring_fallback(module_form.get("scoring_style")),
+        )
         question["llm_grading_instructions"] = st.session_state.get(f"{q_prefix}_llm_instructions", "")
         question["rubric_criteria_text"] = st.session_state.get(f"{q_prefix}_rubric_criteria", "")
+        normalized_question = _clean_question_scoring_fields(question)
+        question.update(normalized_question)
 
     st.markdown("### Scoring / Rubric")
     with st.container(border=True):
@@ -3126,27 +3171,8 @@ def render_module_builder(current_user: dict) -> None:
             height=120,
         )
 
-    st.markdown("### LLM Scoring")
+    st.markdown("### Feedback Settings")
     with st.container(border=True):
-        st.checkbox(
-            "Enable LLM scoring for this module",
-            key="module_builder_llm_scoring_enabled",
-            on_change=lambda: _mark_dirty("llm_scoring_enabled"),
-            help="Keeps existing keyword scoring as default unless enabled.",
-        )
-        st.selectbox(
-            "Scoring style",
-            options=["keyword", "hybrid", "rubric_llm", "manual_review"],
-            key="module_builder_scoring_style",
-            on_change=lambda: _mark_dirty("scoring_style"),
-        )
-        st.text_area(
-            "Grader instructions",
-            key="module_builder_llm_grader_instructions",
-            on_change=lambda: _mark_dirty("llm_grader_instructions"),
-            height=120,
-            placeholder="Describe how the grader should score and what quality signals matter most.",
-        )
         st.selectbox(
             "Learner-visible feedback",
             options=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"],
@@ -3261,14 +3287,14 @@ def render_module_builder(current_user: dict) -> None:
                 module_form["completion_requirements"].strip(),
                 _normalize_bool(module_form.get("quiz_required"), default=False),
                 current_user["user_id"],
-                _normalize_bool(module_form.get("llm_scoring_enabled"), default=False),
-                module_form.get("scoring_style", "keyword"),
-                module_form.get("llm_grader_instructions", "").strip(),
+                True,
+                "keyword",
+                "",
                 module_form.get("learner_feedback_visibility", "admin_approved_only"),
                 json.dumps(
                     {
-                        "llm_scoring_enabled": _normalize_bool(module_form.get("llm_scoring_enabled"), default=False),
-                        "scoring_style": module_form.get("scoring_style", "keyword"),
+                        "llm_scoring_enabled": True,
+                        "scoring_style": "keyword",
                         "learner_feedback_visibility": module_form.get("learner_feedback_visibility", "admin_approved_only"),
                     }
                 ),
@@ -3295,9 +3321,13 @@ def render_module_builder(current_user: dict) -> None:
                     q.get("question_type") or "open_text",
                     _serialize_question_options(q),
                     None,
-                    (q.get("scoring_style") or "").strip() or None,
-                    q.get("llm_grading_instructions", "").strip(),
-                    json.dumps(_parse_rubric_criteria_lines(str(q.get("rubric_criteria_text") or ""))),
+                    _normalize_question_scoring_type(q.get("scoring_style"), fallback="keyword"),
+                    q.get("llm_grading_instructions", "").strip()
+                    if _normalize_question_scoring_type(q.get("scoring_style"), fallback="keyword") == "llm"
+                    else "",
+                    json.dumps(_parse_rubric_criteria_lines(str(q.get("rubric_criteria_text") or "")))
+                    if _normalize_question_scoring_type(q.get("scoring_style"), fallback="keyword") == "llm"
+                    else "[]",
                 )
                 for idx, q in enumerate(module_form.get("questions", []))
                 if _is_present(q.get("question_text"))
@@ -3489,7 +3519,7 @@ def render_manage_modules(current_user: dict) -> None:
             "expected_diagnosis": "",
             "expected_next_steps": "",
             "expected_customer_response": "",
-            "llm_scoring_enabled": False,
+            "llm_scoring_enabled": True,
             "scoring_style": "keyword",
             "llm_grader_instructions": "",
             "learner_feedback_visibility": "admin_approved_only",
@@ -3515,7 +3545,7 @@ def render_manage_modules(current_user: dict) -> None:
                 "expected_next_steps": module_row.get("expected_next_steps") or edit_form_defaults["expected_next_steps"],
                 "expected_customer_response": module_row.get("expected_customer_response") or edit_form_defaults["expected_customer_response"],
                 "llm_scoring_enabled": bool(module_row.get("llm_scoring_enabled", False)),
-                "scoring_style": module_row.get("scoring_style") or "keyword",
+                "scoring_style": _normalize_module_scoring_fallback(module_row.get("scoring_style")),
                 "llm_grader_instructions": module_row.get("llm_grader_instructions") or "",
                 "learner_feedback_visibility": module_row.get("learner_feedback_visibility") or "admin_approved_only",
             }
@@ -3608,40 +3638,16 @@ def render_manage_modules(current_user: dict) -> None:
                 value=edit_form.get("completion_requirements", ""),
                 height=110,
             )
-            st.markdown("#### LLM Scoring")
-            llm_col_1, llm_col_2 = st.columns(2)
-            with llm_col_1:
-                edit_form["llm_scoring_enabled"] = st.checkbox(
-                    "Enable LLM scoring",
-                    value=bool(edit_form.get("llm_scoring_enabled", False)),
-                    key=f"edit_module_llm_scoring_enabled_{state_prefix}_{module_id}",
-                )
-                edit_form["scoring_style"] = st.selectbox(
-                    "Scoring style",
-                    options=["keyword", "hybrid", "rubric_llm", "manual_review"],
-                    index=["keyword", "hybrid", "rubric_llm", "manual_review"].index(
-                        str(edit_form.get("scoring_style") or "keyword")
-                        if str(edit_form.get("scoring_style") or "keyword") in ["keyword", "hybrid", "rubric_llm", "manual_review"]
-                        else "keyword"
-                    ),
-                    key=f"edit_module_scoring_style_{state_prefix}_{module_id}",
-                )
-            with llm_col_2:
-                edit_form["learner_feedback_visibility"] = st.selectbox(
-                    "Learner feedback visibility",
-                    options=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"],
-                    index=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"].index(
-                        str(edit_form.get("learner_feedback_visibility") or "admin_approved_only")
-                        if str(edit_form.get("learner_feedback_visibility") or "admin_approved_only") in ["admin_approved_only", "always_show_ai_feedback", "hide_feedback"]
-                        else "admin_approved_only"
-                    ),
-                    key=f"edit_module_feedback_visibility_{state_prefix}_{module_id}",
-                )
-            edit_form["llm_grader_instructions"] = st.text_area(
-                "Module grader instructions",
-                key=f"edit_module_llm_grader_instructions_{state_prefix}_{module_id}",
-                value=edit_form.get("llm_grader_instructions", ""),
-                height=100,
+            st.markdown("#### Feedback")
+            edit_form["learner_feedback_visibility"] = st.selectbox(
+                "Learner feedback visibility",
+                options=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"],
+                index=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"].index(
+                    str(edit_form.get("learner_feedback_visibility") or "admin_approved_only")
+                    if str(edit_form.get("learner_feedback_visibility") or "admin_approved_only") in ["admin_approved_only", "always_show_ai_feedback", "hide_feedback"]
+                    else "admin_approved_only"
+                ),
+                key=f"edit_module_feedback_visibility_{state_prefix}_{module_id}",
             )
 
             st.markdown("---")
@@ -3714,10 +3720,17 @@ def render_manage_modules(current_user: dict) -> None:
                             key=f"edit_question_rationale_{state_prefix}_{question['question_id']}",
                             help="Use this for expected answer notes, rubric criteria, or grading guidance.",
                         )
-                        edit_question_expected_answer = st.text_area(
-                            "Expected answer (reference)",
-                            value=question.get("expected_answer") or "",
-                            key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
+                        current_q_style = _normalize_question_scoring_type(
+                            question.get("scoring_style"),
+                            fallback=_normalize_module_scoring_fallback(edit_form.get("scoring_style")),
+                        )
+                        edit_question_scoring_style = st.radio(
+                            "Scoring method",
+                            options=QUESTION_SCORING_OPTIONS,
+                            index=QUESTION_SCORING_OPTIONS.index(current_q_style),
+                            format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
+                            key=f"edit_question_scoring_style_{state_prefix}_{question['question_id']}",
+                            horizontal=True,
                         )
                         edit_question_max_points = st.number_input(
                             "Max points",
@@ -3732,39 +3745,41 @@ def render_manage_modules(current_user: dict) -> None:
                             key=f"edit_question_options_{state_prefix}_{question['question_id']}",
                             disabled=edit_question_type != "multiple_choice",
                         )
-                        scoring_options = ["", "keyword", "hybrid", "rubric_llm", "manual_review"]
-                        current_q_style = str(question.get("scoring_style") or "")
-                        if current_q_style not in scoring_options:
-                            current_q_style = ""
-                        edit_question_scoring_style = st.selectbox(
-                            "Question scoring style override",
-                            options=scoring_options,
-                            index=scoring_options.index(current_q_style),
-                            key=f"edit_question_scoring_style_{state_prefix}_{question['question_id']}",
-                        )
-                        edit_question_llm_instructions = st.text_area(
-                            "Question grader instructions",
-                            value=question.get("llm_grading_instructions") or "",
-                            key=f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
-                        )
-                        edit_question_rubric_criteria = st.text_area(
-                            "Rubric criteria (Criterion | points | guidance)",
-                            value="\n".join(
-                                [
-                                    " | ".join(
-                                        [
-                                            str(item.get("label") or ""),
-                                            str(item.get("max_points") or 1),
-                                            str(item.get("grading_guidance") or ""),
-                                        ]
-                                    ).strip(" |")
-                                    for item in _coerce_rubric_criteria(question.get("rubric_criteria_json"))
-                                    if isinstance(item, dict)
-                                ]
-                            ),
-                            key=f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
-                            height=100,
-                        )
+                        edit_question_expected_answer = ""
+                        edit_question_llm_instructions = ""
+                        edit_question_rubric_criteria = ""
+                        if edit_question_scoring_style == "manual_review":
+                            st.caption("This question will be scored by an admin during manual review.")
+                        elif edit_question_scoring_style == "keyword":
+                            edit_question_expected_answer = st.text_area(
+                                "Expected answer (reference)",
+                                value=question.get("expected_answer") or "",
+                                key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
+                            )
+                        else:
+                            edit_question_llm_instructions = st.text_area(
+                                "Question grader instructions",
+                                value=question.get("llm_grading_instructions") or "",
+                                key=f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
+                            )
+                            edit_question_rubric_criteria = st.text_area(
+                                "Rubric criteria (Criterion | points | guidance)",
+                                value="\n".join(
+                                    [
+                                        " | ".join(
+                                            [
+                                                str(item.get("label") or ""),
+                                                str(item.get("max_points") or 1),
+                                                str(item.get("grading_guidance") or ""),
+                                            ]
+                                        ).strip(" |")
+                                        for item in _coerce_rubric_criteria(question.get("rubric_criteria_json"))
+                                        if isinstance(item, dict)
+                                    ]
+                                ),
+                                key=f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
+                                height=100,
+                            )
                         q_action_col_1, q_action_col_2 = st.columns(2)
                         with q_action_col_1:
                             question_saved = st.form_submit_button("Save question", use_container_width=True)
@@ -3783,14 +3798,16 @@ def render_manage_modules(current_user: dict) -> None:
                                     edit_question_type,
                                     edit_question_rubric.strip(),
                                     edit_question_rubric.strip(),
-                                    edit_question_expected_answer.strip(),
+                                    edit_question_expected_answer.strip() if edit_question_scoring_style == "keyword" else "",
                                     float(edit_question_max_points),
                                     json.dumps({"choices": _coerce_choice_list(_parse_lines(edit_question_options))})
                                     if edit_question_type == "multiple_choice"
                                     else "",
-                                    edit_question_scoring_style.strip() or None,
-                                    edit_question_llm_instructions.strip(),
-                                    json.dumps(_parse_rubric_criteria_lines(edit_question_rubric_criteria)),
+                                    _normalize_question_scoring_type(edit_question_scoring_style, fallback="keyword"),
+                                    edit_question_llm_instructions.strip() if edit_question_scoring_style == "llm" else "",
+                                    json.dumps(_parse_rubric_criteria_lines(edit_question_rubric_criteria))
+                                    if edit_question_scoring_style == "llm"
+                                    else "[]",
                                     question["question_id"],
                                     module_id,
                                 ),
@@ -3807,7 +3824,6 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_text = st.text_area("Question text", key=f"add_question_text_{state_prefix}_{module_id}")
                 add_question_type = st.selectbox("Question type", ["open_text", "multiple_choice"], key=f"add_question_type_{state_prefix}_{module_id}")
                 add_question_rubric = st.text_area("Rubric / expected answer", key=f"add_question_rubric_{state_prefix}_{module_id}")
-                add_question_expected_answer = st.text_area("Expected answer (reference)", key=f"add_question_expected_{state_prefix}_{module_id}")
                 add_question_max_points = st.number_input(
                     "Max points",
                     min_value=0.0,
@@ -3820,20 +3836,31 @@ def render_manage_modules(current_user: dict) -> None:
                     key=f"add_question_options_{state_prefix}_{module_id}",
                     disabled=add_question_type != "multiple_choice",
                 )
-                add_question_scoring_style = st.selectbox(
-                    "Question scoring style override",
-                    ["", "keyword", "hybrid", "rubric_llm", "manual_review"],
+                add_question_scoring_style = st.radio(
+                    "Scoring method",
+                    QUESTION_SCORING_OPTIONS,
+                    index=QUESTION_SCORING_OPTIONS.index("keyword"),
+                    format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                     key=f"add_question_scoring_style_{state_prefix}_{module_id}",
+                    horizontal=True,
                 )
-                add_question_llm_instructions = st.text_area(
-                    "Question grader instructions",
-                    key=f"add_question_llm_instructions_{state_prefix}_{module_id}",
-                )
-                add_question_rubric_criteria = st.text_area(
-                    "Rubric criteria (Criterion | points | guidance)",
-                    key=f"add_question_rubric_criteria_{state_prefix}_{module_id}",
-                    height=100,
-                )
+                add_question_llm_instructions = ""
+                add_question_rubric_criteria = ""
+                add_question_expected_answer = ""
+                if add_question_scoring_style == "manual_review":
+                    st.caption("This question will be scored by an admin during manual review.")
+                elif add_question_scoring_style == "keyword":
+                    add_question_expected_answer = st.text_area("Expected answer (reference)", key=f"add_question_expected_{state_prefix}_{module_id}")
+                elif add_question_scoring_style == "llm":
+                    add_question_llm_instructions = st.text_area(
+                        "Question grader instructions",
+                        key=f"add_question_llm_instructions_{state_prefix}_{module_id}",
+                    )
+                    add_question_rubric_criteria = st.text_area(
+                        "Rubric criteria (Criterion | points | guidance)",
+                        key=f"add_question_rubric_criteria_{state_prefix}_{module_id}",
+                        height=100,
+                    )
                 add_question_submit = st.form_submit_button("Add question")
                 if add_question_submit:
                     max_order_row = fetch_one("SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_questions WHERE module_id = ?", (module_id,))
@@ -3859,9 +3886,11 @@ def render_manage_modules(current_user: dict) -> None:
                             if add_question_type == "multiple_choice"
                             else "",
                             None,
-                            add_question_scoring_style.strip() or None,
-                            add_question_llm_instructions.strip(),
-                            json.dumps(_parse_rubric_criteria_lines(add_question_rubric_criteria)),
+                            _normalize_question_scoring_type(add_question_scoring_style, fallback="keyword"),
+                            add_question_llm_instructions.strip() if add_question_scoring_style == "llm" else "",
+                            json.dumps(_parse_rubric_criteria_lines(add_question_rubric_criteria))
+                            if add_question_scoring_style == "llm"
+                            else "[]",
                         ),
                     )
                     st.success("Question added.")
@@ -3912,14 +3941,14 @@ def render_manage_modules(current_user: dict) -> None:
                             _parse_lines(edit_form.get("content_sections", "")),
                             edit_form.get("completion_requirements", ""),
                             bool(edit_form.get("quiz_required", False)),
-                            bool(edit_form.get("llm_scoring_enabled", False)),
-                            edit_form.get("scoring_style", "keyword"),
-                            edit_form.get("llm_grader_instructions", ""),
+                            True,
+                            "keyword",
+                            "",
                             edit_form.get("learner_feedback_visibility", "admin_approved_only"),
                             json.dumps(
                                 {
-                                    "llm_scoring_enabled": bool(edit_form.get("llm_scoring_enabled", False)),
-                                    "scoring_style": edit_form.get("scoring_style", "keyword"),
+                                    "llm_scoring_enabled": True,
+                                    "scoring_style": "keyword",
                                     "learner_feedback_visibility": edit_form.get("learner_feedback_visibility", "admin_approved_only"),
                                 }
                             ),

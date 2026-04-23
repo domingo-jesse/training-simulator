@@ -9,7 +9,18 @@ from logger import get_logger
 
 grading_service_logger = get_logger(module="grading_service")
 
-SCORING_APPROACHES = {"keyword", "hybrid", "rubric_llm", "manual_review"}
+SCORING_APPROACHES = {"keyword", "llm", "manual_review"}
+
+
+def _normalize_scoring_type(value: object, fallback: str = "keyword") -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in SCORING_APPROACHES:
+        return normalized
+    if normalized in {"rubric_llm", "llm_rubric"}:
+        return "llm"
+    if normalized == "hybrid":
+        return "keyword"
+    return fallback if fallback in SCORING_APPROACHES else "keyword"
 
 
 def _keywords(text: str) -> list[str]:
@@ -147,9 +158,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
     except Exception:
         question_responses = {}
 
-    module_scoring_style = str(attempt.get("module_scoring_style") or "keyword").strip().lower()
-    if module_scoring_style not in SCORING_APPROACHES:
-        module_scoring_style = "keyword"
+    module_scoring_style = _normalize_scoring_type(attempt.get("module_scoring_style"), fallback="keyword")
     llm_enabled = bool(attempt.get("llm_scoring_enabled"))
     default_style = module_scoring_style if llm_enabled else "keyword"
 
@@ -171,9 +180,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             question_id = int(question["question_id"])
             learner_answer = str(question_responses.get(str(question_id), "") or "")
             max_points = float(question.get("max_points") or 0)
-            q_style = str(question.get("scoring_style") or default_style).strip().lower()
-            if q_style not in SCORING_APPROACHES:
-                q_style = default_style
+            q_style = _normalize_scoring_type(question.get("scoring_style"), fallback=default_style)
             if q_style == "manual_review":
                 graded = {
                     "awarded_points": 0.0,
@@ -183,25 +190,13 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     "missing_elements": [],
                     "breakdown": [],
                 }
-            elif q_style == "rubric_llm":
+            elif q_style == "llm":
                 graded = _rubric_grade(
                     learner_answer,
                     str(question.get("rubric") or ""),
                     str(question.get("rubric_criteria_json") or ""),
                     max_points,
                 )
-            elif q_style == "hybrid":
-                keyword_result = _keyword_grade(learner_answer, str(question.get("expected_answer") or ""), str(question.get("rubric") or ""), max_points)
-                rubric_result = _rubric_grade(learner_answer, str(question.get("rubric") or ""), str(question.get("rubric_criteria_json") or ""), max_points)
-                awarded = round((keyword_result["awarded_points"] + rubric_result["awarded_points"]) / 2, 2)
-                graded = {
-                    "awarded_points": awarded,
-                    "max_points": max_points,
-                    "reasoning": "Hybrid score blended keyword and rubric scoring.",
-                    "feedback": rubric_result["feedback"],
-                    "missing_elements": rubric_result["missing_elements"],
-                    "breakdown": rubric_result["breakdown"],
-                }
             else:
                 graded = _keyword_grade(learner_answer, str(question.get("expected_answer") or ""), str(question.get("rubric") or ""), max_points)
 
