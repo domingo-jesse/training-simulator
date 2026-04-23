@@ -73,18 +73,18 @@ def _fallback_module_draft(payload: ModuleDraftGenerationInput) -> dict[str, Any
             {
                 "question_text": f"How would you handle step {idx + 1} for: {seed_prompt}?",
                 "question_type": "open_text",
-                "answer_guidance": (
-                    "Explain your approach with practical sequencing, risk controls, communication choices, "
-                    "and escalation criteria tied to the scenario."
+                "scoring_type": "llm",
+                "llm_grading_criteria": (
+                    "Evaluate sequencing, risk controls, communication quality, escalation judgment, and policy alignment."
                 ),
-                "ideal_answer": (
-                    "A strong response identifies the immediate priority, clarifies assumptions, documents "
-                    "tradeoffs, and proposes a realistic next step with stakeholder communication."
-                ),
-                "rubric": (
-                    "Score on situational judgment, policy alignment, communication clarity, and decision quality. "
-                    "Top responses are specific, defensible, and operationally practical."
-                ),
+                "keyword_expected_terms": [],
+                "learner_visible_feedback_mode": "admin_approved_only",
+                "answer_guidance": "Explain your approach with practical sequencing and risk controls.",
+                "ai_conversation_prompt": "",
+                "ai_role_or_persona": "",
+                "evaluation_focus": "",
+                "max_learner_responses": 3,
+                "optional_wrap_up_instruction": "",
             }
         )
 
@@ -116,8 +116,14 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
         "{"
         '"title": string, "description": string, "scenario": string, '
         '"category": string, "difficulty": string, "time_limit_minutes": number, '
-        '"questions": [{"question_text": string, "question_type": "open_text" | "multiple_choice", '
-        '"answer_guidance": string, "ideal_answer": string, "rubric": string}], '
+        '"questions": [{"question_text": string, "question_type": "open_text" | "multiple_choice" | "ai_conversation", '
+        '"scoring_type": "manual" | "keyword" | "llm", '
+        '"keyword_expected_terms": string[], "llm_grading_criteria": string, '
+        '"learner_visible_feedback_mode": "admin_approved_only" | "immediate", '
+        '"answer_guidance": string, '
+        '"choices": string[], '
+        '"ai_conversation_prompt": string, "ai_role_or_persona": string, "evaluation_focus": string, '
+        '"max_learner_responses": number, "optional_wrap_up_instruction": string}], '
         '"overall_rubric": string'
         "}. "
         f"Generate exactly {question_count} questions. "
@@ -172,15 +178,28 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
             if not question_text:
                 continue
             question_type = str(item.get("question_type", "open_text")).strip().lower()
-            if question_type not in {"open_text", "multiple_choice"}:
+            if question_type not in {"open_text", "multiple_choice", "ai_conversation"}:
                 question_type = "open_text"
+            scoring_type = str(item.get("scoring_type", "manual")).strip().lower()
+            if scoring_type not in {"manual", "keyword", "llm"}:
+                scoring_type = "manual"
+            if question_type == "ai_conversation" and scoring_type == "keyword":
+                scoring_type = "manual"
             safe_questions.append(
                 {
                     "question_text": question_text,
                     "question_type": question_type,
+                    "scoring_type": scoring_type,
+                    "keyword_expected_terms": item.get("keyword_expected_terms") if isinstance(item.get("keyword_expected_terms"), list) else [],
+                    "llm_grading_criteria": str(item.get("llm_grading_criteria", "")).strip(),
+                    "learner_visible_feedback_mode": str(item.get("learner_visible_feedback_mode") or "admin_approved_only").strip(),
                     "answer_guidance": str(item.get("answer_guidance", "")).strip(),
-                    "ideal_answer": str(item.get("ideal_answer", "")).strip(),
-                    "rubric": str(item.get("rubric", "")).strip(),
+                    "choices": item.get("choices") if isinstance(item.get("choices"), list) else [],
+                    "ai_conversation_prompt": str(item.get("ai_conversation_prompt", "")).strip(),
+                    "ai_role_or_persona": str(item.get("ai_role_or_persona", "")).strip(),
+                    "evaluation_focus": str(item.get("evaluation_focus", "")).strip(),
+                    "max_learner_responses": 4 if int(item.get("max_learner_responses") or 3) == 4 else 3,
+                    "optional_wrap_up_instruction": str(item.get("optional_wrap_up_instruction", "")).strip(),
                 }
             )
 
@@ -193,9 +212,17 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
                     {
                         "question_text": f"Question {len(safe_questions) + 1}: Add scenario-specific prompt.",
                         "question_type": "open_text",
+                        "scoring_type": "manual",
+                        "keyword_expected_terms": [],
+                        "llm_grading_criteria": "",
+                        "learner_visible_feedback_mode": "admin_approved_only",
                         "answer_guidance": "Add practical guidance with decision points and tradeoffs.",
-                        "ideal_answer": "Add an ideal answer that demonstrates realistic professional judgment.",
-                        "rubric": "Add concrete scoring criteria (accuracy, reasoning, communication, and action quality).",
+                        "choices": [],
+                        "ai_conversation_prompt": "",
+                        "ai_role_or_persona": "",
+                        "evaluation_focus": "",
+                        "max_learner_responses": 3,
+                        "optional_wrap_up_instruction": "",
                     }
                 )
 

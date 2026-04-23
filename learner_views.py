@@ -86,7 +86,7 @@ def _generate_ai_conversation_message(*, question: Dict, transcript: list[dict],
     persona = str(question.get("ai_role_or_persona") or "Training coach").strip()
     prompt = str(question.get("ai_conversation_prompt") or "").strip()
     evaluation_focus = str(question.get("evaluation_focus") or "").strip()
-    wrap_up_instruction = str(question.get("wrap_up_message_optional") or "").strip()
+    wrap_up_instruction = str(question.get("optional_wrap_up_instruction") or question.get("wrap_up_message_optional") or "").strip()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
         if not transcript:
