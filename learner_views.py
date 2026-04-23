@@ -35,6 +35,7 @@ VISIBILITY_FLAG_FIELDS = (
     "show_expected_answers_to_learner",
     "show_grading_criteria_to_learner",
     "show_ai_evaluation_details_to_learner",
+    "show_learner_responses_to_learner",
 )
 
 
@@ -193,6 +194,21 @@ def _visibility_flag_enabled(result_row: Dict | None, field_name: str, default: 
     return str(value).strip().lower() in {"1", "true", "t", "yes", "y"}
 
 
+def _visibility_settings(result_row: Dict | None) -> Dict[str, bool]:
+    defaults = {field: (field == "show_results_to_learner") for field in VISIBILITY_FLAG_FIELDS}
+    if not result_row:
+        return defaults
+    raw_json = result_row.get("results_visibility_json")
+    if isinstance(raw_json, str) and raw_json.strip():
+        try:
+            parsed = json.loads(raw_json)
+            if isinstance(parsed, dict):
+                return {field: _visibility_flag_enabled(parsed, field, default=defaults[field]) for field in VISIBILITY_FLAG_FIELDS}
+        except Exception:
+            pass
+    return {field: _visibility_flag_enabled(result_row, field, default=defaults[field]) for field in VISIBILITY_FLAG_FIELDS}
+
+
 def is_result_approved(result_row: Dict | None) -> bool:
     if not result_row:
         return False
@@ -233,7 +249,8 @@ def get_submission_status(result_row: Dict | None) -> Dict[str, str]:
 def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
     if not result_row or not is_result_approved(result_row):
         return None
-    if not _visibility_flag_enabled(result_row, "show_results_to_learner", default=True):
+    visibility = _visibility_settings(result_row)
+    if not visibility.get("show_results_to_learner", True):
         return None
 
     strengths = parse_json_list(result_row.get("learner_strengths") or result_row.get("strengths"))
@@ -246,7 +263,7 @@ def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
         "time_limit_seconds": result_row.get("time_limit_seconds"),
         "elapsed_seconds": result_row.get("elapsed_seconds"),
         "time_remaining_seconds": result_row.get("time_remaining_seconds"),
-        "visibility": {field: _visibility_flag_enabled(result_row, field, default=(field == "show_results_to_learner")) for field in VISIBILITY_FLAG_FIELDS},
+        "visibility": visibility,
         "review_status": _normalized_review_status(result_row),
     }
     visibility = learner_result["visibility"]
@@ -1439,6 +1456,7 @@ def _render_results_summary_tab(attempt: Dict, question_results: list[Dict] | No
 
     if question_results and (
         visibility.get("show_question_scores_to_learner")
+        or visibility.get("show_learner_responses_to_learner")
         or visibility.get("show_expected_answers_to_learner")
         or visibility.get("show_grading_criteria_to_learner")
         or visibility.get("show_ai_evaluation_details_to_learner")
@@ -1487,6 +1505,9 @@ def _render_ai_transcript(transcript_raw: object) -> bool:
 
 
 def _render_your_responses_tab(question_results: list[Dict] | None, visibility: Dict) -> None:
+    if not visibility.get("show_learner_responses_to_learner"):
+        st.info("Your response details are hidden for this result.")
+        return
     if not question_results:
         st.info("No learner responses were found for this module yet.")
         return
@@ -1615,7 +1636,9 @@ def render_progress_results_page(user: Dict) -> None:
                 COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
                 COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
                 COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
-                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner
+                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
+                COALESCE(ss.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
+                COALESCE(ss.results_visibility_json, '') AS results_visibility_json
             FROM assignments a
             LEFT JOIN attempts t
                 ON t.user_id = a.learner_id
