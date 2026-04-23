@@ -19,7 +19,6 @@ from log_viewer import (
     LOG_LEVEL_OPTIONS,
     filter_log_lines,
     get_recent_lines,
-    is_admin_session,
     read_full_file_for_download,
     read_log_lines,
 )
@@ -5434,13 +5433,13 @@ def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
 
 
 def render_admin_log_viewer() -> None:
-    """Admin-only debug panel for inspecting application logs."""
-    if not is_admin_session() or not is_dev_account(st.session_state.get("current_user")):
+    """Developer-only debug panel for inspecting application logs."""
+    if not is_dev_account(st.session_state.get("current_user")):
         st.warning("You do not have access to this section.")
         return
 
     st.subheader("Debug Panel")
-    st.caption("Inspect application logs without leaving the admin workspace.")
+    st.caption("Inspect application logs from any workspace when signed in as a developer account.")
 
     app_tab, error_tab, structured_tab, db_tester_tab = st.tabs(
         ["App Logs", "Error Logs", "Structured JSON Logs", "DB Tester"]
