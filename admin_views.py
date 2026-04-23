@@ -23,6 +23,7 @@ from log_viewer import (
     read_full_file_for_download,
     read_log_lines,
 )
+from permissions import is_dev_account
 from utils import (
     apply_learner_filters,
     build_learner_option_label,
@@ -5290,6 +5291,10 @@ def _qa_render_history() -> None:
 
 
 def render_admin_quality_hub(current_user: dict) -> None:
+    if not is_dev_account(current_user):
+        st.warning("You do not have access to this section.")
+        return
+
     st.subheader("QA Test Center")
     st.caption("Expanded QA dashboard for smoke, regression, workflow, edge-case, and safety checks.")
 
@@ -5335,6 +5340,10 @@ def render_admin_quality_hub(current_user: dict) -> None:
 
 
 def render_database_tables_view() -> None:
+    if not is_dev_account(st.session_state.get("current_user")):
+        st.warning("You do not have access to this section.")
+        return
+
     st.subheader("Database Tables")
     st.caption("Live table data from the connected database.")
 
@@ -5426,8 +5435,8 @@ def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
 
 def render_admin_log_viewer() -> None:
     """Admin-only debug panel for inspecting application logs."""
-    if not is_admin_session():
-        st.warning("This debug panel is only available to admin users.")
+    if not is_admin_session() or not is_dev_account(st.session_state.get("current_user")):
+        st.warning("You do not have access to this section.")
         return
 
     st.subheader("Debug Panel")
