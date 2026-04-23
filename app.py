@@ -524,7 +524,7 @@ def _google_user_name() -> str:
 
 
 def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
-    """Passwordless login that only authenticates database users."""
+    """Passwordless login that authenticates local users and keeps dev logins role-agnostic."""
     ident = (identifier or "").strip()
     if not ident:
         return False, "Enter your email or username to sign in.", None
@@ -532,9 +532,18 @@ def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str |
     user = find_user_by_email(ident, role=expected_role)
     if user is None:
         user = find_user_by_username(ident, role=expected_role)
-    if user is None:
-        return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
-    return True, None, user
+
+    if user is not None:
+        return True, None, user
+
+    # Developer accounts should stay lean: if one role exists, allow sign-in from either tab.
+    fallback_user = find_user_by_email(ident, role=None)
+    if fallback_user is None:
+        fallback_user = find_user_by_username(ident, role=None)
+    if fallback_user and is_dev_account(fallback_user):
+        return True, None, fallback_user
+
+    return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
 
 
 def validate_google_account(expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None, str | None]:
