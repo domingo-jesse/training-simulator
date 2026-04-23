@@ -1397,7 +1397,7 @@ def render_grading_center(current_user: dict) -> None:
             JOIN users u ON u.user_id = a.user_id
             JOIN modules m ON m.module_id = a.module_id
             LEFT JOIN submission_scores sc ON sc.attempt_id = a.attempt_id
-            LEFT JOIN public.submission_settings st ON st.module_id = a.module_id
+            LEFT JOIN public.submission_settings st ON st.module_id = a.module_id::text
             LEFT JOIN users approver ON approver.user_id = a.result_approved_by_user_id
             WHERE a.organization_id = ?
               AND u.is_active = TRUE
