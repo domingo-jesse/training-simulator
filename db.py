@@ -677,6 +677,10 @@ def init_db() -> None:
                     rationale TEXT,
                     expected_answer TEXT,
                     rubric TEXT,
+                    partial_credit_guidance TEXT,
+                    incorrect_criteria TEXT,
+                    incomplete_criteria TEXT,
+                    strong_response_criteria TEXT,
                     max_points DOUBLE PRECISION DEFAULT 10,
                     question_type TEXT DEFAULT 'open_text',
                     options_text TEXT,
@@ -1029,6 +1033,10 @@ def init_db() -> None:
                 rationale TEXT,
                 expected_answer TEXT,
                 rubric TEXT,
+                partial_credit_guidance TEXT,
+                incorrect_criteria TEXT,
+                incomplete_criteria TEXT,
+                strong_response_criteria TEXT,
                 max_points REAL DEFAULT 10,
                 question_type TEXT DEFAULT 'open_text',
                 options_text TEXT,
@@ -1560,6 +1568,10 @@ def init_db() -> None:
             _ensure_column(conn, "module_questions", "options_text", "TEXT")
             _ensure_column(conn, "module_questions", "expected_answer", "TEXT")
             _ensure_column(conn, "module_questions", "rubric", "TEXT")
+            _ensure_column(conn, "module_questions", "partial_credit_guidance", "TEXT")
+            _ensure_column(conn, "module_questions", "incorrect_criteria", "TEXT")
+            _ensure_column(conn, "module_questions", "incomplete_criteria", "TEXT")
+            _ensure_column(conn, "module_questions", "strong_response_criteria", "TEXT")
             _ensure_column(conn, "module_questions", "max_points", "DOUBLE PRECISION DEFAULT 10")
             _ensure_column(conn, "module_questions", "scoring_type", "TEXT DEFAULT 'manual'")
             _ensure_column(conn, "module_questions", "scoring_style", "TEXT")
