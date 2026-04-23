@@ -2336,6 +2336,13 @@ def _parse_lines(value: str) -> str:
     return "\n".join([line.strip() for line in value.splitlines() if line.strip()])
 
 
+def _normalize_question_type(value: object, fallback: str = "open_text") -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in QUESTION_TYPE_OPTIONS:
+        return normalized
+    return fallback
+
+
 def _normalize_question_scoring_type(value: object, fallback: str = "manual") -> str:
     normalized = str(value or "").strip().lower()
     if normalized in QUESTION_SCORING_OPTIONS:
@@ -2373,7 +2380,7 @@ def _normalize_module_scoring_fallback(module_value: object) -> str:
 def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, object]:
     scoring_type = _normalize_question_scoring_type(question.get("scoring_type"), fallback="manual")
     cleaned = dict(question)
-    question_type = str(cleaned.get("question_type") or "").strip().lower()
+    question_type = _normalize_question_type(cleaned.get("question_type"))
     if question_type == "ai_conversation" and scoring_type == "keyword":
         scoring_type = "manual"
     cleaned["scoring_type"] = scoring_type
@@ -4003,6 +4010,7 @@ def render_manage_modules(current_user: dict) -> None:
                 with st.container(border=True):
                     with st.form(f"edit_module_question_{state_prefix}_{question['question_id']}"):
                         st.markdown(f"**Q{question['question_order']}**")
+                        normalized_question_type = _normalize_question_type(question.get("question_type"))
                         edit_question_text = st.text_area(
                             "Question text",
                             value=question.get("question_text") or "",
@@ -4011,9 +4019,7 @@ def render_manage_modules(current_user: dict) -> None:
                         edit_question_type = st.selectbox(
                             "Question type",
                             options=QUESTION_TYPE_OPTIONS,
-                            index=QUESTION_TYPE_OPTIONS.index(question.get("question_type"))
-                            if question.get("question_type") in QUESTION_TYPE_OPTIONS
-                            else 0,
+                            index=QUESTION_TYPE_OPTIONS.index(normalized_question_type),
                             key=f"edit_question_type_{state_prefix}_{question['question_id']}",
                         )
                         edit_question_rubric = st.text_area(
