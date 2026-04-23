@@ -105,18 +105,24 @@ LEARNER_NAV_CONFIG = {
     "assigned_modules": "Assigned Modules",
     "module_workspace": "Module Workspace",
     "results": "Progress & Results",
+    "database_tables": "Database Tables",
+    "debug_logs": "Debug Logs",
 }
 LEARNER_PAGE_TO_NAV = {
     "home": "home",
     "assigned_modules": "assigned-modules",
     "module_workspace": "module-workspace",
     "results": "progress-results",
+    "database_tables": "database-tables",
+    "debug_logs": "debug-logs",
     "profile": "profile",
     "settings": "settings",
 }
 NAV_TO_LEARNER_PAGE = {value: key for key, value in LEARNER_PAGE_TO_NAV.items()}
 NAV_TO_LEARNER_PAGE["results"] = "results"
 NAV_TO_LEARNER_PAGE["my-progress"] = "results"
+DEV_ONLY_LEARNER_PAGES = {"database_tables", "debug_logs"}
+DEV_ONLY_LEARNER_NAV_SLUGS = {LEARNER_PAGE_TO_NAV[name] for name in DEV_ONLY_LEARNER_PAGES}
 ADMIN_MAIN_NAV_SLUGS = {
     slug for slug in ADMIN_PAGE_TO_NAV.values() if slug not in {"profile", "settings"}
 }
@@ -181,6 +187,9 @@ def _is_valid_main_page_key(page_key: str | None) -> bool:
             return False
         return nav_slug in ADMIN_MAIN_NAV_SLUGS
     if role == "learner":
+        user = st.session_state.get("current_user") or {}
+        if nav_slug in DEV_ONLY_LEARNER_NAV_SLUGS and not is_dev_account(user):
+            return False
         return nav_slug in LEARNER_MAIN_NAV_SLUGS
     return False
 
@@ -219,7 +228,8 @@ def _sync_current_page_with_query(role: str) -> str:
         user = st.session_state.get("current_user") or {}
         main_slugs = ADMIN_MAIN_NAV_SLUGS - DEV_ONLY_ADMIN_NAV_SLUGS if not is_dev_account(user) else ADMIN_MAIN_NAV_SLUGS
     else:
-        main_slugs = LEARNER_MAIN_NAV_SLUGS
+        user = st.session_state.get("current_user") or {}
+        main_slugs = LEARNER_MAIN_NAV_SLUGS - DEV_ONLY_LEARNER_NAV_SLUGS if not is_dev_account(user) else LEARNER_MAIN_NAV_SLUGS
     query_slug = _read_nav_from_query_params()
     active_key = st.session_state.get("current_page")
 
@@ -1551,7 +1561,9 @@ def render_main_app() -> None:
             elif normalized_page == "QA Test Center":
                 render_admin_quality_hub(user)
     else:
-        pages = list(LEARNER_NAV_CONFIG.keys())
+        pages = ["home", "assigned_modules", "module_workspace", "results"]
+        if is_dev_user:
+            pages.extend(["database_tables", "debug_logs"])
         if st.session_state.get("learner_page") not in pages:
             st.session_state["learner_page"] = "home"
 
@@ -1616,6 +1628,8 @@ def render_main_app() -> None:
             "assigned_modules": "medium",
             "module_workspace": "medium",
             "results": "medium",
+            "database_tables": "wide",
+            "debug_logs": "wide",
         }.get(current_page, "medium")
         with page_container(learner_container_variant):
             if current_page == "home":
@@ -1626,6 +1640,10 @@ def render_main_app() -> None:
                 render_scenario_page(user)
             elif current_page == "results":
                 render_progress_results_page(user)
+            elif current_page == "database_tables":
+                render_database_tables_view()
+            elif current_page == "debug_logs":
+                render_admin_log_viewer()
             else:
                 st.warning(f"Debug warning: unknown learner_page `{current_page}`; defaulting to assigned_modules.")
                 render_branch = "assigned_modules_fallback"
