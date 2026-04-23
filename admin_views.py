@@ -1772,36 +1772,33 @@ def render_grading_center(current_user: dict) -> None:
             value=visibility_defaults["show_results_to_learner"],
             disabled=not is_approved,
         )
-        show_overall_score_to_learner = st.checkbox(
-            "Show overall and category scores",
-            value=visibility_defaults["show_overall_score_to_learner"],
+        visibility_options = [
+            ("Show overall and category scores", "show_overall_score_to_learner"),
+            ("Show question scores", "show_question_scores_to_learner"),
+            ("Show feedback", "show_feedback_to_learner"),
+            ("Show expected answers", "show_expected_answers_to_learner"),
+            ("Show grading criteria", "show_grading_criteria_to_learner"),
+            ("Show AI evaluation details", "show_ai_evaluation_details_to_learner"),
+        ]
+        default_visibility_labels = [
+            label for label, field_name in visibility_options if visibility_defaults[field_name]
+        ]
+        selected_visibility_labels = st.multiselect(
+            "Select learner-visible sections",
+            options=[label for label, _ in visibility_options],
+            default=default_visibility_labels,
             disabled=not is_approved or not show_results_to_learner,
+            help="Select one or more learner-visible sections.",
         )
-        show_question_scores_to_learner = st.checkbox(
-            "Show question scores",
-            value=visibility_defaults["show_question_scores_to_learner"],
-            disabled=not is_approved or not show_results_to_learner,
-        )
-        show_feedback_to_learner = st.checkbox(
-            "Show feedback",
-            value=visibility_defaults["show_feedback_to_learner"],
-            disabled=not is_approved or not show_results_to_learner,
-        )
-        show_expected_answers_to_learner = st.checkbox(
-            "Show expected answers",
-            value=visibility_defaults["show_expected_answers_to_learner"],
-            disabled=not is_approved or not show_results_to_learner,
-        )
-        show_grading_criteria_to_learner = st.checkbox(
-            "Show grading criteria",
-            value=visibility_defaults["show_grading_criteria_to_learner"],
-            disabled=not is_approved or not show_results_to_learner,
-        )
-        show_ai_evaluation_details_to_learner = st.checkbox(
-            "Show AI evaluation details",
-            value=visibility_defaults["show_ai_evaluation_details_to_learner"],
-            disabled=not is_approved or not show_results_to_learner,
-        )
+        selected_visibility_fields = {
+            field_name for label, field_name in visibility_options if label in selected_visibility_labels
+        }
+        show_overall_score_to_learner = "show_overall_score_to_learner" in selected_visibility_fields
+        show_question_scores_to_learner = "show_question_scores_to_learner" in selected_visibility_fields
+        show_feedback_to_learner = "show_feedback_to_learner" in selected_visibility_fields
+        show_expected_answers_to_learner = "show_expected_answers_to_learner" in selected_visibility_fields
+        show_grading_criteria_to_learner = "show_grading_criteria_to_learner" in selected_visibility_fields
+        show_ai_evaluation_details_to_learner = "show_ai_evaluation_details_to_learner" in selected_visibility_fields
         saved_visibility = st.form_submit_button("Save learner visibility", use_container_width=True, disabled=not is_approved)
     if saved_visibility and is_approved:
         execute(
