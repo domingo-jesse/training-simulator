@@ -29,6 +29,7 @@ from learner_views import (
     render_scenario_page,
 )
 from logger import get_logger
+from permissions import is_dev_account
 from utils import inject_scroll_to_top, inject_styles, page_container
 
 DEBUG = False  # set to True only when debugging
@@ -96,6 +97,8 @@ ADMIN_PAGE_TO_NAV = {
     "Settings": "settings",
 }
 NAV_TO_ADMIN_PAGE = {value: key for key, value in ADMIN_PAGE_TO_NAV.items()}
+DEV_ONLY_ADMIN_PAGES = {"Database Tables", "Debug Logs", "QA Test Center"}
+DEV_ONLY_ADMIN_NAV_SLUGS = {ADMIN_PAGE_TO_NAV[name] for name in DEV_ONLY_ADMIN_PAGES}
 
 LEARNER_NAV_CONFIG = {
     "home": "Home",
@@ -173,6 +176,9 @@ def _is_valid_main_page_key(page_key: str | None) -> bool:
         return False
     role, nav_slug = str(page_key).split(":", 1)
     if role == "admin":
+        user = st.session_state.get("current_user") or {}
+        if nav_slug in DEV_ONLY_ADMIN_NAV_SLUGS and not is_dev_account(user):
+            return False
         return nav_slug in ADMIN_MAIN_NAV_SLUGS
     if role == "learner":
         return nav_slug in LEARNER_MAIN_NAV_SLUGS
@@ -209,7 +215,11 @@ def _navigate_back_to_main_app() -> None:
 
 def _sync_current_page_with_query(role: str) -> str:
     default_nav = _default_main_nav_for_role(role)
-    main_slugs = ADMIN_MAIN_NAV_SLUGS if role == "admin" else LEARNER_MAIN_NAV_SLUGS
+    if role == "admin":
+        user = st.session_state.get("current_user") or {}
+        main_slugs = ADMIN_MAIN_NAV_SLUGS - DEV_ONLY_ADMIN_NAV_SLUGS if not is_dev_account(user) else ADMIN_MAIN_NAV_SLUGS
+    else:
+        main_slugs = LEARNER_MAIN_NAV_SLUGS
     query_slug = _read_nav_from_query_params()
     active_key = st.session_state.get("current_page")
 
@@ -879,6 +889,11 @@ def _set_ui_event(event_name: str) -> None:
 
 
 def _render_database_connection_tester() -> None:
+    current_user = st.session_state.get("current_user") or {}
+    if not is_dev_account(current_user):
+        st.warning("You do not have access to this section.")
+        return
+
     st.markdown("#### Database Connection Tester")
     st.caption("Use this to verify the app can connect and detect the expected platform tables.")
     db_info = _get_db_info_cached()
@@ -944,14 +959,17 @@ def _render_database_connection_tester() -> None:
 def render_login_view() -> None:
     _log_render_debug("Render login view.", page="login")
 
+    current_user = st.session_state.get("current_user") or {}
+    can_view_db_tools = is_dev_account(current_user)
+
     if st.session_state.get("bootstrap_error"):
         st.error(
             "Database bootstrap failed, so sign-in and app pages are unavailable right now. "
-            "Open Database tools below and run the database test for details."
+            "A developer account can open Database tools and run the database test for details."
         )
         st.caption(f"Bootstrap error: {st.session_state['bootstrap_error']}")
 
-    if st.session_state.get("bootstrap_error"):
+    if st.session_state.get("bootstrap_error") and can_view_db_tools:
         with st.expander("Database tools", expanded=True):
             _render_database_connection_tester()
         return
@@ -1034,8 +1052,9 @@ def render_login_view() -> None:
             args=("create_link_admin",),
         )
 
-    with st.expander("Database tools", expanded=False):
-        _render_database_connection_tester()
+    if can_view_db_tools:
+        with st.expander("Database tools", expanded=False):
+            _render_database_connection_tester()
 
     ui_event = st.session_state.get("ui_event")
     if not ui_event:
@@ -1357,6 +1376,7 @@ def render_settings_page() -> None:
 
 def render_main_app() -> None:
     user = st.session_state["current_user"]
+    is_dev_user = is_dev_account(user)
     with st.sidebar:
         render_sidebar_profile_section(user)
     requested_page = st.session_state.get("page")
@@ -1392,14 +1412,17 @@ def render_main_app() -> None:
             "👥 Learner Management",
             "🧩 Module Builder",
             "📚 Manage Modules",
-            "🛠️ Database Tables",
-            "📝 Debug Logs",
         ]
-        qa_pages = ["🧪 QA Test Center"]
+        if is_dev_user:
+            operations_pages.extend(["🛠️ Database Tables", "📝 Debug Logs"])
+        qa_pages = ["🧪 QA Test Center"] if is_dev_user else []
         base_page_lookup = {re.sub(r"^[^\w]+", "", p).strip(): p for p in (operations_pages + qa_pages)}
         all_pages = operations_pages + qa_pages
 
         nav_requested_page = NAV_TO_ADMIN_PAGE.get(nav_page)
+        if nav_requested_page in DEV_ONLY_ADMIN_PAGES and not is_dev_user:
+            nav_requested_page = "Dashboard"
+            _set_nav(ADMIN_PAGE_TO_NAV["Dashboard"])
         if nav_requested_page in base_page_lookup:
             st.session_state["admin_page"] = base_page_lookup[nav_requested_page]
 
@@ -1423,6 +1446,9 @@ def render_main_app() -> None:
 
         current_group = st.session_state.get("admin_nav_group", "Operations")
         visible_pages = operations_pages if current_group == "Operations" else qa_pages
+        if not visible_pages:
+            st.session_state["admin_nav_group"] = "Operations"
+            visible_pages = operations_pages
         if st.session_state.get("admin_page") not in visible_pages:
             st.session_state["admin_page"] = visible_pages[0]
         st.session_state["page"] = None
@@ -1456,6 +1482,12 @@ def render_main_app() -> None:
                     _set_nav(option_slug)
                     st.rerun()
         normalized_page = NAV_TO_ADMIN_PAGE.get(current_slug, "Dashboard")
+        if normalized_page in DEV_ONLY_ADMIN_PAGES and not is_dev_user:
+            st.warning("You do not have access to this section.")
+            normalized_page = "Dashboard"
+            current_slug = ADMIN_PAGE_TO_NAV["Dashboard"]
+            st.session_state["current_page"] = _build_main_page_key("admin", current_slug)
+            _set_nav(current_slug)
         if st.session_state.get("nav") != current_slug:
             _set_nav(current_slug)
         st.session_state["current_page"] = _build_main_page_key("admin", current_slug)
