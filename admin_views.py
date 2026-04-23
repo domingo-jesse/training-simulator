@@ -4008,20 +4008,98 @@ def render_manage_modules(current_user: dict) -> None:
             st.markdown("#### Assessment questions")
             for question in module_questions:
                 with st.container(border=True):
-                    with st.form(f"edit_module_question_{state_prefix}_{question['question_id']}"):
-                        st.markdown(f"**Q{question['question_order']}**")
-                        normalized_question_type = _normalize_question_type(question.get("question_type"))
-                        edit_question_text = st.text_area(
-                            "Question text",
-                            value=question.get("question_text") or "",
-                            key=f"edit_question_text_{state_prefix}_{question['question_id']}",
+                    st.markdown(f"**Q{question['question_order']}**")
+                    normalized_question_type = _normalize_question_type(question.get("question_type"))
+                    edit_question_text = st.text_area(
+                        "Question text",
+                        value=question.get("question_text") or "",
+                        key=f"edit_question_text_{state_prefix}_{question['question_id']}",
+                    )
+                    edit_question_type = st.selectbox(
+                        "Question type",
+                        options=QUESTION_TYPE_OPTIONS,
+                        index=QUESTION_TYPE_OPTIONS.index(normalized_question_type),
+                        key=f"edit_question_type_{state_prefix}_{question['question_id']}",
+                    )
+                    current_q_style = _normalize_question_scoring_type(
+                        question.get("scoring_type"),
+                        fallback=_normalize_module_scoring_fallback(edit_form.get("scoring_style")),
+                    )
+                    scoring_method_key = f"edit_question_scoring_type_{state_prefix}_{question['question_id']}"
+                    if scoring_method_key not in st.session_state:
+                        st.session_state[scoring_method_key] = current_q_style
+                    edit_question_scoring_type = st.radio(
+                        "Scoring method",
+                        options=QUESTION_SCORING_OPTIONS,
+                        format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
+                        key=scoring_method_key,
+                        horizontal=True,
+                    )
+                    edit_question_max_points = st.number_input(
+                        "Max points",
+                        min_value=0.0,
+                        value=float(question.get("max_points") or 10),
+                        step=1.0,
+                        key=f"edit_question_points_{state_prefix}_{question['question_id']}",
+                    )
+                    if edit_question_scoring_type == "manual":
+                        edit_question_rubric = st.text_area(
+                            "Manual review guidance / rubric",
+                            value=question.get("rubric") or question.get("rationale") or "",
+                            key=f"edit_question_rationale_{state_prefix}_{question['question_id']}",
+                            help="Use this for manual review notes, rubric criteria, or grading guidance.",
                         )
-                        edit_question_type = st.selectbox(
-                            "Question type",
-                            options=QUESTION_TYPE_OPTIONS,
-                            index=QUESTION_TYPE_OPTIONS.index(normalized_question_type),
-                            key=f"edit_question_type_{state_prefix}_{question['question_id']}",
+                        edit_question_expected_answer = st.text_area(
+                            "Expected answer",
+                            value=question.get("expected_answer") or "",
+                            key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
                         )
+                        edit_question_keywords = st.session_state.get(
+                            f"edit_question_keywords_{state_prefix}_{question['question_id']}",
+                            _parse_lines(question.get("keyword_expected_terms") or question.get("expected_answer") or ""),
+                        )
+                        edit_question_llm_instructions = st.session_state.get(
+                            f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
+                            question.get("llm_grading_criteria") or "",
+                        )
+                        edit_question_partial_credit = st.text_area(
+                            "Partial credit guidance",
+                            value=question.get("partial_credit_guidance") or "",
+                            key=f"edit_question_partial_credit_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_incorrect = st.text_area(
+                            "What counts as incorrect",
+                            value=question.get("incorrect_criteria") or "",
+                            key=f"edit_question_incorrect_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_incomplete = st.text_area(
+                            "What counts as incomplete",
+                            value=question.get("incomplete_criteria") or "",
+                            key=f"edit_question_incomplete_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_strong = st.text_area(
+                            "What counts as strong",
+                            value=question.get("strong_response_criteria") or "",
+                            key=f"edit_question_strong_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_rubric_criteria = st.session_state.get(
+                            f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
+                            "\n".join(
+                                [
+                                    " | ".join(
+                                        [
+                                            str(item.get("label") or ""),
+                                            str(item.get("max_points") or 1),
+                                            str(item.get("grading_guidance") or ""),
+                                        ]
+                                    ).strip(" |")
+                                    for item in _coerce_rubric_criteria(question.get("rubric_criteria_json"))
+                                    if isinstance(item, dict)
+                                ]
+                            ),
+                        )
+                        st.caption("This question will be scored by an admin during manual review.")
+                    elif edit_question_scoring_type == "keyword":
                         edit_question_rubric = st.text_area(
                             "Rubric / expected answer",
                             value=question.get("rubric") or question.get("rationale") or "",
@@ -4037,6 +4115,63 @@ def render_manage_modules(current_user: dict) -> None:
                             "Keywords / required concepts (one per line)",
                             value=_parse_lines(question.get("keyword_expected_terms") or question.get("expected_answer") or ""),
                             key=f"edit_question_keywords_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_llm_instructions = st.session_state.get(
+                            f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
+                            question.get("llm_grading_criteria") or "",
+                        )
+                        edit_question_partial_credit = st.text_area(
+                            "Partial credit guidance",
+                            value=question.get("partial_credit_guidance") or "",
+                            key=f"edit_question_partial_credit_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_incorrect = st.text_area(
+                            "What counts as incorrect",
+                            value=question.get("incorrect_criteria") or "",
+                            key=f"edit_question_incorrect_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_incomplete = st.text_area(
+                            "What counts as incomplete",
+                            value=question.get("incomplete_criteria") or "",
+                            key=f"edit_question_incomplete_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_strong = st.text_area(
+                            "What counts as strong",
+                            value=question.get("strong_response_criteria") or "",
+                            key=f"edit_question_strong_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_rubric_criteria = st.session_state.get(
+                            f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
+                            "\n".join(
+                                [
+                                    " | ".join(
+                                        [
+                                            str(item.get("label") or ""),
+                                            str(item.get("max_points") or 1),
+                                            str(item.get("grading_guidance") or ""),
+                                        ]
+                                    ).strip(" |")
+                                    for item in _coerce_rubric_criteria(question.get("rubric_criteria_json"))
+                                    if isinstance(item, dict)
+                                ]
+                            ),
+                        )
+                        st.caption("Keyword scoring uses keyword list, expected answer, and partial-match guidance.")
+                    else:
+                        edit_question_rubric = st.text_area(
+                            "Rubric / expected answer",
+                            value=question.get("rubric") or question.get("rationale") or "",
+                            key=f"edit_question_rationale_{state_prefix}_{question['question_id']}",
+                            help="Use this for expected answer notes, rubric criteria, or grading guidance.",
+                        )
+                        edit_question_expected_answer = st.text_area(
+                            "Expected answer",
+                            value=question.get("expected_answer") or "",
+                            key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_keywords = st.session_state.get(
+                            f"edit_question_keywords_{state_prefix}_{question['question_id']}",
+                            _parse_lines(question.get("keyword_expected_terms") or question.get("expected_answer") or ""),
                         )
                         edit_question_llm_instructions = st.text_area(
                             "LLM grading instructions",
@@ -4081,80 +4216,52 @@ def render_manage_modules(current_user: dict) -> None:
                             key=f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
                             height=100,
                         )
-                        current_q_style = _normalize_question_scoring_type(
-                            question.get("scoring_type"),
-                            fallback=_normalize_module_scoring_fallback(edit_form.get("scoring_style")),
-                        )
-                        edit_question_scoring_type = st.radio(
-                            "Scoring method",
-                            options=QUESTION_SCORING_OPTIONS,
-                            index=_safe_scoring_option_index(
-                                current_q_style,
-                                QUESTION_SCORING_OPTIONS,
-                                fallback="manual",
-                            ),
-                            format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
-                            key=f"edit_question_scoring_type_{state_prefix}_{question['question_id']}",
-                            horizontal=True,
-                        )
-                        edit_question_max_points = st.number_input(
-                            "Max points",
-                            min_value=0.0,
-                            value=float(question.get("max_points") or 10),
-                            step=1.0,
-                            key=f"edit_question_points_{state_prefix}_{question['question_id']}",
-                        )
-                        edit_question_options = st.text_area(
-                            "Options (one per line; multiple choice only)",
-                            value="\n".join(_normalize_question_choices(question)),
-                            key=f"edit_question_options_{state_prefix}_{question['question_id']}",
-                            disabled=edit_question_type != "multiple_choice",
-                        )
-                        edit_ai_prompt = st.text_area(
-                            "Scenario prompt / conversation setup",
-                            value=question.get("ai_conversation_prompt") or "",
-                            key=f"edit_question_ai_prompt_{state_prefix}_{question['question_id']}",
-                            disabled=edit_question_type != "ai_conversation",
-                        )
-                        edit_ai_persona = st.text_input(
-                            "AI persona / role",
-                            value=question.get("ai_role_or_persona") or "",
-                            key=f"edit_question_ai_persona_{state_prefix}_{question['question_id']}",
-                            disabled=edit_question_type != "ai_conversation",
-                        )
-                        edit_evaluation_focus = st.text_input(
-                            "What skill is being evaluated",
-                            value=question.get("evaluation_focus") or "",
-                            key=f"edit_question_eval_focus_{state_prefix}_{question['question_id']}",
-                            disabled=edit_question_type != "ai_conversation",
-                        )
-                        edit_max_responses = st.selectbox(
-                            "Max learner responses",
-                            options=AI_CONVERSATION_MAX_RESPONSE_OPTIONS,
-                            index=AI_CONVERSATION_MAX_RESPONSE_OPTIONS.index(
-                                _normalize_ai_max_responses(question.get("max_learner_responses"))
-                            ),
-                            key=f"edit_question_max_responses_{state_prefix}_{question['question_id']}",
-                            disabled=edit_question_type != "ai_conversation",
-                        )
-                        edit_wrap_up = st.text_area(
-                            "Optional closing instruction for AI",
-                            value=question.get("optional_wrap_up_instruction") or "",
-                            key=f"edit_question_wrap_up_{state_prefix}_{question['question_id']}",
-                            disabled=edit_question_type != "ai_conversation",
-                        )
-                        if edit_question_scoring_type == "manual":
-                            st.caption("This question will be scored by an admin during manual review.")
-                        elif edit_question_scoring_type == "keyword" and edit_question_type != "ai_conversation":
-                            st.caption("Keyword scoring uses the keyword list and expected answer fields.")
-                        else:
-                            st.caption("LLM scoring uses LLM instructions, rubric criteria, and grading guidance fields.")
-                        q_action_col_1, q_action_col_2 = st.columns(2)
-                        with q_action_col_1:
-                            question_saved = st.form_submit_button("Save question", use_container_width=True)
-                        with q_action_col_2:
-                            question_deleted = st.form_submit_button("Delete question", use_container_width=True)
-                        if question_saved:
+                        st.caption("LLM scoring uses grading instructions, expected answer, rubric criteria, and guidance.")
+                    edit_question_options = st.text_area(
+                        "Options (one per line; multiple choice only)",
+                        value="\n".join(_normalize_question_choices(question)),
+                        key=f"edit_question_options_{state_prefix}_{question['question_id']}",
+                        disabled=edit_question_type != "multiple_choice",
+                    )
+                    edit_ai_prompt = st.text_area(
+                        "Scenario prompt / conversation setup",
+                        value=question.get("ai_conversation_prompt") or "",
+                        key=f"edit_question_ai_prompt_{state_prefix}_{question['question_id']}",
+                        disabled=edit_question_type != "ai_conversation",
+                    )
+                    edit_ai_persona = st.text_input(
+                        "AI persona / role",
+                        value=question.get("ai_role_or_persona") or "",
+                        key=f"edit_question_ai_persona_{state_prefix}_{question['question_id']}",
+                        disabled=edit_question_type != "ai_conversation",
+                    )
+                    edit_evaluation_focus = st.text_input(
+                        "What skill is being evaluated",
+                        value=question.get("evaluation_focus") or "",
+                        key=f"edit_question_eval_focus_{state_prefix}_{question['question_id']}",
+                        disabled=edit_question_type != "ai_conversation",
+                    )
+                    edit_max_responses = st.selectbox(
+                        "Max learner responses",
+                        options=AI_CONVERSATION_MAX_RESPONSE_OPTIONS,
+                        index=AI_CONVERSATION_MAX_RESPONSE_OPTIONS.index(
+                            _normalize_ai_max_responses(question.get("max_learner_responses"))
+                        ),
+                        key=f"edit_question_max_responses_{state_prefix}_{question['question_id']}",
+                        disabled=edit_question_type != "ai_conversation",
+                    )
+                    edit_wrap_up = st.text_area(
+                        "Optional closing instruction for AI",
+                        value=question.get("optional_wrap_up_instruction") or "",
+                        key=f"edit_question_wrap_up_{state_prefix}_{question['question_id']}",
+                        disabled=edit_question_type != "ai_conversation",
+                    )
+                    q_action_col_1, q_action_col_2 = st.columns(2)
+                    with q_action_col_1:
+                        question_saved = st.button("Save question", key=f"save_question_{state_prefix}_{question['question_id']}", use_container_width=True)
+                    with q_action_col_2:
+                        question_deleted = st.button("Delete question", key=f"delete_question_{state_prefix}_{question['question_id']}", use_container_width=True)
+                    if question_saved:
                             execute(
                                 """
                                 UPDATE module_questions
@@ -4194,10 +4301,10 @@ def render_manage_modules(current_user: dict) -> None:
                             )
                             st.success("Question updated.")
                             st.rerun()
-                        if question_deleted:
-                            execute("DELETE FROM module_questions WHERE question_id = ?", (question["question_id"],))
-                            st.success("Question deleted.")
-                            st.rerun()
+                    if question_deleted:
+                        execute("DELETE FROM module_questions WHERE question_id = ?", (question["question_id"],))
+                        st.success("Question deleted.")
+                        st.rerun()
 
             with st.form(f"add_module_question_{state_prefix}_{module_id}"):
                 st.markdown("Add question")
