@@ -32,6 +32,26 @@ def _keywords(text: str) -> list[str]:
     return seen[:30]
 
 
+def _jsonb_param(value: Any, fallback: Any) -> str:
+    """Return a JSON string safe for JSON/JSONB inserts."""
+    candidate = value
+    if candidate is None or candidate == "":
+        candidate = fallback
+    if isinstance(candidate, str):
+        stripped = candidate.strip()
+        if not stripped:
+            candidate = fallback
+        else:
+            try:
+                candidate = json.loads(stripped)
+            except Exception:
+                candidate = fallback
+    try:
+        return json.dumps(candidate)
+    except Exception:
+        return json.dumps(fallback)
+
+
 def _parse_rubric_criteria(criteria_json: str | None, rubric_text: str | None) -> list[dict[str, Any]]:
     criteria: list[dict[str, Any]] = []
     if criteria_json:
@@ -216,6 +236,12 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
 
             total_score += float(graded["awarded_points"])
             max_total_score += max_points
+            missing_key_concepts_json = _jsonb_param(graded.get("missing_elements"), [])
+            score_breakdown_json = _jsonb_param(graded.get("breakdown"), [])
+            conversation_transcript_json = _jsonb_param(
+                transcript_payload if str(question.get("question_type") or "").strip() == "ai_conversation" else [],
+                [],
+            )
             execute(
                 """
                 INSERT INTO submission_question_scores (
@@ -224,7 +250,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     ai_feedback, ai_reasoning, missing_key_concepts, final_awarded_points,
                     visible_to_learner, is_admin_override, scoring_method, score_breakdown_json, conversation_transcript
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?, FALSE, FALSE, ?, ?::jsonb, ?::jsonb)
                 ON CONFLICT(attempt_id, question_id) DO UPDATE SET
                     ai_score = excluded.ai_score,
                     final_score = excluded.final_score,
@@ -252,11 +278,11 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     graded["max_points"],
                     graded["feedback"],
                     graded["reasoning"],
-                    json.dumps(graded["missing_elements"]),
+                    missing_key_concepts_json,
                     graded["awarded_points"],
                     q_style,
-                    json.dumps(graded["breakdown"]),
-                    learner_answer if str(question.get("question_type") or "").strip() == "ai_conversation" else "",
+                    score_breakdown_json,
+                    conversation_transcript_json,
                 ),
             )
             if str(question.get("question_type") or "").strip() == "ai_conversation":
