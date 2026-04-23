@@ -1389,6 +1389,8 @@ def render_grading_center(current_user: dict) -> None:
                 COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
                 COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
                 COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
+                COALESCE(ss.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
+                COALESCE(ss.results_visibility_json, '') AS results_visibility_json,
                 ss.scoring_version,
                 a.ai_feedback
             FROM attempts a
@@ -1425,6 +1427,8 @@ def render_grading_center(current_user: dict) -> None:
             "show_expected_answers_to_learner",
             "show_grading_criteria_to_learner",
             "show_ai_evaluation_details_to_learner",
+            "show_learner_responses_to_learner",
+            "results_visibility_json",
             "scoring_version",
             "ai_feedback",
         ],
@@ -1755,8 +1759,8 @@ def render_grading_center(current_user: dict) -> None:
             st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
 
-    st.markdown("#### Learner visibility")
-    st.caption("Approval and learner visibility are separate controls. Learners only see sections that are both approved and enabled.")
+    st.markdown("#### Results Visibility")
+    st.caption("Approval and visibility are separate controls. Learners only see approved result sections that are explicitly enabled here.")
     visibility_defaults = {
         "show_results_to_learner": bool(selected_attempt_row.get("show_results_to_learner")),
         "show_overall_score_to_learner": bool(selected_attempt_row.get("show_overall_score_to_learner")),
@@ -1765,6 +1769,7 @@ def render_grading_center(current_user: dict) -> None:
         "show_expected_answers_to_learner": bool(selected_attempt_row.get("show_expected_answers_to_learner")),
         "show_grading_criteria_to_learner": bool(selected_attempt_row.get("show_grading_criteria_to_learner")),
         "show_ai_evaluation_details_to_learner": bool(selected_attempt_row.get("show_ai_evaluation_details_to_learner")),
+        "show_learner_responses_to_learner": bool(selected_attempt_row.get("show_learner_responses_to_learner")),
     }
     with st.form(f"learner_visibility_form_{selected_attempt_id}"):
         show_results_to_learner = st.checkbox(
@@ -1773,12 +1778,13 @@ def render_grading_center(current_user: dict) -> None:
             disabled=not is_approved,
         )
         visibility_options = [
-            ("Show overall and category scores", "show_overall_score_to_learner"),
-            ("Show question scores", "show_question_scores_to_learner"),
-            ("Show feedback", "show_feedback_to_learner"),
-            ("Show expected answers", "show_expected_answers_to_learner"),
-            ("Show grading criteria", "show_grading_criteria_to_learner"),
-            ("Show AI evaluation details", "show_ai_evaluation_details_to_learner"),
+            ("Overall score", "show_overall_score_to_learner"),
+            ("Per-question score", "show_question_scores_to_learner"),
+            ("Feedback / comments", "show_feedback_to_learner"),
+            ("Expected answer / rationale", "show_expected_answers_to_learner"),
+            ("Learner responses", "show_learner_responses_to_learner"),
+            ("AI review details", "show_ai_evaluation_details_to_learner"),
+            ("Grading criteria", "show_grading_criteria_to_learner"),
         ]
         default_visibility_labels = [
             label for label, field_name in visibility_options if visibility_defaults[field_name]
@@ -1799,8 +1805,19 @@ def render_grading_center(current_user: dict) -> None:
         show_expected_answers_to_learner = "show_expected_answers_to_learner" in selected_visibility_fields
         show_grading_criteria_to_learner = "show_grading_criteria_to_learner" in selected_visibility_fields
         show_ai_evaluation_details_to_learner = "show_ai_evaluation_details_to_learner" in selected_visibility_fields
-        saved_visibility = st.form_submit_button("Save learner visibility", use_container_width=True, disabled=not is_approved)
+        show_learner_responses_to_learner = "show_learner_responses_to_learner" in selected_visibility_fields
+        saved_visibility = st.form_submit_button("Save results visibility", use_container_width=True, disabled=not is_approved)
     if saved_visibility and is_approved:
+        results_visibility = {
+            "show_results_to_learner": bool(show_results_to_learner),
+            "show_overall_score_to_learner": bool(show_overall_score_to_learner),
+            "show_question_scores_to_learner": bool(show_question_scores_to_learner),
+            "show_feedback_to_learner": bool(show_feedback_to_learner),
+            "show_expected_answers_to_learner": bool(show_expected_answers_to_learner),
+            "show_grading_criteria_to_learner": bool(show_grading_criteria_to_learner),
+            "show_ai_evaluation_details_to_learner": bool(show_ai_evaluation_details_to_learner),
+            "show_learner_responses_to_learner": bool(show_learner_responses_to_learner),
+        }
         execute(
             """
             UPDATE submission_scores
@@ -1810,7 +1827,9 @@ def render_grading_center(current_user: dict) -> None:
                 show_feedback_to_learner = ?,
                 show_expected_answers_to_learner = ?,
                 show_grading_criteria_to_learner = ?,
-                show_ai_evaluation_details_to_learner = ?
+                show_ai_evaluation_details_to_learner = ?,
+                show_learner_responses_to_learner = ?,
+                results_visibility_json = ?
             WHERE attempt_id = ?
             """,
             (
@@ -1821,10 +1840,12 @@ def render_grading_center(current_user: dict) -> None:
                 show_expected_answers_to_learner,
                 show_grading_criteria_to_learner,
                 show_ai_evaluation_details_to_learner,
+                show_learner_responses_to_learner,
+                json.dumps(results_visibility),
                 int(selected_attempt_id),
             ),
         )
-        st.session_state[approval_status_key] = ("success", "Learner visibility settings saved.")
+        st.session_state[approval_status_key] = ("success", "Results visibility settings saved.")
         st.session_state[approval_status_expiry_key] = time.time() + 8
         st.rerun()
 
@@ -2741,7 +2762,6 @@ def render_module_builder(current_user: dict) -> None:
         "module_builder_quiz_required",
         "module_builder_estimated_minutes",
         "module_builder_attempt_limit",
-        "module_builder_learner_feedback_visibility",
     ]
 
     default_form = {
@@ -2759,7 +2779,6 @@ def render_module_builder(current_user: dict) -> None:
         "estimated_minutes": 20,
         "question_count": 1,
         "attempt_limit": 1,
-        "learner_feedback_visibility": "admin_approved_only",
         "questions": [
             {
                 "question_text": "",
@@ -2995,9 +3014,7 @@ def render_module_builder(current_user: dict) -> None:
         module_form["quiz_required"] = _normalize_bool(st.session_state.get("module_builder_quiz_required", True), default=True)
         module_form["estimated_minutes"] = int(st.session_state.get("module_builder_estimated_minutes", 20))
         module_form["attempt_limit"] = int(st.session_state.get("module_builder_attempt_limit", 1))
-        module_form["learner_feedback_visibility"] = st.session_state.get(
-            "module_builder_learner_feedback_visibility", "admin_approved_only"
-        )
+        module_form["learner_feedback_visibility"] = "admin_approved_only"
 
     def _autosave(force: bool = False) -> None:
         _sync_form_from_widgets()
@@ -3024,7 +3041,6 @@ def render_module_builder(current_user: dict) -> None:
         "module_builder_quiz_required": _normalize_bool(module_form.get("quiz_required"), default=True),
         "module_builder_estimated_minutes": int(module_form.get("estimated_minutes", 20)),
         "module_builder_attempt_limit": int(module_form.get("attempt_limit", 1)),
-        "module_builder_learner_feedback_visibility": module_form.get("learner_feedback_visibility", "admin_approved_only"),
     }
     for key, value in widget_defaults.items():
         if key not in st.session_state:
@@ -3420,15 +3436,6 @@ def render_module_builder(current_user: dict) -> None:
             key="module_builder_completion_requirements",
             on_change=lambda: _mark_dirty("completion_requirements"),
             height=120,
-        )
-
-    st.markdown("### Feedback Settings")
-    with st.container(border=True):
-        st.selectbox(
-            "Learner-visible feedback",
-            options=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"],
-            key="module_builder_learner_feedback_visibility",
-            on_change=lambda: _mark_dirty("learner_feedback_visibility"),
         )
 
     st.markdown("### Settings")
@@ -3922,17 +3929,7 @@ def render_manage_modules(current_user: dict) -> None:
                 value=edit_form.get("completion_requirements", ""),
                 height=110,
             )
-            st.markdown("#### Feedback")
-            edit_form["learner_feedback_visibility"] = st.selectbox(
-                "Learner feedback visibility",
-                options=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"],
-                index=["admin_approved_only", "always_show_ai_feedback", "hide_feedback"].index(
-                    str(edit_form.get("learner_feedback_visibility") or "admin_approved_only")
-                    if str(edit_form.get("learner_feedback_visibility") or "admin_approved_only") in ["admin_approved_only", "always_show_ai_feedback", "hide_feedback"]
-                    else "admin_approved_only"
-                ),
-                key=f"edit_module_feedback_visibility_{state_prefix}_{module_id}",
-            )
+            st.caption("Learner result publishing is controlled per reviewed submission in the Results Visibility workflow.")
 
             st.markdown("---")
             st.markdown("#### Scenario")

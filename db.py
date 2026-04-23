@@ -489,6 +489,8 @@ def init_db() -> None:
                     show_expected_answers_to_learner BOOLEAN DEFAULT FALSE,
                     show_grading_criteria_to_learner BOOLEAN DEFAULT FALSE,
                     show_ai_evaluation_details_to_learner BOOLEAN DEFAULT FALSE,
+                    show_learner_responses_to_learner BOOLEAN DEFAULT FALSE,
+                    results_visibility_json TEXT,
                     approved_by BIGINT,
                     approved_at TIMESTAMPTZ,
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -839,6 +841,8 @@ def init_db() -> None:
                 show_expected_answers_to_learner INTEGER DEFAULT 0,
                 show_grading_criteria_to_learner INTEGER DEFAULT 0,
                 show_ai_evaluation_details_to_learner INTEGER DEFAULT 0,
+                show_learner_responses_to_learner INTEGER DEFAULT 0,
+                results_visibility_json TEXT,
                 approved_by INTEGER,
                 approved_at TEXT,
                 FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -1374,6 +1378,13 @@ def init_db() -> None:
                 "show_ai_evaluation_details_to_learner",
                 "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
             )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_learner_responses_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(conn, "submission_scores", "results_visibility_json", "TEXT")
             _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
             _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "submission_scores", "scoring_method", "TEXT DEFAULT 'keyword'")
@@ -1416,6 +1427,36 @@ def init_db() -> None:
                           AND COALESCE(show_ai_evaluation_details_to_learner, FALSE) = FALSE
                         """
                     )
+                    cur.execute(
+                        """
+                        UPDATE submission_scores ss
+                        SET results_visibility_json = jsonb_build_object(
+                            'show_results_to_learner', COALESCE(ss.show_results_to_learner, FALSE),
+                            'show_overall_score_to_learner', COALESCE(ss.show_overall_score_to_learner, FALSE),
+                            'show_question_scores_to_learner', COALESCE(ss.show_question_scores_to_learner, FALSE),
+                            'show_feedback_to_learner', COALESCE(ss.show_feedback_to_learner, FALSE),
+                            'show_expected_answers_to_learner', COALESCE(ss.show_expected_answers_to_learner, FALSE),
+                            'show_grading_criteria_to_learner', COALESCE(ss.show_grading_criteria_to_learner, FALSE),
+                            'show_ai_evaluation_details_to_learner', COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE),
+                            'show_learner_responses_to_learner', COALESCE(ss.show_learner_responses_to_learner, FALSE)
+                        )::TEXT
+                        FROM attempts a
+                        JOIN modules m ON m.module_id = a.module_id
+                        WHERE ss.attempt_id = a.attempt_id
+                          AND COALESCE(BTRIM(ss.results_visibility_json), '') = ''
+                        """
+                    )
+                    cur.execute(
+                        """
+                        UPDATE submission_scores ss
+                        SET show_feedback_to_learner = TRUE
+                        FROM attempts a
+                        JOIN modules m ON m.module_id = a.module_id
+                        WHERE ss.attempt_id = a.attempt_id
+                          AND COALESCE(ss.show_feedback_to_learner, FALSE) = FALSE
+                          AND LOWER(BTRIM(COALESCE(m.learner_feedback_visibility, 'admin_approved_only'))) = 'always_show_ai_feedback'
+                        """
+                    )
             else:
                 conn.execute(
                     """
@@ -1429,6 +1470,35 @@ def init_db() -> None:
                             THEN 'pending_review'
                         ELSE 'submitted'
                     END
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE submission_scores
+                    SET show_feedback_to_learner = 1
+                    WHERE COALESCE(show_feedback_to_learner, 0) = 0
+                      AND attempt_id IN (
+                          SELECT a.attempt_id
+                          FROM attempts a
+                          JOIN modules m ON m.module_id = a.module_id
+                          WHERE LOWER(TRIM(COALESCE(m.learner_feedback_visibility, 'admin_approved_only'))) = 'always_show_ai_feedback'
+                      )
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE submission_scores
+                    SET results_visibility_json = json_object(
+                        'show_results_to_learner', COALESCE(show_results_to_learner, 0),
+                        'show_overall_score_to_learner', COALESCE(show_overall_score_to_learner, 0),
+                        'show_question_scores_to_learner', COALESCE(show_question_scores_to_learner, 0),
+                        'show_feedback_to_learner', COALESCE(show_feedback_to_learner, 0),
+                        'show_expected_answers_to_learner', COALESCE(show_expected_answers_to_learner, 0),
+                        'show_grading_criteria_to_learner', COALESCE(show_grading_criteria_to_learner, 0),
+                        'show_ai_evaluation_details_to_learner', COALESCE(show_ai_evaluation_details_to_learner, 0),
+                        'show_learner_responses_to_learner', COALESCE(show_learner_responses_to_learner, 0)
+                    )
+                    WHERE COALESCE(TRIM(results_visibility_json), '') = ''
                     """
                 )
                 conn.execute(
