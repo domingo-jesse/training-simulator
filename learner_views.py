@@ -26,7 +26,16 @@ WIZARD_STEPS = [
 SUBMITTED_STATE_IN_PROGRESS = 0
 SUBMITTED_STATE_SUBMITTED = 1
 SUBMITTED_STATE_APPROVED = 2
-APPROVED_GRADING_STATUS = "approved"
+APPROVED_REVIEW_STATUS = "approved"
+VISIBILITY_FLAG_FIELDS = (
+    "show_results_to_learner",
+    "show_overall_score_to_learner",
+    "show_question_scores_to_learner",
+    "show_feedback_to_learner",
+    "show_expected_answers_to_learner",
+    "show_grading_criteria_to_learner",
+    "show_ai_evaluation_details_to_learner",
+)
 
 
 def _clamp_wizard_step(step_value: int) -> int:
@@ -155,12 +164,39 @@ def _submitted_state_value(value: object) -> int:
     return SUBMITTED_STATE_IN_PROGRESS
 
 
+def _normalized_review_status(result_row: Dict | None) -> str:
+    if not result_row:
+        return "submitted"
+    explicit_review_status = str(result_row.get("review_status") or "").strip().lower()
+    if explicit_review_status in {"submitted", "pending_review", "approved"}:
+        return explicit_review_status
+
+    grading_status = str(result_row.get("grading_status") or "").strip().lower()
+    attempt_status = str(result_row.get("result_status") or "").strip().lower()
+    if grading_status == "approved" or attempt_status == "approved":
+        return "approved"
+    if attempt_status in {"submitted", "pending_review", "ai_grading", "ai_graded_pending_review", "returned", "grading_failed"}:
+        return "pending_review"
+    return "submitted"
+
+
+def _visibility_flag_enabled(result_row: Dict | None, field_name: str, default: bool = False) -> bool:
+    if not result_row:
+        return default
+    value = result_row.get(field_name)
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return int(value) != 0
+    return str(value).strip().lower() in {"1", "true", "t", "yes", "y"}
+
+
 def is_result_approved(result_row: Dict | None) -> bool:
     if not result_row:
         return False
-    grading_status = str(result_row.get("grading_status") or "").strip().lower()
-    attempt_status = str(result_row.get("result_status") or "").strip().lower()
-    return grading_status == APPROVED_GRADING_STATUS or attempt_status == APPROVED_GRADING_STATUS
+    return _normalized_review_status(result_row) == APPROVED_REVIEW_STATUS
 
 
 def get_submission_status(result_row: Dict | None) -> Dict[str, str]:
@@ -171,16 +207,18 @@ def get_submission_status(result_row: Dict | None) -> Dict[str, str]:
             "message": "No submission is available for this assignment yet.",
         }
 
-    if is_result_approved(result_row):
+    review_status = _normalized_review_status(result_row)
+    if review_status == "approved":
         return {
             "label": "Approved",
             "headline": "Results Approved",
-            "message": "Your scores and review details are available below.",
+            "message": "Your submission is approved. Learner-visible results are shown below when enabled by your admin.",
         }
 
     if result_row.get("attempt_id"):
+        pending_label = "Pending Review" if review_status == "pending_review" else "Submitted"
         return {
-            "label": "Pending Review",
+            "label": pending_label,
             "headline": "Results Not Yet Approved",
             "message": "Submitted • Pending Review. Scores and detailed feedback will appear after admin approval.",
         }
@@ -195,10 +233,12 @@ def get_submission_status(result_row: Dict | None) -> Dict[str, str]:
 def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
     if not result_row or not is_result_approved(result_row):
         return None
+    if not _visibility_flag_enabled(result_row, "show_results_to_learner", default=True):
+        return None
 
     strengths = parse_json_list(result_row.get("learner_strengths") or result_row.get("strengths"))
     weaknesses = parse_json_list(result_row.get("learner_weaknesses") or result_row.get("missed_points"))
-    return {
+    learner_result = {
         "attempt_id": result_row.get("attempt_id"),
         "title": result_row.get("title"),
         "timed_out": result_row.get("timed_out"),
@@ -206,19 +246,25 @@ def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
         "time_limit_seconds": result_row.get("time_limit_seconds"),
         "elapsed_seconds": result_row.get("elapsed_seconds"),
         "time_remaining_seconds": result_row.get("time_remaining_seconds"),
-        "total_score": result_row.get("approved_percentage"),
-        "understanding_score": result_row.get("understanding_score"),
-        "investigation_score": result_row.get("investigation_score"),
-        "solution_score": result_row.get("solution_score"),
-        "communication_score": result_row.get("communication_score"),
-        "strengths": strengths,
-        "missed_points": weaknesses,
-        "best_practice_reasoning": result_row.get("best_practice_reasoning"),
-        "recommended_response": result_row.get("recommended_response"),
-        "takeaway_summary": result_row.get("lesson_takeaway"),
-        "lesson_takeaway": result_row.get("lesson_takeaway"),
-        "learner_visible_feedback": result_row.get("learner_visible_feedback"),
+        "visibility": {field: _visibility_flag_enabled(result_row, field, default=(field == "show_results_to_learner")) for field in VISIBILITY_FLAG_FIELDS},
+        "review_status": _normalized_review_status(result_row),
     }
+    visibility = learner_result["visibility"]
+    if visibility["show_overall_score_to_learner"]:
+        learner_result["total_score"] = result_row.get("approved_percentage")
+        learner_result["understanding_score"] = result_row.get("understanding_score")
+        learner_result["investigation_score"] = result_row.get("investigation_score")
+        learner_result["solution_score"] = result_row.get("solution_score")
+        learner_result["communication_score"] = result_row.get("communication_score")
+    if visibility["show_feedback_to_learner"]:
+        learner_result["strengths"] = strengths
+        learner_result["missed_points"] = weaknesses
+        learner_result["best_practice_reasoning"] = result_row.get("best_practice_reasoning")
+        learner_result["recommended_response"] = result_row.get("recommended_response")
+        learner_result["takeaway_summary"] = result_row.get("lesson_takeaway")
+        learner_result["lesson_takeaway"] = result_row.get("lesson_takeaway")
+        learner_result["learner_visible_feedback"] = result_row.get("learner_visible_feedback")
+    return learner_result
 
 
 def _assigned_modules(user: Dict):
@@ -243,7 +289,7 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
             x.attempt_count,
             x.last_attempt_at,
             x.last_result_status,
-            x.last_grading_status,
+            x.last_review_status,
             x.last_total_score,
             COALESCE(ws.submitted_state, 0) AS submitted_state,
             COALESCE(ws.progress_status, 'not_started') AS progress_status,
@@ -273,7 +319,7 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
                 ) AS last_result_status
                 ,
                 (
-                    SELECT COALESCE(ss2.grading_status, t2.result_status, 'pending_review')
+                    SELECT COALESCE(ss2.review_status, ss2.grading_status, t2.result_status, 'pending_review')
                     FROM attempts t2
                     LEFT JOIN submission_scores ss2 ON ss2.attempt_id = t2.attempt_id
                     WHERE t2.user_id = a2.learner_id
@@ -282,7 +328,7 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
                       AND t2.created_at >= a2.assigned_at
                     ORDER BY t2.created_at DESC
                     LIMIT 1
-                ) AS last_grading_status
+                ) AS last_review_status
                 ,
                 (
                     SELECT t3.total_score
@@ -323,9 +369,9 @@ def _assigned_modules_cached(user_id: int, organization_id: int):
 
 def _learner_module_status(module: Dict) -> str:
     attempt_count = safe_int(module.get("attempt_count"), 0)
-    last_grading_status = str(module.get("last_grading_status") or "").strip().lower()
+    last_grading_status = str(module.get("last_review_status") or "").strip().lower()
     last_result_status = str(module.get("last_result_status") or "").strip().lower()
-    if last_grading_status == APPROVED_GRADING_STATUS or last_result_status == APPROVED_GRADING_STATUS:
+    if last_grading_status == APPROVED_REVIEW_STATUS or last_result_status == APPROVED_REVIEW_STATUS:
         return "Completed"
 
     if attempt_count > 0:
@@ -361,14 +407,19 @@ def _learner_stats_cached(user_id: int, organization_id: int) -> Dict:
             a.module_id,
             a.created_at,
             m.title,
-            COALESCE(ss.percentage, a.total_score) AS approved_score,
+            CASE
+                WHEN COALESCE(ss.show_results_to_learner, FALSE)
+                 AND COALESCE(ss.show_overall_score_to_learner, FALSE)
+                THEN COALESCE(ss.percentage, a.total_score)
+                ELSE NULL
+            END AS approved_score,
             COALESCE(ss.learner_visible_feedback, ss.overall_ai_feedback, a.ai_feedback) AS learner_feedback
         FROM attempts a
         JOIN modules m ON a.module_id = m.module_id
         LEFT JOIN submission_scores ss ON ss.attempt_id = a.attempt_id
         WHERE a.user_id = ?
           AND a.organization_id = ?
-          AND COALESCE(ss.grading_status, a.result_status, 'pending_review') = 'approved'
+          AND COALESCE(ss.review_status, ss.grading_status, a.result_status, 'pending_review') = 'approved'
         ORDER BY a.created_at DESC
         """,
         (user_id, organization_id),
@@ -1339,7 +1390,7 @@ def render_scenario_page(user: Dict) -> None:
     _render_assessment_workspace()
 
 
-def _render_result_detail(attempt: Dict) -> None:
+def _render_result_detail(attempt: Dict, question_results: list[Dict] | None = None) -> None:
     st.markdown(f"### Result details • {attempt['title']}")
     if safe_int(attempt.get("timed_out")) == 1 or attempt.get("attempt_state") == "time_expired":
         st.warning("This assessment was auto-submitted because the time limit expired.")
@@ -1349,43 +1400,75 @@ def _render_result_detail(attempt: Dict) -> None:
         f"Time taken: {_format_duration(attempt.get('elapsed_seconds'))} • "
         f"Time left: {_format_duration(attempt.get('time_remaining_seconds'))}"
     )
-    metric_row(
-        {
-            "Total score": f"{attempt.get('total_score') or 0}%",
-            "Understanding": f"{attempt['understanding_score']}%",
-            "Investigation": f"{attempt['investigation_score']}%",
-            "Solution quality": f"{attempt['solution_score']}%",
-            "Communication": f"{attempt['communication_score']}%",
-        }
-    )
+    visibility = attempt.get("visibility") or {}
+    if visibility.get("show_overall_score_to_learner"):
+        metric_row(
+            {
+                "Total score": f"{attempt.get('total_score') or 0}%",
+                "Understanding": f"{attempt.get('understanding_score') or 0}%",
+                "Investigation": f"{attempt.get('investigation_score') or 0}%",
+                "Solution quality": f"{attempt.get('solution_score') or 0}%",
+                "Communication": f"{attempt.get('communication_score') or 0}%",
+            }
+        )
+    else:
+        st.info("Scores are hidden for this result.")
 
-    col1, col2 = st.columns(2)
-    with col1:
+    if visibility.get("show_feedback_to_learner"):
         with st.container(border=True):
-            st.markdown("#### What you did well")
-            strengths = attempt.get("strengths") or []
-            if strengths:
-                for item in strengths:
-                    st.write(f"- {item}")
-            else:
-                st.caption("No specific strengths were captured for this result.")
-    with col2:
-        with st.container(border=True):
-            st.markdown("#### What you missed")
-            misses = attempt.get("missed_points") or []
-            if misses:
-                for item in misses:
-                    st.write(f"- {item}")
-            else:
-                st.caption("No missed areas were captured for this result.")
+            st.markdown("#### Feedback summary")
+            st.write(attempt.get("learner_visible_feedback") or "No narrative feedback has been shared yet.")
+        col1, col2 = st.columns(2)
+        with col1:
+            with st.container(border=True):
+                st.markdown("#### What you did well")
+                strengths = attempt.get("strengths") or []
+                if strengths:
+                    for item in strengths:
+                        st.write(f"- {item}")
+                else:
+                    st.caption("No specific strengths were captured for this result.")
+        with col2:
+            with st.container(border=True):
+                st.markdown("#### What you missed")
+                misses = attempt.get("missed_points") or []
+                if misses:
+                    for item in misses:
+                        st.write(f"- {item}")
+                else:
+                    st.caption("No missed areas were captured for this result.")
 
-    with st.container(border=True):
-        st.markdown("#### Best-practice reasoning")
-        st.write(attempt.get("best_practice_reasoning") or "No best-practice reasoning has been shared yet.")
-        st.markdown("#### Recommended response")
-        st.write(attempt.get("recommended_response") or "No recommended response has been shared yet.")
-        st.markdown("#### Lesson takeaway")
-        st.write(attempt.get("takeaway_summary") or attempt.get("lesson_takeaway") or "No lesson takeaway is available yet.")
+        with st.container(border=True):
+            st.markdown("#### Best-practice reasoning")
+            st.write(attempt.get("best_practice_reasoning") or "No best-practice reasoning has been shared yet.")
+            st.markdown("#### Recommended response")
+            st.write(attempt.get("recommended_response") or "No recommended response has been shared yet.")
+            st.markdown("#### Lesson takeaway")
+            st.write(attempt.get("takeaway_summary") or attempt.get("lesson_takeaway") or "No lesson takeaway is available yet.")
+
+    if question_results and (
+        visibility.get("show_question_scores_to_learner")
+        or visibility.get("show_expected_answers_to_learner")
+        or visibility.get("show_grading_criteria_to_learner")
+        or visibility.get("show_ai_evaluation_details_to_learner")
+        or visibility.get("show_feedback_to_learner")
+    ):
+        st.markdown("#### Question details")
+        for row in question_results:
+            with st.container(border=True):
+                st.write(f"**Q{row.get('question_order')}** {row.get('question_text') or ''}")
+                if visibility.get("show_question_scores_to_learner"):
+                    st.caption(
+                        f"Score: {row.get('final_awarded_points') or 0}/{row.get('max_points') or 0}"
+                    )
+                if visibility.get("show_feedback_to_learner"):
+                    st.write(row.get("feedback") or "No question-level feedback shared.")
+                if visibility.get("show_expected_answers_to_learner"):
+                    st.caption(f"Expected answer: {row.get('expected_answer') or '—'}")
+                if visibility.get("show_grading_criteria_to_learner"):
+                    st.caption(f"Grading criteria: {row.get('rubric') or '—'}")
+                if visibility.get("show_ai_evaluation_details_to_learner"):
+                    st.caption(f"AI reasoning: {row.get('ai_reasoning') or '—'}")
 
     c1, _ = st.columns(2)
     with c1:
@@ -1397,6 +1480,12 @@ def _render_pending_result_state() -> None:
         st.markdown("### Submitted")
         st.info("Pending Review")
         st.caption("Results Not Yet Approved • Scores and detailed feedback will appear after admin approval.")
+
+
+def _render_approved_hidden_result_state() -> None:
+    with st.container(border=True):
+        st.markdown("### Results approved")
+        st.info("Your admin has approved this submission, but detailed learner results are currently hidden.")
 
 
 def render_progress_results_page(user: Dict) -> None:
@@ -1414,7 +1503,7 @@ def render_progress_results_page(user: Dict) -> None:
         JOIN modules m ON a.module_id = m.module_id
         WHERE a.user_id = ?
           AND a.organization_id = ?
-          AND COALESCE(ss.grading_status, a.result_status, 'pending_review') = 'approved'
+          AND COALESCE(ss.review_status, ss.grading_status, a.result_status, 'pending_review') = 'approved'
         ORDER BY a.created_at
         """,
         (user["user_id"], user["organization_id"]),
@@ -1440,7 +1529,7 @@ def render_progress_results_page(user: Dict) -> None:
                 t.elapsed_seconds,
                 t.time_remaining_seconds,
                 m.title,
-                COALESCE(ss.grading_status, t.result_status, 'pending_review') AS grading_status,
+                COALESCE(ss.review_status, ss.grading_status, t.result_status, 'pending_review') AS review_status,
                 COALESCE(ss.percentage, t.total_score) AS approved_percentage,
                 COALESCE(ss.learner_visible_feedback, ss.overall_ai_feedback, t.ai_feedback) AS learner_visible_feedback,
                 COALESCE(ss.learner_strengths, t.strengths) AS learner_strengths,
@@ -1451,7 +1540,14 @@ def render_progress_results_page(user: Dict) -> None:
                 COALESCE(ss.understanding_score, t.understanding_score) AS understanding_score,
                 COALESCE(ss.investigation_score, t.investigation_score) AS investigation_score,
                 COALESCE(ss.solution_score, t.solution_score) AS solution_score,
-                COALESCE(ss.communication_score, t.communication_score) AS communication_score
+                COALESCE(ss.communication_score, t.communication_score) AS communication_score,
+                COALESCE(ss.show_results_to_learner, FALSE) AS show_results_to_learner,
+                COALESCE(ss.show_overall_score_to_learner, FALSE) AS show_overall_score_to_learner,
+                COALESCE(ss.show_question_scores_to_learner, FALSE) AS show_question_scores_to_learner,
+                COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
+                COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
+                COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
+                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner
             FROM assignments a
             LEFT JOIN attempts t
                 ON t.user_id = a.learner_id
@@ -1541,9 +1637,33 @@ def render_progress_results_page(user: Dict) -> None:
         st.info(status["message"])
         return
 
+    review_status = _normalized_review_status(selected_attempt)
     learner_result = get_learner_visible_result(selected_attempt)
     if learner_result is None:
-        _render_pending_result_state()
+        if review_status == "approved":
+            _render_approved_hidden_result_state()
+        else:
+            _render_pending_result_state()
         return
 
-    _render_result_detail(learner_result)
+    question_results = fetch_all(
+        """
+        SELECT
+            mq.question_order,
+            mq.question_text,
+            COALESCE(mq.expected_answer, mq.rationale, '') AS expected_answer,
+            COALESCE(mq.rubric, mq.rationale, '') AS rubric,
+            COALESCE(mq.max_points, 10) AS max_points,
+            COALESCE(sqs.final_awarded_points, sqs.final_score, sqs.ai_awarded_points, sqs.ai_score) AS final_awarded_points,
+            COALESCE(sqs.admin_feedback, sqs.ai_feedback, sqs.feedback, '') AS feedback,
+            COALESCE(sqs.ai_reasoning, '') AS ai_reasoning
+        FROM module_questions mq
+        LEFT JOIN submission_question_scores sqs
+          ON sqs.question_id = mq.question_id
+         AND sqs.attempt_id = ?
+        WHERE mq.module_id = ?
+        ORDER BY mq.question_order
+        """,
+        (int(learner_result["attempt_id"]), int(selected_attempt.get("module_id"))),
+    )
+    _render_result_detail(learner_result, question_results)

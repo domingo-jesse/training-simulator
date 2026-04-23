@@ -472,6 +472,7 @@ def init_db() -> None:
                     max_total_score DOUBLE PRECISION,
                     percentage DOUBLE PRECISION,
                     grading_status TEXT DEFAULT 'submitted',
+                    review_status TEXT DEFAULT 'submitted',
                     overall_ai_feedback TEXT,
                     overall_admin_feedback TEXT,
                     learner_visible_feedback TEXT,
@@ -481,6 +482,13 @@ def init_db() -> None:
                     learner_strengths TEXT,
                     learner_weaknesses TEXT,
                     learner_missed_points TEXT,
+                    show_results_to_learner BOOLEAN DEFAULT FALSE,
+                    show_overall_score_to_learner BOOLEAN DEFAULT FALSE,
+                    show_question_scores_to_learner BOOLEAN DEFAULT FALSE,
+                    show_feedback_to_learner BOOLEAN DEFAULT FALSE,
+                    show_expected_answers_to_learner BOOLEAN DEFAULT FALSE,
+                    show_grading_criteria_to_learner BOOLEAN DEFAULT FALSE,
+                    show_ai_evaluation_details_to_learner BOOLEAN DEFAULT FALSE,
                     approved_by BIGINT,
                     approved_at TIMESTAMPTZ,
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -814,6 +822,7 @@ def init_db() -> None:
                 max_total_score REAL,
                 percentage REAL,
                 grading_status TEXT DEFAULT 'submitted',
+                review_status TEXT DEFAULT 'submitted',
                 overall_ai_feedback TEXT,
                 overall_admin_feedback TEXT,
                 learner_visible_feedback TEXT,
@@ -823,6 +832,13 @@ def init_db() -> None:
                 learner_strengths TEXT,
                 learner_weaknesses TEXT,
                 learner_missed_points TEXT,
+                show_results_to_learner INTEGER DEFAULT 0,
+                show_overall_score_to_learner INTEGER DEFAULT 0,
+                show_question_scores_to_learner INTEGER DEFAULT 0,
+                show_feedback_to_learner INTEGER DEFAULT 0,
+                show_expected_answers_to_learner INTEGER DEFAULT 0,
+                show_grading_criteria_to_learner INTEGER DEFAULT 0,
+                show_ai_evaluation_details_to_learner INTEGER DEFAULT 0,
                 approved_by INTEGER,
                 approved_at TEXT,
                 FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -1306,6 +1322,7 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "max_total_score", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "percentage", "DOUBLE PRECISION")
             _ensure_column(conn, "submission_scores", "grading_status", "TEXT DEFAULT 'submitted'")
+            _ensure_column(conn, "submission_scores", "review_status", "TEXT DEFAULT 'submitted'")
             _ensure_column(conn, "submission_scores", "overall_ai_feedback", "TEXT")
             _ensure_column(conn, "submission_scores", "overall_admin_feedback", "TEXT")
             _ensure_column(conn, "submission_scores", "learner_visible_feedback", "TEXT")
@@ -1315,12 +1332,125 @@ def init_db() -> None:
             _ensure_column(conn, "submission_scores", "learner_strengths", "TEXT")
             _ensure_column(conn, "submission_scores", "learner_weaknesses", "TEXT")
             _ensure_column(conn, "submission_scores", "learner_missed_points", "TEXT")
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_results_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_overall_score_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_question_scores_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_feedback_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_expected_answers_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_grading_criteria_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "show_ai_evaluation_details_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
             _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
             _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "submission_scores", "scoring_method", "TEXT DEFAULT 'keyword'")
             _ensure_column(conn, "submission_scores", "scoring_breakdown_json", "TEXT")
             _ensure_column(conn, "submission_scores", "ai_reasoning_json", "TEXT")
             _ensure_column(conn, "submission_scores", "grading_error", "TEXT")
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        UPDATE submission_scores
+                        SET review_status = CASE
+                            WHEN LOWER(BTRIM(COALESCE(review_status, ''))) IN ('submitted', 'pending_review', 'approved')
+                                THEN LOWER(BTRIM(review_status))
+                            WHEN LOWER(BTRIM(COALESCE(grading_status, ''))) = 'approved'
+                                THEN 'approved'
+                            WHEN LOWER(BTRIM(COALESCE(grading_status, ''))) IN ('pending_review', 'ai_graded_pending_review', 'ai_grading', 'returned', 'grading_failed')
+                                THEN 'pending_review'
+                            ELSE 'submitted'
+                        END
+                        """
+                    )
+                    cur.execute(
+                        """
+                        UPDATE submission_scores
+                        SET show_results_to_learner = TRUE,
+                            show_overall_score_to_learner = TRUE,
+                            show_question_scores_to_learner = TRUE,
+                            show_feedback_to_learner = TRUE,
+                            show_expected_answers_to_learner = TRUE,
+                            show_grading_criteria_to_learner = TRUE,
+                            show_ai_evaluation_details_to_learner = TRUE
+                        WHERE review_status = 'approved'
+                          AND COALESCE(show_results_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_overall_score_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_question_scores_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_feedback_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_expected_answers_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_grading_criteria_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_ai_evaluation_details_to_learner, FALSE) = FALSE
+                        """
+                    )
+            else:
+                conn.execute(
+                    """
+                    UPDATE submission_scores
+                    SET review_status = CASE
+                        WHEN LOWER(TRIM(COALESCE(review_status, ''))) IN ('submitted', 'pending_review', 'approved')
+                            THEN LOWER(TRIM(review_status))
+                        WHEN LOWER(TRIM(COALESCE(grading_status, ''))) = 'approved'
+                            THEN 'approved'
+                        WHEN LOWER(TRIM(COALESCE(grading_status, ''))) IN ('pending_review', 'ai_graded_pending_review', 'ai_grading', 'returned', 'grading_failed')
+                            THEN 'pending_review'
+                        ELSE 'submitted'
+                    END
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE submission_scores
+                    SET show_results_to_learner = 1,
+                        show_overall_score_to_learner = 1,
+                        show_question_scores_to_learner = 1,
+                        show_feedback_to_learner = 1,
+                        show_expected_answers_to_learner = 1,
+                        show_grading_criteria_to_learner = 1,
+                        show_ai_evaluation_details_to_learner = 1
+                    WHERE review_status = 'approved'
+                      AND COALESCE(show_results_to_learner, 0) = 0
+                      AND COALESCE(show_overall_score_to_learner, 0) = 0
+                      AND COALESCE(show_question_scores_to_learner, 0) = 0
+                      AND COALESCE(show_feedback_to_learner, 0) = 0
+                      AND COALESCE(show_expected_answers_to_learner, 0) = 0
+                      AND COALESCE(show_grading_criteria_to_learner, 0) = 0
+                      AND COALESCE(show_ai_evaluation_details_to_learner, 0) = 0
+                    """
+                )
             _ensure_column(conn, "module_generation_runs", "generation_status", "TEXT DEFAULT 'pending'")
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
@@ -1941,6 +2071,8 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
 
     category_scores = payload.get("category_scores") or {}
     has_legacy_scores = isinstance(category_scores, dict) and bool(category_scores)
+    payload_result_status = str(payload.get("result_status", "submitted") or "submitted").strip().lower()
+    review_status_value = "approved" if payload_result_status == "approved" else ("pending_review" if payload_result_status in {"pending_review", "ai_grading", "ai_graded_pending_review", "returned", "grading_failed"} else "submitted")
     attempt_id = execute(
         """
         INSERT INTO attempts (
@@ -1966,7 +2098,7 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
             payload.get("graded_by_type", "system"),
             payload.get("graded_by_user_id"),
             payload.get("graded_at", payload.get("submitted_at")),
-            payload.get("result_status", "submitted"),
+            payload_result_status,
             None,
             None,
             payload.get("diagnosis_answer"),
@@ -2011,15 +2143,17 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
                 scoring_temperature,
                 scoring_config_json,
                 score_inputs_json,
-                grading_status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                grading_status,
+                review_status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(attempt_id) DO UPDATE SET
                 understanding_score = excluded.understanding_score,
                 investigation_score = excluded.investigation_score,
                 solution_score = excluded.solution_score,
                 communication_score = excluded.communication_score,
                 total_score = excluded.total_score,
-                grading_status = excluded.grading_status
+                grading_status = excluded.grading_status,
+                review_status = excluded.review_status
             """,
             (
                 attempt_id,
@@ -2045,21 +2179,24 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
                         "escalation_choice": payload.get("escalation_choice"),
                     }
                 ),
-                payload.get("result_status", "ai_graded_pending_review"),
+                payload_result_status,
+                review_status_value,
             ),
         )
     else:
         execute(
             """
-            INSERT INTO submission_scores (attempt_id, grading_status, score_inputs_json)
-            VALUES (?, ?, ?)
+            INSERT INTO submission_scores (attempt_id, grading_status, review_status, score_inputs_json)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(attempt_id) DO UPDATE SET
                 grading_status = excluded.grading_status,
+                review_status = excluded.review_status,
                 score_inputs_json = excluded.score_inputs_json
             """,
             (
                 attempt_id,
-                payload.get("result_status", "submitted"),
+                payload_result_status,
+                review_status_value,
                 json.dumps(
                     {
                         "actions_used": payload.get("actions_used", []),

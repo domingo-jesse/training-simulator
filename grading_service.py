@@ -165,9 +165,12 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
     execute("UPDATE attempts SET result_status = 'ai_grading' WHERE attempt_id = ?", (attempt_id,))
     execute(
         """
-        INSERT INTO submission_scores (attempt_id, grading_status, scoring_method)
-        VALUES (?, 'ai_grading', ?)
-        ON CONFLICT(attempt_id) DO UPDATE SET grading_status = excluded.grading_status, scoring_method = excluded.scoring_method
+        INSERT INTO submission_scores (attempt_id, grading_status, review_status, scoring_method)
+        VALUES (?, 'ai_grading', 'pending_review', ?)
+        ON CONFLICT(attempt_id) DO UPDATE SET
+            grading_status = excluded.grading_status,
+            review_status = excluded.review_status,
+            scoring_method = excluded.scoring_method
         """,
         (attempt_id, default_style),
     )
@@ -287,18 +290,19 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             """
             INSERT INTO submission_scores (
                 attempt_id, ai_total_score, final_total_score, max_total_score, percentage,
-                grading_status, overall_ai_feedback, learner_visible_feedback,
+                grading_status, review_status, overall_ai_feedback, learner_visible_feedback,
                 best_practice_reasoning, recommended_response, lesson_takeaway,
                 learner_strengths, learner_weaknesses, learner_missed_points,
                 scoring_version, scoring_method, scoring_config_json, scoring_breakdown_json, ai_reasoning_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'llm_v1', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?, 'llm_v1', ?, ?, ?, ?)
             ON CONFLICT(attempt_id) DO UPDATE SET
                 ai_total_score = excluded.ai_total_score,
                 final_total_score = COALESCE(submission_scores.admin_total_score, excluded.ai_total_score),
                 max_total_score = excluded.max_total_score,
                 percentage = excluded.percentage,
                 grading_status = excluded.grading_status,
+                review_status = excluded.review_status,
                 overall_ai_feedback = excluded.overall_ai_feedback,
                 learner_visible_feedback = COALESCE(submission_scores.learner_visible_feedback, excluded.learner_visible_feedback),
                 best_practice_reasoning = COALESCE(submission_scores.best_practice_reasoning, excluded.best_practice_reasoning),
@@ -354,7 +358,10 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             """
             INSERT INTO submission_scores (attempt_id, grading_status, grading_error)
             VALUES (?, 'grading_failed', ?)
-            ON CONFLICT(attempt_id) DO UPDATE SET grading_status = excluded.grading_status, grading_error = excluded.grading_error
+            ON CONFLICT(attempt_id) DO UPDATE SET
+                grading_status = excluded.grading_status,
+                review_status = 'pending_review',
+                grading_error = excluded.grading_error
             """,
             (attempt_id, str(exc)),
         )
