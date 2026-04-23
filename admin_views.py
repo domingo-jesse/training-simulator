@@ -1390,7 +1390,7 @@ def render_grading_center(current_user: dict) -> None:
                 COALESCE(sc.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
                 COALESCE(sc.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
                 COALESCE(st.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
-                COALESCE(st.results_visibility_json, '') AS results_visibility_json,
+                COALESCE(sc.results_visibility_json, '') AS results_visibility_json,
                 sc.scoring_version,
                 a.ai_feedback
             FROM attempts a
