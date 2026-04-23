@@ -139,6 +139,23 @@ def _rubric_grade(learner_answer: str, rubric: str, criteria_json: str | None, m
     }
 
 
+def _compose_grading_reference(question: dict[str, Any]) -> str:
+    sections: list[str] = []
+    for label, value in [
+        ("Expected answer", question.get("expected_answer")),
+        ("Rubric", question.get("rubric")),
+        ("LLM instructions", question.get("llm_grading_criteria")),
+        ("Partial credit guidance", question.get("partial_credit_guidance")),
+        ("Incorrect criteria", question.get("incorrect_criteria")),
+        ("Incomplete criteria", question.get("incomplete_criteria")),
+        ("Strong response criteria", question.get("strong_response_criteria")),
+    ]:
+        text = str(value or "").strip()
+        if text:
+            sections.append(f"{label}: {text}")
+    return "\n".join(sections).strip()
+
+
 def grade_submission(attempt_id: int) -> dict[str, Any]:
     attempt = fetch_one(
         """
@@ -165,7 +182,11 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                COALESCE(scoring_type, scoring_style, '') AS scoring_type,
                COALESCE(llm_grading_criteria, llm_grading_instructions, '') AS llm_grading_criteria,
                COALESCE(keyword_expected_terms, '') AS keyword_expected_terms,
-               COALESCE(rubric_criteria_json, '') AS rubric_criteria_json
+               COALESCE(rubric_criteria_json, '') AS rubric_criteria_json,
+               COALESCE(partial_credit_guidance, '') AS partial_credit_guidance,
+               COALESCE(incorrect_criteria, '') AS incorrect_criteria,
+               COALESCE(incomplete_criteria, '') AS incomplete_criteria,
+               COALESCE(strong_response_criteria, '') AS strong_response_criteria
         FROM module_questions
         WHERE module_id = ?
         ORDER BY question_order
@@ -226,13 +247,13 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             elif q_style == "llm":
                 graded = _rubric_grade(
                     learner_answer,
-                    str(question.get("llm_grading_criteria") or question.get("rubric") or ""),
+                    _compose_grading_reference(question),
                     str(question.get("rubric_criteria_json") or ""),
                     max_points,
                 )
             else:
-                keyword_terms = str(question.get("keyword_expected_terms") or "").strip()
-                graded = _keyword_grade(learner_answer, keyword_terms, str(question.get("rubric") or ""), max_points)
+                keyword_terms = str(question.get("keyword_expected_terms") or question.get("expected_answer") or "").strip()
+                graded = _keyword_grade(learner_answer, keyword_terms, _compose_grading_reference(question), max_points)
 
             total_score += float(graded["awarded_points"])
             max_total_score += max_points

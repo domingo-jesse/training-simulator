@@ -1860,6 +1860,12 @@ def render_grading_center(current_user: dict) -> None:
             COALESCE(mq.question_type, 'open_text') AS question_type,
             COALESCE(mq.expected_answer, mq.rationale, '') AS expected_answer,
             COALESCE(mq.rubric, mq.rationale, '') AS rubric,
+            COALESCE(mq.keyword_expected_terms, '') AS keyword_expected_terms,
+            COALESCE(mq.llm_grading_criteria, mq.llm_grading_instructions, '') AS llm_grading_criteria,
+            COALESCE(mq.partial_credit_guidance, '') AS partial_credit_guidance,
+            COALESCE(mq.incorrect_criteria, '') AS incorrect_criteria,
+            COALESCE(mq.incomplete_criteria, '') AS incomplete_criteria,
+            COALESCE(mq.strong_response_criteria, '') AS strong_response_criteria,
             COALESCE(mq.max_points, 10) AS max_points,
             sqs.learner_answer,
             COALESCE(sqs.ai_awarded_points, sqs.ai_score) AS ai_awarded_points,
@@ -1884,6 +1890,13 @@ def render_grading_center(current_user: dict) -> None:
                 st.markdown(f"**Q{row['question_order']}** {row['question_text']}")
                 st.caption(f"Expected: {row.get('expected_answer') or '—'}")
                 st.caption(f"Rubric: {row.get('rubric') or '—'}")
+                st.caption(f"Keywords: {row.get('keyword_expected_terms') or '—'}")
+                st.caption(f"LLM instructions: {row.get('llm_grading_criteria') or '—'}")
+                st.caption(f"Partial credit: {row.get('partial_credit_guidance') or '—'}")
+                st.caption(
+                    "Incorrect / Incomplete / Strong: "
+                    f"{row.get('incorrect_criteria') or '—'} / {row.get('incomplete_criteria') or '—'} / {row.get('strong_response_criteria') or '—'}"
+                )
                 if str(row.get("question_type") or "").strip() == "ai_conversation":
                     transcript_raw = str(row.get("learner_answer") or "[]")
                     try:
@@ -3578,9 +3591,10 @@ def render_module_builder(current_user: dict) -> None:
                 module_id, question_order, question_text, rationale, rubric, expected_answer, max_points,
                 question_type, options_text, source_run_id, scoring_type, keyword_expected_terms, llm_grading_criteria,
                 learner_visible_feedback_mode, rubric_criteria_json, ai_conversation_prompt, ai_role_or_persona, evaluation_focus,
-                max_learner_responses, optional_wrap_up_instruction
+                max_learner_responses, optional_wrap_up_instruction, partial_credit_guidance, incorrect_criteria,
+                incomplete_criteria, strong_response_criteria
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 (
@@ -3620,6 +3634,10 @@ def render_module_builder(current_user: dict) -> None:
                     q.get("optional_wrap_up_instruction", "").strip()
                     if str(q.get("question_type") or "").strip() == "ai_conversation"
                     else "",
+                    q.get("partial_credit_guidance", "").strip(),
+                    q.get("incorrect_criteria", "").strip(),
+                    q.get("incomplete_criteria", "").strip(),
+                    q.get("strong_response_criteria", "").strip(),
                 )
                 for idx, q in enumerate(module_form.get("questions", []))
                 if _is_present(q.get("question_text"))
@@ -4004,6 +4022,59 @@ def render_manage_modules(current_user: dict) -> None:
                             key=f"edit_question_rationale_{state_prefix}_{question['question_id']}",
                             help="Use this for expected answer notes, rubric criteria, or grading guidance.",
                         )
+                        edit_question_expected_answer = st.text_area(
+                            "Expected answer",
+                            value=question.get("expected_answer") or "",
+                            key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_keywords = st.text_area(
+                            "Keywords / required concepts (one per line)",
+                            value=_parse_lines(question.get("keyword_expected_terms") or question.get("expected_answer") or ""),
+                            key=f"edit_question_keywords_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_llm_instructions = st.text_area(
+                            "LLM grading instructions",
+                            value=question.get("llm_grading_criteria") or "",
+                            key=f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_partial_credit = st.text_area(
+                            "Partial credit guidance",
+                            value=question.get("partial_credit_guidance") or "",
+                            key=f"edit_question_partial_credit_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_incorrect = st.text_area(
+                            "What counts as incorrect",
+                            value=question.get("incorrect_criteria") or "",
+                            key=f"edit_question_incorrect_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_incomplete = st.text_area(
+                            "What counts as incomplete",
+                            value=question.get("incomplete_criteria") or "",
+                            key=f"edit_question_incomplete_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_strong = st.text_area(
+                            "What counts as strong",
+                            value=question.get("strong_response_criteria") or "",
+                            key=f"edit_question_strong_{state_prefix}_{question['question_id']}",
+                        )
+                        edit_question_rubric_criteria = st.text_area(
+                            "Rubric criteria (Criterion | points | guidance)",
+                            value="\n".join(
+                                [
+                                    " | ".join(
+                                        [
+                                            str(item.get("label") or ""),
+                                            str(item.get("max_points") or 1),
+                                            str(item.get("grading_guidance") or ""),
+                                        ]
+                                    ).strip(" |")
+                                    for item in _coerce_rubric_criteria(question.get("rubric_criteria_json"))
+                                    if isinstance(item, dict)
+                                ]
+                            ),
+                            key=f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
+                            height=100,
+                        )
                         current_q_style = _normalize_question_scoring_type(
                             question.get("scoring_type"),
                             fallback=_normalize_module_scoring_fallback(edit_form.get("scoring_style")),
@@ -4066,41 +4137,12 @@ def render_manage_modules(current_user: dict) -> None:
                             key=f"edit_question_wrap_up_{state_prefix}_{question['question_id']}",
                             disabled=edit_question_type != "ai_conversation",
                         )
-                        edit_question_expected_answer = ""
-                        edit_question_llm_instructions = ""
-                        edit_question_rubric_criteria = ""
                         if edit_question_scoring_type == "manual":
                             st.caption("This question will be scored by an admin during manual review.")
                         elif edit_question_scoring_type == "keyword" and edit_question_type != "ai_conversation":
-                            edit_question_expected_answer = st.text_area(
-                                "Expected answer (reference)",
-                                value=question.get("expected_answer") or "",
-                                key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
-                            )
+                            st.caption("Keyword scoring uses the keyword list and expected answer fields.")
                         else:
-                            edit_question_llm_instructions = st.text_area(
-                                "Question grader instructions",
-                                value=question.get("llm_grading_criteria") or "",
-                                key=f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
-                            )
-                            edit_question_rubric_criteria = st.text_area(
-                                "Rubric criteria (Criterion | points | guidance)",
-                                value="\n".join(
-                                    [
-                                        " | ".join(
-                                            [
-                                                str(item.get("label") or ""),
-                                                str(item.get("max_points") or 1),
-                                                str(item.get("grading_guidance") or ""),
-                                            ]
-                                        ).strip(" |")
-                                        for item in _coerce_rubric_criteria(question.get("rubric_criteria_json"))
-                                        if isinstance(item, dict)
-                                    ]
-                                ),
-                                key=f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
-                                height=100,
-                            )
+                            st.caption("LLM scoring uses LLM instructions, rubric criteria, and grading guidance fields.")
                         q_action_col_1, q_action_col_2 = st.columns(2)
                         with q_action_col_1:
                             question_saved = st.form_submit_button("Save question", use_container_width=True)
@@ -4112,7 +4154,8 @@ def render_manage_modules(current_user: dict) -> None:
                                 UPDATE module_questions
                                 SET question_text = ?, question_type = ?, rationale = ?, rubric = ?, expected_answer = ?, max_points = ?, options_text = ?,
                                     scoring_type = ?, keyword_expected_terms = ?, llm_grading_criteria = ?, learner_visible_feedback_mode = ?, rubric_criteria_json = ?,
-                                    ai_conversation_prompt = ?, ai_role_or_persona = ?, evaluation_focus = ?, max_learner_responses = ?, optional_wrap_up_instruction = ?
+                                    ai_conversation_prompt = ?, ai_role_or_persona = ?, evaluation_focus = ?, max_learner_responses = ?, optional_wrap_up_instruction = ?,
+                                    partial_credit_guidance = ?, incorrect_criteria = ?, incomplete_criteria = ?, strong_response_criteria = ?
                                 WHERE question_id = ? AND module_id = ?
                                 """,
                                 (
@@ -4120,23 +4163,25 @@ def render_manage_modules(current_user: dict) -> None:
                                     edit_question_type,
                                     edit_question_rubric.strip(),
                                     edit_question_rubric.strip(),
-                                    edit_question_expected_answer.strip() if edit_question_scoring_type == "keyword" else "",
+                                    edit_question_expected_answer.strip(),
                                     float(edit_question_max_points),
                                     json.dumps({"choices": _coerce_choice_list(_parse_lines(edit_question_options))})
                                     if edit_question_type == "multiple_choice"
                                     else "",
                                     _normalize_scoring_for_question_type(edit_question_type, edit_question_scoring_type, fallback="manual"),
-                                    edit_question_expected_answer.strip() if edit_question_scoring_type == "keyword" else "",
-                                    edit_question_llm_instructions.strip() if edit_question_scoring_type == "llm" else "",
+                                    _parse_lines(edit_question_keywords),
+                                    edit_question_llm_instructions.strip(),
                                     edit_form.get("learner_feedback_visibility", "admin_approved_only"),
-                                    json.dumps(_parse_rubric_criteria_lines(edit_question_rubric_criteria))
-                                    if edit_question_scoring_type == "llm"
-                                    else "[]",
+                                    json.dumps(_parse_rubric_criteria_lines(edit_question_rubric_criteria)),
                                     edit_ai_prompt.strip() if edit_question_type == "ai_conversation" else "",
                                     edit_ai_persona.strip() if edit_question_type == "ai_conversation" else "",
                                     edit_evaluation_focus.strip() if edit_question_type == "ai_conversation" else "",
                                     _normalize_ai_max_responses(edit_max_responses) if edit_question_type == "ai_conversation" else 3,
                                     edit_wrap_up.strip() if edit_question_type == "ai_conversation" else "",
+                                    edit_question_partial_credit.strip(),
+                                    edit_question_incorrect.strip(),
+                                    edit_question_incomplete.strip(),
+                                    edit_question_strong.strip(),
                                     question["question_id"],
                                     module_id,
                                 ),
@@ -4202,6 +4247,26 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_llm_instructions = ""
                 add_question_rubric_criteria = ""
                 add_question_expected_answer = ""
+                add_question_keywords = st.text_area(
+                    "Keywords / required concepts (one per line)",
+                    key=f"add_question_keywords_{state_prefix}_{module_id}",
+                )
+                add_question_partial_credit = st.text_area(
+                    "Partial credit guidance",
+                    key=f"add_question_partial_credit_{state_prefix}_{module_id}",
+                )
+                add_question_incorrect = st.text_area(
+                    "What counts as incorrect",
+                    key=f"add_question_incorrect_{state_prefix}_{module_id}",
+                )
+                add_question_incomplete = st.text_area(
+                    "What counts as incomplete",
+                    key=f"add_question_incomplete_{state_prefix}_{module_id}",
+                )
+                add_question_strong = st.text_area(
+                    "What counts as strong",
+                    key=f"add_question_strong_{state_prefix}_{module_id}",
+                )
                 if add_question_scoring_type == "manual":
                     st.caption("This question will be scored by an admin during manual review.")
                 elif add_question_scoring_type == "keyword" and add_question_type != "ai_conversation":
@@ -4225,9 +4290,10 @@ def render_manage_modules(current_user: dict) -> None:
                         INSERT INTO module_questions (
                             module_id, question_order, question_text, rationale, rubric, expected_answer, max_points, question_type, options_text, source_run_id,
                             scoring_type, keyword_expected_terms, llm_grading_criteria, learner_visible_feedback_mode, rubric_criteria_json,
-                            ai_conversation_prompt, ai_role_or_persona, evaluation_focus, max_learner_responses, optional_wrap_up_instruction
+                            ai_conversation_prompt, ai_role_or_persona, evaluation_focus, max_learner_responses, optional_wrap_up_instruction,
+                            partial_credit_guidance, incorrect_criteria, incomplete_criteria, strong_response_criteria
                         )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             module_id,
@@ -4243,17 +4309,19 @@ def render_manage_modules(current_user: dict) -> None:
                             else "",
                             None,
                             _normalize_scoring_for_question_type(add_question_type, add_question_scoring_type, fallback="manual"),
-                            add_question_expected_answer.strip() if add_question_scoring_type == "keyword" else "",
-                            add_question_llm_instructions.strip() if add_question_scoring_type == "llm" else "",
+                            _parse_lines(add_question_keywords) if _is_present(add_question_keywords) else add_question_expected_answer.strip(),
+                            add_question_llm_instructions.strip(),
                             edit_form.get("learner_feedback_visibility", "admin_approved_only"),
-                            json.dumps(_parse_rubric_criteria_lines(add_question_rubric_criteria))
-                            if add_question_scoring_type == "llm"
-                            else "[]",
+                            json.dumps(_parse_rubric_criteria_lines(add_question_rubric_criteria)),
                             add_ai_prompt.strip() if add_question_type == "ai_conversation" else "",
                             add_ai_persona.strip() if add_question_type == "ai_conversation" else "",
                             add_evaluation_focus.strip() if add_question_type == "ai_conversation" else "",
                             _normalize_ai_max_responses(add_max_responses) if add_question_type == "ai_conversation" else 3,
                             add_wrap_up.strip() if add_question_type == "ai_conversation" else "",
+                            add_question_partial_credit.strip(),
+                            add_question_incorrect.strip(),
+                            add_question_incomplete.strip(),
+                            add_question_strong.strip(),
                         ),
                     )
                     st.success("Question added.")
