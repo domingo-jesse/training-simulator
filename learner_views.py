@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from datetime import datetime, timezone
 from typing import Dict
+from urllib import error, request
 
 import streamlit as st
 
@@ -66,6 +68,57 @@ def _question_options(options_text: str | None) -> list[str]:
     except Exception:
         pass
     return [line.strip() for line in text.splitlines() if line.strip()]
+
+
+def _is_ai_conversation_question(question: Dict) -> bool:
+    return str(question.get("question_type") or "").strip().lower() == "ai_conversation"
+
+
+def _question_answer_complete(question: Dict, answer_value: object) -> bool:
+    if not _is_ai_conversation_question(question):
+        return bool(str(answer_value or "").strip())
+    if not isinstance(answer_value, dict):
+        return False
+    return bool(answer_value.get("complete")) and bool(answer_value.get("transcript"))
+
+
+def _generate_ai_conversation_message(*, question: Dict, transcript: list[dict], is_wrap_up: bool = False) -> str:
+    persona = str(question.get("ai_role_or_persona") or "Training coach").strip()
+    prompt = str(question.get("ai_conversation_prompt") or "").strip()
+    evaluation_focus = str(question.get("evaluation_focus") or "").strip()
+    wrap_up_instruction = str(question.get("wrap_up_message_optional") or "").strip()
+    api_key = os.getenv("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        if not transcript:
+            return f"Hello, I'm your {persona}. {prompt}"
+        if is_wrap_up:
+            return f"Thanks for completing this exercise. Focus area reviewed: {evaluation_focus or 'scenario judgment'}."
+        return "Thanks, continue with your next step in this scenario."
+
+    model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    system_prompt = (
+        f"You are role-playing as {persona}. Keep responses concise (1-3 sentences), realistic, and in-role. "
+        f"Scenario: {prompt}. Evaluation focus: {evaluation_focus}. "
+        "Do not go off-topic. Do not ask multiple questions at once."
+    )
+    if is_wrap_up:
+        system_prompt += f" This is the final wrap-up. {wrap_up_instruction or 'Provide a short closing message.'}"
+    body = {"model": model, "messages": [{"role": "system", "content": system_prompt}, *transcript], "temperature": 0.2}
+    http_request = request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
+        method="POST",
+    )
+    try:
+        with request.urlopen(http_request, timeout=30) as response:
+            raw = response.read().decode("utf-8")
+        parsed = json.loads(raw)
+        return str(parsed["choices"][0]["message"]["content"]).strip()
+    except (error.URLError, TimeoutError, KeyError, TypeError, json.JSONDecodeError, ValueError):
+        if is_wrap_up:
+            return f"Thanks for completing this conversation. We assessed: {evaluation_focus or 'scenario skills'}."
+        return "Understood. Please continue with your next response."
 
 
 def _format_duration(seconds: int | None) -> str:
@@ -1016,10 +1069,63 @@ def render_scenario_page(user: Dict) -> None:
                     st.rerun()
             elif current_step_local == 3:
                 st.markdown("### Assessment Questions")
-                with st.form(key=f"wizard_step3_form_{assignment_id}", clear_on_submit=False):
-                    for question in assessment_questions:
-                        qid = str(question["question_id"])
-                        question_key = f"assessment_q_{assignment_id}_{qid}"
+                for question in assessment_questions:
+                    qid = str(question["question_id"])
+                    question_key = f"assessment_q_{assignment_id}_{qid}"
+                    if _is_ai_conversation_question(question):
+                        conversation_key = f"ai_conversation_{assignment_id}_{qid}"
+                        max_responses = int(question.get("max_learner_responses") or 3)
+                        if max_responses not in {3, 4}:
+                            max_responses = 3
+                        payload = question_answers_local.get(qid)
+                        if not isinstance(payload, dict):
+                            payload = {"transcript": [], "learner_responses": 0, "complete": False, "max_learner_responses": max_responses}
+                        payload["max_learner_responses"] = max_responses
+                        transcript = payload.get("transcript")
+                        if not isinstance(transcript, list):
+                            transcript = []
+                        if not transcript:
+                            opening = _generate_ai_conversation_message(question=question, transcript=[])
+                            transcript = [{"role": "assistant", "content": opening, "timestamp": datetime.now(timezone.utc).isoformat()}]
+                            payload["transcript"] = transcript
+                            question_answers_local[qid] = payload
+                            st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                        with st.container(border=True):
+                            st.markdown(f"**Q{question['question_order']}. {question['question_text']}**")
+                            remaining = max(0, max_responses - int(payload.get("learner_responses") or 0))
+                            st.caption(f"Responses remaining: {remaining} of {max_responses}")
+                            for turn in transcript:
+                                role = "AI" if turn.get("role") == "assistant" else "You"
+                                st.markdown(f"**{role}:** {turn.get('content') or ''}")
+                            input_key = f"{conversation_key}_input"
+                            learner_reply = st.text_input(
+                                "Your reply",
+                                key=input_key,
+                                disabled=bool(payload.get("complete")),
+                            )
+                            if st.button("Send reply", key=f"{conversation_key}_send", disabled=bool(payload.get("complete"))):
+                                if learner_reply.strip():
+                                    transcript.append({"role": "user", "content": learner_reply.strip(), "timestamp": datetime.now(timezone.utc).isoformat()})
+                                    learner_count = int(payload.get("learner_responses") or 0) + 1
+                                    payload["learner_responses"] = learner_count
+                                    if learner_count >= max_responses:
+                                        closing = _generate_ai_conversation_message(question=question, transcript=transcript, is_wrap_up=True)
+                                        transcript.append({"role": "assistant", "content": closing, "timestamp": datetime.now(timezone.utc).isoformat()})
+                                        payload["complete"] = True
+                                    else:
+                                        ai_reply = _generate_ai_conversation_message(question=question, transcript=transcript)
+                                        transcript.append({"role": "assistant", "content": ai_reply, "timestamp": datetime.now(timezone.utc).isoformat()})
+                                    payload["transcript"] = transcript
+                                    question_answers_local[qid] = payload
+                                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                                    st.session_state[input_key] = ""
+                                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                                    st.rerun()
+                            if payload.get("complete"):
+                                st.success("Conversation complete. This question is locked.")
+                        question_answers_local[qid] = payload
+                    else:
                         if question_key not in st.session_state and question_answers_local.get(qid):
                             st.session_state[question_key] = question_answers_local.get(qid)
                         if question.get("question_type") == "multiple_choice":
@@ -1037,15 +1143,16 @@ def render_scenario_page(user: Dict) -> None:
                                 height=100,
                             )
                         question_answers_local[qid] = answer or ""
-                    unanswered = [q for q in assessment_questions if not question_answers_local.get(str(q["question_id"]), "").strip()]
-                    step_validation_error = "Please answer all assessment questions before continuing." if unanswered else None
-                    if step_validation_error:
-                        st.warning(step_validation_error)
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        back_clicked = st.form_submit_button("Back")
-                    with c2:
-                        next_clicked = st.form_submit_button("Next", type="primary", disabled=bool(step_validation_error))
+
+                unanswered = [q for q in assessment_questions if not _question_answer_complete(q, question_answers_local.get(str(q["question_id"])))]
+                step_validation_error = "Please complete all assessment questions before continuing." if unanswered else None
+                if step_validation_error:
+                    st.warning(step_validation_error)
+                c1, c2 = st.columns(2)
+                with c1:
+                    back_clicked = st.button("Back", key=f"wizard_step3_back_{assignment_id}")
+                with c2:
+                    next_clicked = st.button("Next", key=f"wizard_step3_next_{assignment_id}", type="primary", disabled=bool(step_validation_error))
 
                 if back_clicked:
                     st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
@@ -1098,7 +1205,11 @@ def render_scenario_page(user: Dict) -> None:
                 st.markdown("### Review and Submit")
                 st.caption("Review your answers below. You can make final edits before submitting.")
 
-                answered = sum(1 for value in question_answers_local.values() if str(value).strip())
+                answered = sum(
+                    1
+                    for question in assessment_questions
+                    if _question_answer_complete(question, question_answers_local.get(str(question["question_id"])))
+                )
                 summary_col1, summary_col2, summary_col3 = st.columns(3)
                 with summary_col1:
                     st.metric("Actions selected", len(st.session_state[used_actions_key]))
@@ -1152,6 +1263,14 @@ def render_scenario_page(user: Dict) -> None:
                                     key=review_question_key,
                                     index=None,
                                 )
+                            elif _is_ai_conversation_question(question):
+                                payload = question_answers_local.get(qid)
+                                st.markdown(f"Q{question['question_order']}. {question['question_text']}")
+                                if isinstance(payload, dict) and isinstance(payload.get("transcript"), list):
+                                    for turn in payload.get("transcript") or []:
+                                        role = "AI" if turn.get("role") == "assistant" else "You"
+                                        st.markdown(f"**{role}:** {turn.get('content') or ''}")
+                                answer = payload
                             else:
                                 answer = st.text_area(
                                     f"Q{question['question_order']}. {question['question_text']}",
@@ -1198,7 +1317,10 @@ def render_scenario_page(user: Dict) -> None:
                     unanswered = [
                         q
                         for q in assessment_questions
-                        if not st.session_state.get(f"question_answers_{assignment_id}", {}).get(str(q["question_id"]), "").strip()
+                        if not _question_answer_complete(
+                            q,
+                            st.session_state.get(f"question_answers_{assignment_id}", {}).get(str(q["question_id"])),
+                        )
                     ]
                     if unanswered:
                         review_validation_error = "Please answer all assessment questions before submitting."

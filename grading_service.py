@@ -142,6 +142,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
         SELECT question_id, question_text, COALESCE(expected_answer, '') AS expected_answer,
                COALESCE(rubric, rationale, '') AS rubric,
                COALESCE(max_points, 10) AS max_points,
+               COALESCE(question_type, 'open_text') AS question_type,
                COALESCE(scoring_style, '') AS scoring_style,
                COALESCE(llm_grading_instructions, '') AS llm_grading_instructions,
                COALESCE(rubric_criteria_json, '') AS rubric_criteria_json
@@ -178,9 +179,16 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
         max_total_score = 0.0
         for question in module_questions:
             question_id = int(question["question_id"])
-            learner_answer = str(question_responses.get(str(question_id), "") or "")
+            raw_answer = question_responses.get(str(question_id), "")
+            if isinstance(raw_answer, dict):
+                transcript = raw_answer.get("transcript")
+                learner_answer = json.dumps(transcript) if isinstance(transcript, list) else json.dumps(raw_answer)
+            else:
+                learner_answer = str(raw_answer or "")
             max_points = float(question.get("max_points") or 0)
             q_style = _normalize_scoring_type(question.get("scoring_style"), fallback=default_style)
+            if str(question.get("question_type") or "").strip() == "ai_conversation" and q_style == "keyword":
+                q_style = "manual_review"
             if q_style == "manual_review":
                 graded = {
                     "awarded_points": 0.0,
@@ -208,9 +216,9 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     attempt_id, question_id, ai_score, final_score, feedback,
                     learner_answer, ai_awarded_points, ai_max_points,
                     ai_feedback, ai_reasoning, missing_key_concepts, final_awarded_points,
-                    visible_to_learner, is_admin_override, scoring_method, score_breakdown_json
+                    visible_to_learner, is_admin_override, scoring_method, score_breakdown_json, conversation_transcript
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, FALSE, FALSE, ?, ?, ?)
                 ON CONFLICT(attempt_id, question_id) DO UPDATE SET
                     ai_score = excluded.ai_score,
                     final_score = excluded.final_score,
@@ -224,6 +232,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     final_awarded_points = excluded.final_awarded_points,
                     scoring_method = excluded.scoring_method,
                     score_breakdown_json = excluded.score_breakdown_json,
+                    conversation_transcript = excluded.conversation_transcript,
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 (
@@ -241,6 +250,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                     graded["awarded_points"],
                     q_style,
                     json.dumps(graded["breakdown"]),
+                    learner_answer if str(question.get("question_type") or "").strip() == "ai_conversation" else "",
                 ),
             )
             question_scores.append({"question_id": question_id, "scoring_method": q_style, **graded})
