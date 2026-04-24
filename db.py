@@ -1400,7 +1400,12 @@ def init_db() -> None:
                 "show_learner_responses_to_learner",
                 "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
             )
-            _ensure_column(conn, "submission_scores", "results_visibility_json", "TEXT")
+            _ensure_column(
+                conn,
+                "submission_scores",
+                "results_visibility_json",
+                "JSONB" if RUNTIME_USE_POSTGRES else "TEXT",
+            )
             _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
             _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "submission_scores", "scoring_method", "TEXT DEFAULT 'keyword'")
@@ -1464,11 +1469,11 @@ def init_db() -> None:
                             'show_grading_criteria_to_learner', COALESCE(submission_scores.show_grading_criteria_to_learner, FALSE),
                             'show_ai_review_to_learner', COALESCE(submission_scores.show_ai_review_to_learner, submission_scores.show_ai_evaluation_details_to_learner, FALSE),
                             'show_learner_responses_to_learner', TRUE
-                        )::TEXT
+                        )
                         FROM attempts a
                         JOIN modules m ON m.module_id = a.module_id
                         WHERE submission_scores.attempt_id = a.attempt_id
-                          AND COALESCE(BTRIM(submission_scores.results_visibility_json), '') = ''
+                          AND COALESCE(submission_scores.results_visibility_json, '{}'::jsonb) = '{}'::jsonb
                         """
                     )
                     cur.execute(
