@@ -17,7 +17,6 @@ from utils import ensure_dataframe_schema, has_dataframe_columns, metric_row, pa
 learner_logger = get_logger(module="learner_views")
 WIZARD_STEPS = [
     "Scenario Overview",
-    "Investigation / Notes",
     "Assessment Questions",
     "Final Response / Decision",
     "Review and Submit",
@@ -771,7 +770,7 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
         SET
             current_step = ?,
             progress_status = ?,
-            learner_notes = ?,
+            learner_notes = learner_notes,
             diagnosis_response = ?,
             next_steps_response = ?,
             customer_response = ?,
@@ -790,7 +789,6 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
         (
             _clamp_wizard_step(int(st.session_state.get(f"wizard_step_{assignment_id}", 1))),
             "submitted" if st.session_state.get(f"submitted_{assignment_id}") else "in_progress",
-            st.session_state.get(f"notes_{assignment_id}", ""),
             st.session_state.get(f"diagnosis_{assignment_id}", ""),
             st.session_state.get(f"next_steps_{assignment_id}", ""),
             st.session_state.get(f"customer_{assignment_id}", ""),
@@ -876,7 +874,6 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"used_actions_{assignment_id}", json.loads(persisted.get("used_actions") or "[]"))
     st.session_state.setdefault(f"revealed_{assignment_id}", json.loads(persisted.get("revealed_actions") or "{}"))
     st.session_state.setdefault(f"started_at_{assignment_id}", persisted.get("started_at") or datetime.now(timezone.utc).isoformat())
-    st.session_state.setdefault(f"notes_{assignment_id}", persisted.get("learner_notes") or "")
     st.session_state.setdefault(f"diagnosis_{assignment_id}", persisted.get("diagnosis_response") or "")
     st.session_state.setdefault(f"next_steps_{assignment_id}", persisted.get("next_steps_response") or "")
     st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
@@ -1016,7 +1013,8 @@ def render_scenario_page(user: Dict) -> None:
             "next_steps_answer": st.session_state.get(f"next_steps_{assignment_id}", ""),
             "customer_response": st.session_state.get(f"customer_{assignment_id}", ""),
             "escalation_choice": st.session_state.get(f"escalation_{assignment_id}", "No escalation"),
-            "notes": f"{st.session_state.get(f'notes_{assignment_id}', '')}{time_out_note}",
+            # Deprecated: notes/learner_notes is retained in schema for backward compatibility, but no longer populated.
+            "notes": "",
             "started_at": started_at.isoformat() if started_at else None,
             "submitted_at": submitted_at.isoformat(),
             "elapsed_seconds": elapsed_seconds,
@@ -1105,7 +1103,7 @@ def render_scenario_page(user: Dict) -> None:
                         st.toast("Progress saved.")
                         st.rerun()
             elif current_step_local == 2:
-                st.markdown("### Investigation / Notes")
+                st.markdown("### Assessment Questions")
                 cols = st.columns(3)
                 for idx, action in enumerate(actions):
                     with cols[idx % 3]:
@@ -1118,124 +1116,9 @@ def render_scenario_page(user: Dict) -> None:
                     for name, details in st.session_state[revealed_key].items():
                         with st.expander(name, expanded=True):
                             st.write(details)
-                with st.form(key=f"wizard_step2_form_{assignment_id}", clear_on_submit=False):
-                    st.text_area("Personal notes", key=f"notes_{assignment_id}", height=140)
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        back_clicked = st.form_submit_button("Back")
-                    with c2:
-                        next_clicked = st.form_submit_button("Next", type="primary")
-
-                if back_clicked:
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.session_state[step_key] = max(1, current_step_local - 1)
-                    st.rerun()
-                elif next_clicked:
-                    st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.toast("Notes saved.")
-                    st.rerun()
             elif current_step_local == 3:
-                st.markdown("### Assessment Questions")
-                for question in assessment_questions:
-                    qid = str(question["question_id"])
-                    question_key = f"assessment_q_{assignment_id}_{qid}"
-                    if _is_ai_conversation_question(question):
-                        conversation_key = f"ai_conversation_{assignment_id}_{qid}"
-                        max_responses = int(question.get("max_learner_responses") or 3)
-                        if max_responses not in {3, 4}:
-                            max_responses = 3
-                        payload = question_answers_local.get(qid)
-                        if not isinstance(payload, dict):
-                            payload = {"transcript": [], "learner_responses": 0, "complete": False, "max_learner_responses": max_responses}
-                        payload["max_learner_responses"] = max_responses
-                        transcript = payload.get("transcript")
-                        if not isinstance(transcript, list):
-                            transcript = []
-                        if not transcript:
-                            opening = _generate_ai_conversation_message(question=question, transcript=[])
-                            transcript = [{"role": "assistant", "content": opening, "timestamp": datetime.now(timezone.utc).isoformat()}]
-                            payload["transcript"] = transcript
-                            question_answers_local[qid] = payload
-                            st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                        with st.container(border=True):
-                            st.markdown(f"**Q{question['question_order']}. {question['question_text']}**")
-                            remaining = max(0, max_responses - int(payload.get("learner_responses") or 0))
-                            st.caption(f"Responses remaining: {remaining} of {max_responses}")
-                            for turn in transcript:
-                                role = "AI" if turn.get("role") == "assistant" else "You"
-                                st.markdown(f"**{role}:** {turn.get('content') or ''}")
-                            input_key = f"{conversation_key}_input"
-                            learner_reply = st.text_input(
-                                "Your reply",
-                                key=input_key,
-                                disabled=bool(payload.get("complete")),
-                            )
-                            if st.button("Send reply", key=f"{conversation_key}_send", disabled=bool(payload.get("complete"))):
-                                if learner_reply.strip():
-                                    transcript.append({"role": "user", "content": learner_reply.strip(), "timestamp": datetime.now(timezone.utc).isoformat()})
-                                    learner_count = int(payload.get("learner_responses") or 0) + 1
-                                    payload["learner_responses"] = learner_count
-                                    if learner_count >= max_responses:
-                                        closing = _generate_ai_conversation_message(question=question, transcript=transcript, is_wrap_up=True)
-                                        transcript.append({"role": "assistant", "content": closing, "timestamp": datetime.now(timezone.utc).isoformat()})
-                                        payload["complete"] = True
-                                    else:
-                                        ai_reply = _generate_ai_conversation_message(question=question, transcript=transcript)
-                                        transcript.append({"role": "assistant", "content": ai_reply, "timestamp": datetime.now(timezone.utc).isoformat()})
-                                    payload["transcript"] = transcript
-                                    question_answers_local[qid] = payload
-                                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                                    st.session_state[input_key] = ""
-                                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                                    st.rerun()
-                            if payload.get("complete"):
-                                st.success("Conversation complete. This question is locked.")
-                        question_answers_local[qid] = payload
-                    else:
-                        if question_key not in st.session_state and question_answers_local.get(qid):
-                            st.session_state[question_key] = question_answers_local.get(qid)
-                        if question.get("question_type") == "multiple_choice":
-                            options = _question_options(question.get("options_text"))
-                            answer = st.radio(
-                                f"Q{question['question_order']}. {question['question_text']}",
-                                options=options if options else ["No options configured"],
-                                key=question_key,
-                                index=None,
-                            )
-                        else:
-                            answer = st.text_area(
-                                f"Q{question['question_order']}. {question['question_text']}",
-                                key=question_key,
-                                height=100,
-                            )
-                        question_answers_local[qid] = answer or ""
-
-                unanswered = [q for q in assessment_questions if not _question_answer_complete(q, question_answers_local.get(str(q["question_id"])))]
-                step_validation_error = "Please complete all assessment questions before continuing." if unanswered else None
-                if step_validation_error:
-                    st.warning(step_validation_error)
-                c1, c2 = st.columns(2)
-                with c1:
-                    back_clicked = st.button("Back", key=f"wizard_step3_back_{assignment_id}")
-                with c2:
-                    next_clicked = st.button("Next", key=f"wizard_step3_next_{assignment_id}", type="primary", disabled=bool(step_validation_error))
-
-                if back_clicked:
-                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.session_state[step_key] = max(1, current_step_local - 1)
-                    st.rerun()
-                elif next_clicked:
-                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                    st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.toast("Progress saved.")
-                    st.rerun()
-            elif current_step_local == 4:
                 st.markdown("### Final Response / Decision")
-                with st.form(key=f"wizard_step4_form_{assignment_id}", clear_on_submit=False):
+                with st.form(key=f"wizard_step3_form_{assignment_id}", clear_on_submit=False):
                     diagnosis_value = st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
                     next_steps_value = st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
                     customer_response_value = st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
@@ -1293,7 +1176,7 @@ def render_scenario_page(user: Dict) -> None:
                     if action.get("action_name")
                 }
                 action_names = list(action_name_to_details.keys())
-                with st.form(key=f"wizard_step5_review_form_{assignment_id}", clear_on_submit=False):
+                with st.form(key=f"wizard_step4_review_form_{assignment_id}", clear_on_submit=False):
                     st.markdown("#### Review and Edit")
                     diagnosis_value = st.text_area("Diagnosis", key=f"review_diagnosis_{assignment_id}", height=100)
                     next_steps_value = st.text_area("Next steps", key=f"review_next_steps_{assignment_id}", height=120)
@@ -1403,6 +1286,104 @@ def render_scenario_page(user: Dict) -> None:
                         st.warning(review_validation_error)
                     else:
                         _submit_module_attempt(timed_out=False)
+
+            if current_step_local == 2:
+                for question in assessment_questions:
+                    qid = str(question["question_id"])
+                    question_key = f"assessment_q_{assignment_id}_{qid}"
+                    if _is_ai_conversation_question(question):
+                        conversation_key = f"ai_conversation_{assignment_id}_{qid}"
+                        max_responses = int(question.get("max_learner_responses") or 3)
+                        if max_responses not in {3, 4}:
+                            max_responses = 3
+                        payload = question_answers_local.get(qid)
+                        if not isinstance(payload, dict):
+                            payload = {"transcript": [], "learner_responses": 0, "complete": False, "max_learner_responses": max_responses}
+                        payload["max_learner_responses"] = max_responses
+                        transcript = payload.get("transcript")
+                        if not isinstance(transcript, list):
+                            transcript = []
+                        if not transcript:
+                            opening = _generate_ai_conversation_message(question=question, transcript=[])
+                            transcript = [{"role": "assistant", "content": opening, "timestamp": datetime.now(timezone.utc).isoformat()}]
+                            payload["transcript"] = transcript
+                            question_answers_local[qid] = payload
+                            st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                            _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                        with st.container(border=True):
+                            st.markdown(f"**Q{question['question_order']}. {question['question_text']}**")
+                            remaining = max(0, max_responses - int(payload.get("learner_responses") or 0))
+                            st.caption(f"Responses remaining: {remaining} of {max_responses}")
+                            for turn in transcript:
+                                role = "AI" if turn.get("role") == "assistant" else "You"
+                                st.markdown(f"**{role}:** {turn.get('content') or ''}")
+                            input_key = f"{conversation_key}_input"
+                            learner_reply = st.text_input(
+                                "Your reply",
+                                key=input_key,
+                                disabled=bool(payload.get("complete")),
+                            )
+                            if st.button("Send reply", key=f"{conversation_key}_send", disabled=bool(payload.get("complete"))):
+                                if learner_reply.strip():
+                                    transcript.append({"role": "user", "content": learner_reply.strip(), "timestamp": datetime.now(timezone.utc).isoformat()})
+                                    learner_count = int(payload.get("learner_responses") or 0) + 1
+                                    payload["learner_responses"] = learner_count
+                                    if learner_count >= max_responses:
+                                        closing = _generate_ai_conversation_message(question=question, transcript=transcript, is_wrap_up=True)
+                                        transcript.append({"role": "assistant", "content": closing, "timestamp": datetime.now(timezone.utc).isoformat()})
+                                        payload["complete"] = True
+                                    else:
+                                        ai_reply = _generate_ai_conversation_message(question=question, transcript=transcript)
+                                        transcript.append({"role": "assistant", "content": ai_reply, "timestamp": datetime.now(timezone.utc).isoformat()})
+                                    payload["transcript"] = transcript
+                                    question_answers_local[qid] = payload
+                                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                                    st.session_state[input_key] = ""
+                                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                                    st.rerun()
+                            if payload.get("complete"):
+                                st.success("Conversation complete. This question is locked.")
+                        question_answers_local[qid] = payload
+                    else:
+                        if question_key not in st.session_state and question_answers_local.get(qid):
+                            st.session_state[question_key] = question_answers_local.get(qid)
+                        if question.get("question_type") == "multiple_choice":
+                            options = _question_options(question.get("options_text"))
+                            answer = st.radio(
+                                f"Q{question['question_order']}. {question['question_text']}",
+                                options=options if options else ["No options configured"],
+                                key=question_key,
+                                index=None,
+                            )
+                        else:
+                            answer = st.text_area(
+                                f"Q{question['question_order']}. {question['question_text']}",
+                                key=question_key,
+                                height=100,
+                            )
+                        question_answers_local[qid] = answer or ""
+
+                unanswered = [q for q in assessment_questions if not _question_answer_complete(q, question_answers_local.get(str(q["question_id"])))]
+                step_validation_error = "Please complete all assessment questions before continuing." if unanswered else None
+                if step_validation_error:
+                    st.warning(step_validation_error)
+                c1, c2 = st.columns(2)
+                with c1:
+                    back_clicked = st.button("Back", key=f"wizard_step2_back_{assignment_id}")
+                with c2:
+                    next_clicked = st.button("Next", key=f"wizard_step2_next_{assignment_id}", type="primary", disabled=bool(step_validation_error))
+
+                if back_clicked:
+                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.session_state[step_key] = max(1, current_step_local - 1)
+                    st.rerun()
+                elif next_clicked:
+                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                    st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
+                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                    st.toast("Progress saved.")
+                    st.rerun()
 
     _render_assessment_workspace()
 
