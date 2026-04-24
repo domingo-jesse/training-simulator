@@ -3468,15 +3468,8 @@ def render_module_builder(current_user: dict) -> None:
             st.markdown("**Scoring method**")
             scoring_state_key = f"{q_prefix}_scoring_type"
             scoring_options = QUESTION_SCORING_OPTIONS if not (is_ai_conversation or is_multiple_choice) else ["manual", "llm"]
-            normalized_scoring_type = _normalize_scoring_for_question_type(
-                active_question_type,
-                st.session_state.get(scoring_state_key),
-                fallback="manual",
-            )
-            if normalized_scoring_type not in scoring_options:
-                normalized_scoring_type = scoring_options[0]
-            if st.session_state.get(scoring_state_key) != normalized_scoring_type:
-                st.session_state[scoring_state_key] = normalized_scoring_type
+            if scoring_state_key not in st.session_state:
+                st.session_state[scoring_state_key] = "manual"
             st.radio(
                 "Scoring method",
                 options=scoring_options,
