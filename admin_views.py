@@ -1390,16 +1390,15 @@ def render_grading_center(current_user: dict) -> None:
                 COALESCE(sc.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
                 COALESCE(sc.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
                 COALESCE(sc.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
-                COALESCE(sc.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
-                COALESCE(st.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
-                COALESCE(st.results_visibility_json, '{{}}'::jsonb) AS results_visibility_json,
+                COALESCE(sc.show_ai_review_to_learner, sc.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_review_to_learner,
+                COALESCE(sc.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
+                COALESCE(sc.results_visibility_json, '{{}}'::jsonb) AS results_visibility_json,
                 sc.scoring_version,
                 a.ai_feedback
             FROM attempts a
             JOIN users u ON u.user_id = a.user_id
             JOIN modules m ON m.module_id = a.module_id
             LEFT JOIN submission_scores sc ON sc.attempt_id = a.attempt_id
-            LEFT JOIN public.submission_settings st ON st.module_id = a.module_id::text
             LEFT JOIN users approver ON approver.user_id = a.result_approved_by_user_id
             WHERE a.organization_id = ?
               AND u.is_active = TRUE
@@ -1430,7 +1429,7 @@ def render_grading_center(current_user: dict) -> None:
             "show_feedback_to_learner",
             "show_expected_answers_to_learner",
             "show_grading_criteria_to_learner",
-            "show_ai_evaluation_details_to_learner",
+            "show_ai_review_to_learner",
             "show_learner_responses_to_learner",
             "results_visibility_json",
             "scoring_version",
@@ -1776,7 +1775,7 @@ def render_grading_center(current_user: dict) -> None:
         "show_feedback_to_learner": bool(visibility_override.get("show_feedback_to_learner", selected_attempt_row.get("show_feedback_to_learner"))),
         "show_expected_answers_to_learner": bool(visibility_override.get("show_expected_answers_to_learner", selected_attempt_row.get("show_expected_answers_to_learner"))),
         "show_grading_criteria_to_learner": bool(visibility_override.get("show_grading_criteria_to_learner", selected_attempt_row.get("show_grading_criteria_to_learner"))),
-        "show_ai_evaluation_details_to_learner": bool(visibility_override.get("show_ai_evaluation_details_to_learner", selected_attempt_row.get("show_ai_evaluation_details_to_learner"))),
+        "show_ai_review_to_learner": bool(visibility_override.get("show_ai_review_to_learner", selected_attempt_row.get("show_ai_review_to_learner"))),
         "show_learner_responses_to_learner": bool(visibility_override.get("show_learner_responses_to_learner", selected_attempt_row.get("show_learner_responses_to_learner"))),
     }
     with st.form(f"learner_visibility_form_{selected_attempt_id}"):
@@ -1791,7 +1790,7 @@ def render_grading_center(current_user: dict) -> None:
             ("Feedback / comments", "show_feedback_to_learner"),
             ("Expected answer / rationale", "show_expected_answers_to_learner"),
             ("Learner responses", "show_learner_responses_to_learner"),
-            ("AI review details", "show_ai_evaluation_details_to_learner"),
+            ("AI review details", "show_ai_review_to_learner"),
             ("Grading criteria", "show_grading_criteria_to_learner"),
         ]
         default_visibility_labels = [
@@ -1812,7 +1811,7 @@ def render_grading_center(current_user: dict) -> None:
         show_feedback_to_learner = "show_feedback_to_learner" in selected_visibility_fields
         show_expected_answers_to_learner = "show_expected_answers_to_learner" in selected_visibility_fields
         show_grading_criteria_to_learner = "show_grading_criteria_to_learner" in selected_visibility_fields
-        show_ai_evaluation_details_to_learner = "show_ai_evaluation_details_to_learner" in selected_visibility_fields
+        show_ai_review_to_learner = "show_ai_review_to_learner" in selected_visibility_fields
         show_learner_responses_to_learner = "show_learner_responses_to_learner" in selected_visibility_fields
         saved_visibility = st.form_submit_button("Save results visibility", use_container_width=True, disabled=not is_approved)
     if saved_visibility and is_approved:
@@ -1827,9 +1826,14 @@ def render_grading_center(current_user: dict) -> None:
             "show_feedback_to_learner": bool(show_feedback_to_learner),
             "show_expected_answers_to_learner": bool(show_expected_answers_to_learner),
             "show_grading_criteria_to_learner": bool(show_grading_criteria_to_learner),
-            "show_ai_evaluation_details_to_learner": bool(show_ai_evaluation_details_to_learner),
+            "show_ai_review_to_learner": bool(show_ai_review_to_learner),
             "show_learner_responses_to_learner": bool(show_learner_responses_to_learner),
         }
+        view_logger.info(
+            "Saving learner results visibility",
+            submission_score_id=int(submission_score_id),
+            results_visibility=results_visibility,
+        )
         updated_rows = fetch_all(
             """
             UPDATE submission_scores
@@ -1839,10 +1843,11 @@ def render_grading_center(current_user: dict) -> None:
                 show_feedback_to_learner = ?,
                 show_expected_answers_to_learner = ?,
                 show_grading_criteria_to_learner = ?,
-                show_ai_evaluation_details_to_learner = ?,
+                show_ai_review_to_learner = ?,
+                show_learner_responses_to_learner = ?,
                 results_visibility_json = ?
             WHERE submission_score_id = ?
-            RETURNING submission_score_id AS id
+            RETURNING submission_score_id
             """,
             (
                 show_results_to_learner,
@@ -1851,7 +1856,8 @@ def render_grading_center(current_user: dict) -> None:
                 show_feedback_to_learner,
                 show_expected_answers_to_learner,
                 show_grading_criteria_to_learner,
-                show_ai_evaluation_details_to_learner,
+                show_ai_review_to_learner,
+                show_learner_responses_to_learner,
                 json.dumps(results_visibility),
                 int(submission_score_id),
             ),
@@ -1870,7 +1876,8 @@ def render_grading_center(current_user: dict) -> None:
                 show_feedback_to_learner,
                 show_expected_answers_to_learner,
                 show_grading_criteria_to_learner,
-                show_ai_evaluation_details_to_learner,
+                show_ai_review_to_learner,
+                show_learner_responses_to_learner,
                 results_visibility_json
             FROM submission_scores
             WHERE submission_score_id = ?
@@ -1885,7 +1892,7 @@ def render_grading_center(current_user: dict) -> None:
                 "show_feedback_to_learner": bool(reloaded_visibility.get("show_feedback_to_learner")),
                 "show_expected_answers_to_learner": bool(reloaded_visibility.get("show_expected_answers_to_learner")),
                 "show_grading_criteria_to_learner": bool(reloaded_visibility.get("show_grading_criteria_to_learner")),
-                "show_ai_evaluation_details_to_learner": bool(reloaded_visibility.get("show_ai_evaluation_details_to_learner")),
+                "show_ai_review_to_learner": bool(reloaded_visibility.get("show_ai_review_to_learner")),
                 "show_learner_responses_to_learner": bool(show_learner_responses_to_learner),
             }
         st.session_state[approval_status_key] = ("success", "Results visibility settings saved.")

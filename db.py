@@ -489,6 +489,7 @@ def init_db() -> None:
                     show_expected_answers_to_learner BOOLEAN DEFAULT FALSE,
                     show_grading_criteria_to_learner BOOLEAN DEFAULT FALSE,
                     show_ai_evaluation_details_to_learner BOOLEAN DEFAULT FALSE,
+                    show_ai_review_to_learner BOOLEAN DEFAULT FALSE,
                     show_learner_responses_to_learner BOOLEAN DEFAULT FALSE,
                     results_visibility_json TEXT,
                     approved_by BIGINT,
@@ -845,6 +846,7 @@ def init_db() -> None:
                 show_expected_answers_to_learner INTEGER DEFAULT 0,
                 show_grading_criteria_to_learner INTEGER DEFAULT 0,
                 show_ai_evaluation_details_to_learner INTEGER DEFAULT 0,
+                show_ai_review_to_learner INTEGER DEFAULT 0,
                 show_learner_responses_to_learner INTEGER DEFAULT 0,
                 results_visibility_json TEXT,
                 approved_by INTEGER,
@@ -1389,6 +1391,12 @@ def init_db() -> None:
             _ensure_column(
                 conn,
                 "submission_scores",
+                "show_ai_review_to_learner",
+                "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
+            )
+            _ensure_column(
+                conn,
+                "submission_scores",
                 "show_learner_responses_to_learner",
                 "BOOLEAN DEFAULT FALSE" if RUNTIME_USE_POSTGRES else "INTEGER DEFAULT 0",
             )
@@ -1418,13 +1426,22 @@ def init_db() -> None:
                     cur.execute(
                         """
                         UPDATE submission_scores
+                        SET show_ai_review_to_learner = COALESCE(show_ai_evaluation_details_to_learner, FALSE)
+                        WHERE COALESCE(show_ai_review_to_learner, FALSE) = FALSE
+                          AND COALESCE(show_ai_evaluation_details_to_learner, FALSE) = TRUE
+                        """
+                    )
+                    cur.execute(
+                        """
+                        UPDATE submission_scores
                         SET show_results_to_learner = TRUE,
                             show_overall_score_to_learner = TRUE,
                             show_question_scores_to_learner = TRUE,
                             show_feedback_to_learner = TRUE,
                             show_expected_answers_to_learner = TRUE,
                             show_grading_criteria_to_learner = TRUE,
-                            show_ai_evaluation_details_to_learner = TRUE
+                            show_ai_evaluation_details_to_learner = TRUE,
+                            show_ai_review_to_learner = TRUE
                         WHERE review_status = 'approved'
                           AND COALESCE(show_results_to_learner, FALSE) = FALSE
                           AND COALESCE(show_overall_score_to_learner, FALSE) = FALSE
@@ -1445,7 +1462,7 @@ def init_db() -> None:
                             'show_feedback_to_learner', COALESCE(submission_scores.show_feedback_to_learner, FALSE),
                             'show_expected_answers_to_learner', COALESCE(submission_scores.show_expected_answers_to_learner, FALSE),
                             'show_grading_criteria_to_learner', COALESCE(submission_scores.show_grading_criteria_to_learner, FALSE),
-                            'show_ai_evaluation_details_to_learner', COALESCE(submission_scores.show_ai_evaluation_details_to_learner, FALSE),
+                            'show_ai_review_to_learner', COALESCE(submission_scores.show_ai_review_to_learner, submission_scores.show_ai_evaluation_details_to_learner, FALSE),
                             'show_learner_responses_to_learner', TRUE
                         )::TEXT
                         FROM attempts a
@@ -1496,6 +1513,14 @@ def init_db() -> None:
                 conn.execute(
                     """
                     UPDATE submission_scores
+                    SET show_ai_review_to_learner = COALESCE(show_ai_evaluation_details_to_learner, 0)
+                    WHERE COALESCE(show_ai_review_to_learner, 0) = 0
+                      AND COALESCE(show_ai_evaluation_details_to_learner, 0) = 1
+                    """
+                )
+                conn.execute(
+                    """
+                    UPDATE submission_scores
                     SET results_visibility_json = json_object(
                         'show_results_to_learner', COALESCE(show_results_to_learner, 0),
                         'show_overall_score_to_learner', COALESCE(show_overall_score_to_learner, 0),
@@ -1503,7 +1528,7 @@ def init_db() -> None:
                         'show_feedback_to_learner', COALESCE(show_feedback_to_learner, 0),
                         'show_expected_answers_to_learner', COALESCE(show_expected_answers_to_learner, 0),
                         'show_grading_criteria_to_learner', COALESCE(show_grading_criteria_to_learner, 0),
-                        'show_ai_evaluation_details_to_learner', COALESCE(show_ai_evaluation_details_to_learner, 0),
+                        'show_ai_review_to_learner', COALESCE(show_ai_review_to_learner, show_ai_evaluation_details_to_learner, 0),
                         'show_learner_responses_to_learner', COALESCE(show_learner_responses_to_learner, 0)
                     )
                     WHERE COALESCE(TRIM(results_visibility_json), '') = ''
@@ -1518,7 +1543,8 @@ def init_db() -> None:
                         show_feedback_to_learner = 1,
                         show_expected_answers_to_learner = 1,
                         show_grading_criteria_to_learner = 1,
-                        show_ai_evaluation_details_to_learner = 1
+                        show_ai_evaluation_details_to_learner = 1,
+                        show_ai_review_to_learner = 1
                     WHERE review_status = 'approved'
                       AND COALESCE(show_results_to_learner, 0) = 0
                       AND COALESCE(show_overall_score_to_learner, 0) = 0
