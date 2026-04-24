@@ -1830,7 +1830,6 @@ def render_grading_center(current_user: dict) -> None:
                 show_expected_answers_to_learner = ?,
                 show_grading_criteria_to_learner = ?,
                 show_ai_evaluation_details_to_learner = ?,
-                show_learner_responses_to_learner = ?,
                 results_visibility_json = ?
             WHERE attempt_id = ?
             """,
@@ -1842,7 +1841,6 @@ def render_grading_center(current_user: dict) -> None:
                 show_expected_answers_to_learner,
                 show_grading_criteria_to_learner,
                 show_ai_evaluation_details_to_learner,
-                show_learner_responses_to_learner,
                 json.dumps(results_visibility),
                 int(selected_attempt_id),
             ),
