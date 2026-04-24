@@ -1577,6 +1577,7 @@ def render_progress_results_page(user: Dict) -> None:
             SELECT DISTINCT ON (a.assignment_id)
                 a.assignment_id,
                 t.attempt_id,
+                COALESCE(t.module_id, a.module_id) AS module_id,
                 ss.submission_score_id AS submission_score_id,
                 t.result_status,
                 t.timed_out,
