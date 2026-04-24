@@ -96,6 +96,18 @@ def _fallback_module_draft(payload: ModuleDraftGenerationInput) -> dict[str, Any
             "Apply policy, communication standards, and safe escalation decisions."
         ),
         "category": "",
+        "role_focus": "Frontline team member",
+        "test_focus": "Policy adherence, communication quality, and escalation judgment",
+        "learning_objectives": [
+            "Apply policy correctly under pressure",
+            "Use clear, empathetic communication with stakeholders",
+            "Escalate appropriately with concise handoff context",
+        ],
+        "content_sections": [
+            "Scenario context and constraints",
+            "Decision checkpoints and escalation paths",
+            "Communication best practices",
+        ],
         "difficulty": "",
         "time_limit_minutes": 20,
         "questions": questions,
@@ -115,7 +127,9 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
         "Return strict JSON only with this exact schema and key names: "
         "{"
         '"title": string, "description": string, "scenario": string, '
-        '"category": string, "difficulty": string, "time_limit_minutes": number, '
+        '"category": string, "role_focus": string, "test_focus": string, '
+        '"learning_objectives": string[], "content_sections": string[], '
+        '"difficulty": string, "time_limit_minutes": number, '
         '"questions": [{"question_text": string, "question_type": "open_text" | "multiple_choice" | "ai_conversation", '
         '"scoring_type": "manual" | "keyword" | "llm", '
         '"keyword_expected_terms": string[], "llm_grading_criteria": string, '
@@ -231,6 +245,18 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
             "description": str(draft.get("description") or "").strip(),
             "scenario": str(draft.get("scenario") or "").strip(),
             "category": str(draft.get("category") or "").strip(),
+            "role_focus": str(draft.get("role_focus") or "").strip(),
+            "test_focus": str(draft.get("test_focus") or "").strip(),
+            "learning_objectives": [
+                str(item).strip()
+                for item in (draft.get("learning_objectives") if isinstance(draft.get("learning_objectives"), list) else [])
+                if str(item).strip()
+            ],
+            "content_sections": [
+                str(item).strip()
+                for item in (draft.get("content_sections") if isinstance(draft.get("content_sections"), list) else [])
+                if str(item).strip()
+            ],
             "difficulty": str(draft.get("difficulty") or "").strip(),
             "time_limit_minutes": int(draft.get("time_limit_minutes") or 20),
             "questions": safe_questions,
