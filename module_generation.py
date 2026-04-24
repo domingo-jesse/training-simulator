@@ -199,6 +199,8 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
                 scoring_type = "manual"
             if question_type == "ai_conversation" and scoring_type == "keyword":
                 scoring_type = "manual"
+            if question_type == "multiple_choice" and scoring_type == "keyword":
+                scoring_type = "manual"
             safe_questions.append(
                 {
                     "question_text": question_text,

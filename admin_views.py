@@ -50,10 +50,11 @@ from module_generation import (
 admin_logger = get_logger(module="admin_views")
 
 QUESTION_SCORING_OPTIONS = ["manual", "keyword", "llm"]
+MULTIPLE_CHOICE_SCORING_OPTIONS = ["manual", "llm"]
 QUESTION_SCORING_LABELS = {
     "manual": "Manual Review",
     "keyword": "Keyword",
-    "llm": "LLM",
+    "llm": "AI Review",
 }
 QUESTION_TYPE_OPTIONS = ["open_text", "multiple_choice", "ai_conversation"]
 AI_CONVERSATION_MAX_RESPONSE_OPTIONS = [3, 4]
@@ -2378,11 +2379,13 @@ def _normalize_module_scoring_fallback(module_value: object) -> str:
 
 
 def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, object]:
-    scoring_type = _normalize_question_scoring_type(question.get("scoring_type"), fallback="manual")
+    question_type = _normalize_question_type(question.get("question_type"))
+    scoring_type = _normalize_scoring_for_question_type(
+        question_type,
+        question.get("scoring_type"),
+        fallback="manual",
+    )
     cleaned = dict(question)
-    question_type = _normalize_question_type(cleaned.get("question_type"))
-    if question_type == "ai_conversation" and scoring_type == "keyword":
-        scoring_type = "manual"
     cleaned["scoring_type"] = scoring_type
     if question_type != "ai_conversation":
         cleaned["ai_conversation_prompt"] = ""
@@ -2390,6 +2393,12 @@ def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, obj
         cleaned["evaluation_focus"] = ""
         cleaned["max_learner_responses"] = 3
         cleaned["optional_wrap_up_instruction"] = ""
+    if question_type == "multiple_choice":
+        cleaned["expected_answer"] = ""
+        cleaned["keyword_expected_terms"] = ""
+        cleaned["rubric_criteria_text"] = ""
+        if scoring_type != "llm":
+            cleaned["llm_grading_criteria"] = ""
     if scoring_type == "manual":
         cleaned["expected_answer"] = ""
         cleaned["llm_grading_criteria"] = ""
@@ -2404,7 +2413,10 @@ def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, obj
 
 def _normalize_scoring_for_question_type(question_type: object, scoring_type: object, fallback: str = "manual") -> str:
     normalized = _normalize_question_scoring_type(scoring_type, fallback=fallback)
-    if str(question_type or "").strip().lower() == "ai_conversation" and normalized == "keyword":
+    normalized_question_type = str(question_type or "").strip().lower()
+    if normalized_question_type == "ai_conversation" and normalized == "keyword":
+        return "manual"
+    if normalized_question_type == "multiple_choice" and normalized == "keyword":
         return "manual"
     return normalized
 
@@ -2446,6 +2458,21 @@ def _serialize_question_options(question: dict[str, object]) -> str:
     if isinstance(correct_choice_index, int) and 0 <= correct_choice_index < len(choices):
         payload["correct_choice_index"] = correct_choice_index
     return json.dumps(payload)
+
+
+def _extract_correct_choice_index(question: dict[str, object]) -> int | None:
+    raw_value = question.get("correct_choice_index")
+    if isinstance(raw_value, int):
+        return raw_value
+    options = question.get("options_text")
+    if isinstance(options, str):
+        try:
+            parsed = json.loads(options)
+            if isinstance(parsed, dict) and isinstance(parsed.get("correct_choice_index"), int):
+                return int(parsed.get("correct_choice_index"))
+        except Exception:
+            return None
+    return None
 
 
 def _normalize_ai_max_responses(value: object) -> int:
@@ -3033,6 +3060,12 @@ def render_module_builder(current_user: dict) -> None:
         if question_type == "multiple_choice" and not st.session_state.get(choices_key):
             st.session_state[choices_key] = ["", ""]
             st.session_state[f"{q_prefix}_correct_choice"] = None
+        if question_type == "multiple_choice":
+            st.session_state[f"{q_prefix}_scoring_type"] = _normalize_scoring_for_question_type(
+                "multiple_choice",
+                st.session_state.get(f"{q_prefix}_scoring_type"),
+                fallback="manual",
+            )
         if question_type == "ai_conversation":
             st.session_state[f"{q_prefix}_scoring_type"] = "manual"
         _mark_dirty(f"question_{current_idx + 1}")
@@ -3291,7 +3324,7 @@ def render_module_builder(current_user: dict) -> None:
             if f"{q_prefix}_choices" not in st.session_state:
                 st.session_state[f"{q_prefix}_choices"] = _normalize_question_choices(question)
             if f"{q_prefix}_correct_choice" not in st.session_state:
-                correct_choice_index = question.get("correct_choice_index")
+                correct_choice_index = _extract_correct_choice_index(question)
                 st.session_state[f"{q_prefix}_correct_choice"] = (
                     correct_choice_index if isinstance(correct_choice_index, int) else None
                 )
@@ -3386,7 +3419,7 @@ def render_module_builder(current_user: dict) -> None:
                     current_value = st.session_state.get(f"{q_prefix}_correct_choice")
                     current_index = option_values.index(current_value) if current_value in option_values else 0
                     st.session_state[f"{q_prefix}_correct_choice"] = st.selectbox(
-                        "Correct answer (optional)",
+                        "Correct answer",
                         options=option_values,
                         index=current_index,
                         format_func=lambda choice_idx: "Not set"
@@ -3434,16 +3467,22 @@ def render_module_builder(current_user: dict) -> None:
                 )
             scoring_type = _normalize_question_scoring_type(st.session_state.get(f"{q_prefix}_scoring_type"), fallback="manual")
             st.markdown("**Scoring method**")
+            scoring_options = QUESTION_SCORING_OPTIONS if not (is_ai_conversation or is_multiple_choice) else ["manual", "llm"]
             st.radio(
                 "Scoring method",
-                options=QUESTION_SCORING_OPTIONS if not is_ai_conversation else ["manual", "llm"],
+                options=scoring_options,
                 key=f"{q_prefix}_scoring_type",
                 format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                 horizontal=True,
                 label_visibility="collapsed",
                 on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
             )
-            scoring_type = _normalize_question_scoring_type(st.session_state.get(f"{q_prefix}_scoring_type"), fallback="manual")
+            scoring_type = _normalize_scoring_for_question_type(
+                active_question_type,
+                st.session_state.get(f"{q_prefix}_scoring_type"),
+                fallback="manual",
+            )
+            st.session_state[f"{q_prefix}_scoring_type"] = scoring_type
             st.number_input(
                 "Max points",
                 min_value=0.0,
@@ -3454,7 +3493,7 @@ def render_module_builder(current_user: dict) -> None:
             )
             if scoring_type == "manual":
                 st.caption("This question will be scored by an admin during manual review.")
-            elif scoring_type == "keyword" and not is_ai_conversation:
+            elif scoring_type == "keyword" and not (is_ai_conversation or is_multiple_choice):
                 st.text_area(
                     "Expected answer (reference)",
                     key=f"{q_prefix}_expected_answer",
@@ -3462,18 +3501,24 @@ def render_module_builder(current_user: dict) -> None:
                     height=80,
                 )
             else:
+                instructions_label = (
+                    "Optional AI explanation guidance"
+                    if is_multiple_choice
+                    else "Question-level grader instructions"
+                )
                 st.text_area(
-                    "Question-level grader instructions",
+                    instructions_label,
                     key=f"{q_prefix}_llm_instructions",
                     on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
                     height=90,
                 )
-                st.text_area(
-                    "Rubric criteria (one per line: Criterion | points | guidance)",
-                    key=f"{q_prefix}_rubric_criteria",
-                    on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
-                    height=110,
-                )
+                if not is_multiple_choice:
+                    st.text_area(
+                        "Rubric criteria (one per line: Criterion | points | guidance)",
+                        key=f"{q_prefix}_rubric_criteria",
+                        on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                        height=110,
+                    )
             if st.button("Delete question", key=f"delete_question_{idx}"):
                 delete_index = idx
 
@@ -3550,9 +3595,19 @@ def render_module_builder(current_user: dict) -> None:
         if not _is_present(question.get("question_text")):
             validation_errors[f"question_{idx}"] = f"Question {idx} text is required."
         if question.get("question_type") == "multiple_choice":
-            option_lines = [choice.strip() for choice in _coerce_choice_list(question.get("choices")) if str(choice).strip()]
+            choices = _coerce_choice_list(question.get("choices"))
+            option_lines = [choice.strip() for choice in choices if str(choice).strip()]
             if len(option_lines) < 2:
                 validation_errors[f"question_{idx}_options"] = f"Question {idx} needs at least two answer choices."
+            correct_idx = question.get("correct_choice_index")
+            if not isinstance(correct_idx, int) or correct_idx < 0 or correct_idx >= len(choices):
+                scoring_type = _normalize_scoring_for_question_type(question.get("question_type"), question.get("scoring_type"), fallback="manual")
+                if scoring_type == "llm":
+                    validation_errors[f"question_{idx}_correct_answer"] = (
+                        f"Question {idx} uses AI review and must have a correct answer selected."
+                    )
+                else:
+                    st.info(f"Question {idx}: set a correct answer to enable exact multiple-choice scoring.")
         if question.get("question_type") == "ai_conversation":
             if not _is_present(question.get("ai_conversation_prompt")):
                 validation_errors[f"question_{idx}"] = f"Question {idx} needs a scenario prompt."
@@ -4121,10 +4176,17 @@ def render_manage_modules(current_user: dict) -> None:
                         st.session_state[scoring_method_key] = current_q_style
                     edit_question_scoring_type = st.radio(
                         "Scoring method",
-                        options=QUESTION_SCORING_OPTIONS,
+                        options=MULTIPLE_CHOICE_SCORING_OPTIONS if edit_question_type == "multiple_choice" else (
+                            ["manual", "llm"] if edit_question_type == "ai_conversation" else QUESTION_SCORING_OPTIONS
+                        ),
                         format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                         key=scoring_method_key,
                         horizontal=True,
+                    )
+                    edit_question_scoring_type = _normalize_scoring_for_question_type(
+                        edit_question_type,
+                        edit_question_scoring_type,
+                        fallback="manual",
                     )
                     edit_question_max_points = st.number_input(
                         "Max points",
@@ -4144,6 +4206,7 @@ def render_manage_modules(current_user: dict) -> None:
                             "Expected answer",
                             value=question.get("expected_answer") or "",
                             key=f"edit_question_expected_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type == "multiple_choice",
                         )
                         edit_question_keywords = st.session_state.get(
                             f"edit_question_keywords_{state_prefix}_{question['question_id']}",
@@ -4189,7 +4252,10 @@ def render_manage_modules(current_user: dict) -> None:
                                 ]
                             ),
                         )
-                        st.caption("This question will be scored by an admin during manual review.")
+                        if edit_question_type == "multiple_choice":
+                            st.caption("Manual review: learner choice is stored and can be scored/approved by an admin.")
+                        else:
+                            st.caption("This question will be scored by an admin during manual review.")
                     elif edit_question_scoring_type == "keyword":
                         edit_question_rubric = st.text_area(
                             "Rubric / expected answer",
@@ -4206,6 +4272,7 @@ def render_manage_modules(current_user: dict) -> None:
                             "Keywords / required concepts (one per line)",
                             value=_parse_lines(question.get("keyword_expected_terms") or question.get("expected_answer") or ""),
                             key=f"edit_question_keywords_{state_prefix}_{question['question_id']}",
+                            disabled=edit_question_type == "multiple_choice",
                         )
                         edit_question_llm_instructions = st.session_state.get(
                             f"edit_question_llm_instruction_{state_prefix}_{question['question_id']}",
@@ -4306,14 +4373,38 @@ def render_manage_modules(current_user: dict) -> None:
                             ),
                             key=f"edit_question_rubric_criteria_{state_prefix}_{question['question_id']}",
                             height=100,
+                            disabled=edit_question_type == "multiple_choice",
                         )
-                        st.caption("LLM scoring uses grading instructions, expected answer, rubric criteria, and guidance.")
+                        st.caption(
+                            "AI review checks selected answer against the configured correct choice."
+                            if edit_question_type == "multiple_choice"
+                            else "LLM scoring uses grading instructions, expected answer, rubric criteria, and guidance."
+                        )
                     edit_question_options = st.text_area(
                         "Options (one per line; multiple choice only)",
                         value="\n".join(_normalize_question_choices(question)),
                         key=f"edit_question_options_{state_prefix}_{question['question_id']}",
                         disabled=edit_question_type != "multiple_choice",
                     )
+                    edit_question_correct_choice = None
+                    if edit_question_type == "multiple_choice":
+                        parsed_choices = _coerce_choice_list(_parse_lines(edit_question_options))
+                        correct_choice_key = f"edit_question_correct_choice_{state_prefix}_{question['question_id']}"
+                        if correct_choice_key not in st.session_state:
+                            st.session_state[correct_choice_key] = _extract_correct_choice_index(question)
+                        current_correct_choice = st.session_state.get(correct_choice_key)
+                        if not isinstance(current_correct_choice, int) or current_correct_choice >= len(parsed_choices):
+                            current_correct_choice = None
+                        correct_choice_options = [None, *list(range(len(parsed_choices)))]
+                        edit_question_correct_choice = st.selectbox(
+                            "Correct answer",
+                            options=correct_choice_options,
+                            index=correct_choice_options.index(current_correct_choice),
+                            format_func=lambda choice_idx: "Not set"
+                            if choice_idx is None
+                            else (parsed_choices[choice_idx].strip() or f"Choice {choice_idx + 1}"),
+                            key=correct_choice_key,
+                        )
                     edit_ai_prompt = st.text_area(
                         "Scenario prompt / conversation setup",
                         value=question.get("ai_conversation_prompt") or "",
@@ -4353,6 +4444,13 @@ def render_manage_modules(current_user: dict) -> None:
                     with q_action_col_2:
                         question_deleted = st.button("Delete question", key=f"delete_question_{state_prefix}_{question['question_id']}", use_container_width=True)
                     if question_saved:
+                            if (
+                                edit_question_type == "multiple_choice"
+                                and edit_question_scoring_type == "llm"
+                                and not isinstance(edit_question_correct_choice, int)
+                            ):
+                                st.error("AI review for multiple choice requires selecting a correct answer.")
+                                st.stop()
                             execute(
                                 """
                                 UPDATE module_questions
@@ -4369,11 +4467,19 @@ def render_manage_modules(current_user: dict) -> None:
                                     edit_question_rubric.strip(),
                                     edit_question_expected_answer.strip(),
                                     float(edit_question_max_points),
-                                    json.dumps({"choices": _coerce_choice_list(_parse_lines(edit_question_options))})
-                                    if edit_question_type == "multiple_choice"
-                                    else "",
+                                    json.dumps(
+                                        {
+                                            "choices": _coerce_choice_list(_parse_lines(edit_question_options)),
+                                            **(
+                                                {"correct_choice_index": edit_question_correct_choice}
+                                                if isinstance(edit_question_correct_choice, int)
+                                                and edit_question_correct_choice < len(_coerce_choice_list(_parse_lines(edit_question_options)))
+                                                else {}
+                                            ),
+                                        }
+                                    ) if edit_question_type == "multiple_choice" else "",
                                     _normalize_scoring_for_question_type(edit_question_type, edit_question_scoring_type, fallback="manual"),
-                                    _parse_lines(edit_question_keywords),
+                                    _parse_lines(edit_question_keywords) if edit_question_type != "multiple_choice" else "",
                                     edit_question_llm_instructions.strip(),
                                     edit_form.get("learner_feedback_visibility", "admin_approved_only"),
                                     json.dumps(_parse_rubric_criteria_lines(edit_question_rubric_criteria)),
@@ -4442,11 +4548,20 @@ def render_manage_modules(current_user: dict) -> None:
                 )
                 add_question_scoring_type = st.radio(
                     "Scoring method",
-                    QUESTION_SCORING_OPTIONS,
-                    index=_safe_scoring_option_index("manual", QUESTION_SCORING_OPTIONS, fallback="manual"),
+                    MULTIPLE_CHOICE_SCORING_OPTIONS if add_question_type == "multiple_choice" else (
+                        ["manual", "llm"] if add_question_type == "ai_conversation" else QUESTION_SCORING_OPTIONS
+                    ),
+                    index=_safe_scoring_option_index("manual", MULTIPLE_CHOICE_SCORING_OPTIONS if add_question_type == "multiple_choice" else (
+                        ["manual", "llm"] if add_question_type == "ai_conversation" else QUESTION_SCORING_OPTIONS
+                    ), fallback="manual"),
                     format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                     key=f"add_question_scoring_type_{state_prefix}_{module_id}",
                     horizontal=True,
+                )
+                add_question_scoring_type = _normalize_scoring_for_question_type(
+                    add_question_type,
+                    add_question_scoring_type,
+                    fallback="manual",
                 )
                 add_question_llm_instructions = ""
                 add_question_rubric_criteria = ""
@@ -4454,7 +4569,20 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_keywords = st.text_area(
                     "Keywords / required concepts (one per line)",
                     key=f"add_question_keywords_{state_prefix}_{module_id}",
+                    disabled=add_question_type == "multiple_choice",
                 )
+                add_question_correct_choice = None
+                if add_question_type == "multiple_choice":
+                    parsed_add_choices = _coerce_choice_list(_parse_lines(add_question_options))
+                    add_question_correct_choice = st.selectbox(
+                        "Correct answer",
+                        options=[None, *list(range(len(parsed_add_choices)))],
+                        index=0,
+                        format_func=lambda choice_idx: "Not set"
+                        if choice_idx is None
+                        else (parsed_add_choices[choice_idx].strip() or f"Choice {choice_idx + 1}"),
+                        key=f"add_question_correct_choice_{state_prefix}_{module_id}",
+                    )
                 add_question_partial_credit = st.text_area(
                     "Partial credit guidance",
                     key=f"add_question_partial_credit_{state_prefix}_{module_id}",
@@ -4472,21 +4600,29 @@ def render_manage_modules(current_user: dict) -> None:
                     key=f"add_question_strong_{state_prefix}_{module_id}",
                 )
                 if add_question_scoring_type == "manual":
-                    st.caption("This question will be scored by an admin during manual review.")
-                elif add_question_scoring_type == "keyword" and add_question_type != "ai_conversation":
+                    st.caption(
+                        "Manual review: learner choice is stored and can be scored/approved by an admin."
+                        if add_question_type == "multiple_choice"
+                        else "This question will be scored by an admin during manual review."
+                    )
+                elif add_question_scoring_type == "keyword" and add_question_type not in {"ai_conversation", "multiple_choice"}:
                     add_question_expected_answer = st.text_area("Expected answer (reference)", key=f"add_question_expected_{state_prefix}_{module_id}")
                 elif add_question_scoring_type == "llm":
                     add_question_llm_instructions = st.text_area(
-                        "Question grader instructions",
+                        "Optional AI explanation guidance" if add_question_type == "multiple_choice" else "Question grader instructions",
                         key=f"add_question_llm_instructions_{state_prefix}_{module_id}",
                     )
-                    add_question_rubric_criteria = st.text_area(
-                        "Rubric criteria (Criterion | points | guidance)",
-                        key=f"add_question_rubric_criteria_{state_prefix}_{module_id}",
-                        height=100,
-                    )
+                    if add_question_type != "multiple_choice":
+                        add_question_rubric_criteria = st.text_area(
+                            "Rubric criteria (Criterion | points | guidance)",
+                            key=f"add_question_rubric_criteria_{state_prefix}_{module_id}",
+                            height=100,
+                        )
                 add_question_submit = st.form_submit_button("Add question")
                 if add_question_submit:
+                    if add_question_type == "multiple_choice" and add_question_scoring_type == "llm" and not isinstance(add_question_correct_choice, int):
+                        st.error("AI review for multiple choice requires selecting a correct answer.")
+                        st.stop()
                     max_order_row = fetch_one("SELECT COALESCE(MAX(question_order), 0) AS max_order FROM module_questions WHERE module_id = ?", (module_id,))
                     next_order = int(max_order_row["max_order"]) + 1 if max_order_row else 1
                     execute(
@@ -4508,12 +4644,20 @@ def render_manage_modules(current_user: dict) -> None:
                             add_question_expected_answer.strip(),
                             float(add_question_max_points),
                             add_question_type,
-                            json.dumps({"choices": _coerce_choice_list(_parse_lines(add_question_options))})
-                            if add_question_type == "multiple_choice"
-                            else "",
+                            json.dumps(
+                                {
+                                    "choices": _coerce_choice_list(_parse_lines(add_question_options)),
+                                    **(
+                                        {"correct_choice_index": add_question_correct_choice}
+                                        if isinstance(add_question_correct_choice, int)
+                                        and add_question_correct_choice < len(_coerce_choice_list(_parse_lines(add_question_options)))
+                                        else {}
+                                    ),
+                                }
+                            ) if add_question_type == "multiple_choice" else "",
                             None,
                             _normalize_scoring_for_question_type(add_question_type, add_question_scoring_type, fallback="manual"),
-                            _parse_lines(add_question_keywords) if _is_present(add_question_keywords) else add_question_expected_answer.strip(),
+                            _parse_lines(add_question_keywords) if (add_question_type != "multiple_choice" and _is_present(add_question_keywords)) else add_question_expected_answer.strip(),
                             add_question_llm_instructions.strip(),
                             edit_form.get("learner_feedback_visibility", "admin_approved_only"),
                             json.dumps(_parse_rubric_criteria_lines(add_question_rubric_criteria)),
