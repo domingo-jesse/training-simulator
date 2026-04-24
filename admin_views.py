@@ -1364,6 +1364,7 @@ def render_grading_center(current_user: dict) -> None:
     st.caption("Review learner submissions and scoring results for assigned modules.")
 
     total_score_expr = "COALESCE(sc.final_total_score, sc.admin_total_score, sc.ai_total_score, 0)"
+    jsonb_empty_object_expr = "'{}'::jsonb"
 
     attempts = to_df(
         fetch_all(
@@ -1392,7 +1393,7 @@ def render_grading_center(current_user: dict) -> None:
                 COALESCE(sc.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
                 COALESCE(sc.show_ai_review_to_learner, sc.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_review_to_learner,
                 COALESCE(sc.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
-                COALESCE(sc.results_visibility_json, '{{}}'::jsonb) AS results_visibility_json,
+                COALESCE(sc.results_visibility_json, {jsonb_empty_object_expr}) AS results_visibility_json,
                 sc.scoring_version,
                 a.ai_feedback
             FROM attempts a
