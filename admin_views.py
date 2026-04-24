@@ -3812,11 +3812,62 @@ def render_manage_modules(current_user: dict) -> None:
             help="Choose a module directly from this dropdown to open it in the editor.",
         )
 
+        last_selected_module_key = f"manage_modules_last_selected_module_{state_prefix}"
+        selection_changed = st.session_state.get(last_selected_module_key) != selected_module_from_dropdown
+        if selection_changed:
+            st.session_state[last_selected_module_key] = selected_module_from_dropdown
+
         if selected_module_from_dropdown is not module_select_sentinel:
             module_id = int(selected_module_from_dropdown)
             st.session_state[selected_module_state_key] = module_id
             st.session_state[explicit_selection_key] = True
         else:
+            if selection_changed:
+                keys_to_clear = [
+                    "current_module",
+                    "module_title",
+                    "module_description",
+                    "module_category",
+                    "module_difficulty",
+                    "module_duration",
+                    "module_objectives",
+                    "module_takeaway",
+                    "quiz_required",
+                    selected_module_state_key,
+                    explicit_selection_key,
+                    f"edit_module_selected_module_id_{state_prefix}",
+                ]
+                for key in keys_to_clear:
+                    if key in st.session_state:
+                        del st.session_state[key]
+                dynamic_prefixes = [
+                    f"edit_module_form_{state_prefix}_",
+                    f"edit_module_title_{state_prefix}_",
+                    f"edit_module_category_{state_prefix}_",
+                    f"edit_module_difficulty_{state_prefix}_",
+                    f"edit_module_minutes_{state_prefix}_",
+                    f"edit_module_description_{state_prefix}_",
+                    f"edit_module_lesson_takeaway_{state_prefix}_",
+                    f"edit_module_quiz_required_{state_prefix}_",
+                    f"edit_module_objectives_{state_prefix}_",
+                    f"edit_module_sections_{state_prefix}_",
+                    f"edit_module_requirements_{state_prefix}_",
+                    f"edit_module_scenario_ticket_{state_prefix}_",
+                    f"edit_module_scenario_context_{state_prefix}_",
+                    f"edit_module_hidden_root_cause_{state_prefix}_",
+                    f"edit_module_expected_reasoning_path_{state_prefix}_",
+                    f"edit_module_expected_diagnosis_{state_prefix}_",
+                    f"edit_module_expected_next_steps_{state_prefix}_",
+                    f"edit_module_expected_customer_response_{state_prefix}_",
+                    f"edit_module_llm_scoring_enabled_{state_prefix}_",
+                    f"edit_module_scoring_style_{state_prefix}_",
+                    f"edit_module_grader_instructions_{state_prefix}_",
+                    f"edit_module_learner_feedback_visibility_{state_prefix}_",
+                ]
+                for key in list(st.session_state.keys()):
+                    if any(key.startswith(prefix) for prefix in dynamic_prefixes):
+                        del st.session_state[key]
+
             st.session_state[selected_module_state_key] = None
             st.session_state[explicit_selection_key] = False
             st.session_state[dropdown_state_key] = module_select_sentinel
