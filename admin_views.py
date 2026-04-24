@@ -304,7 +304,7 @@ def _cleanup_assignment_tracking_records(
 
 def render_admin_dashboard(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
+    logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     render_page_header("Dashboard Overview", "Operational health across learners, assignments, and outcomes.")
 
     try:
@@ -312,7 +312,7 @@ def render_admin_dashboard(current_user: dict) -> None:
         modules_df = to_df(fetch_all("SELECT * FROM modules WHERE organization_id = ?", (org_id,)))
         assignments_df = _assignments_with_status(org_id)
     except Exception:
-        view_logger.exception("Failed to load admin dashboard.")
+        logger.exception("Failed to load admin dashboard.")
         st.error("Failed to load dashboard data.")
         return
 
@@ -488,7 +488,7 @@ def render_admin_dashboard(current_user: dict) -> None:
 
 def render_learner_management(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
+    logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     render_page_header("Learner Management", "Search, segment, and manage active learner access.")
 
     rows = fetch_all(
@@ -713,7 +713,7 @@ def render_learner_management(current_user: dict) -> None:
                     """,
                     (org_id, selected_ids),
                 )
-                view_logger.info(
+                logger.info(
                     "Bulk learner status update.",
                     action="bulk_status_update",
                     status=("active" if new_status else "inactive"),
@@ -725,7 +725,7 @@ def render_learner_management(current_user: dict) -> None:
                 st.cache_data.clear()
                 st.rerun()
             except Exception:
-                view_logger.exception("Failed bulk learner status update.", learner_count=len(selected_ids))
+                logger.exception("Failed bulk learner status update.", learner_count=len(selected_ids))
                 st.error("Could not update selected learners.")
 
     active_tab, inactive_tab = st.tabs(["Active Learners", "Inactive Learners"])
@@ -737,7 +737,7 @@ def render_learner_management(current_user: dict) -> None:
 
 def _render_assignment_tool(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
+    logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Assignment Tool")
     assign_status_key = "assignment_tool_assign_status"
     assign_status_expiry_key = "assignment_tool_assign_status_expiry"
@@ -1040,7 +1040,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                                 learner_id=learner_id,
                                 assigned_by_user_id=current_user["user_id"],
                             )
-                view_logger.info(
+                logger.info(
                     "Admin submitted training assignment form.",
                     form="assign_training",
                     scenario_id=module_id,
@@ -1058,7 +1058,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                 st.session_state[assign_status_key] = ("error", str(validation_error))
                 st.session_state[assign_status_expiry_key] = time.time() + 8
             except Exception:
-                view_logger.exception("Failed assigning training.", scenario_id=module_id)
+                logger.exception("Failed assigning training.", scenario_id=module_id)
                 st.session_state[assign_status_key] = ("error", "Could not assign training.")
                 st.session_state[assign_status_expiry_key] = time.time() + 8
             finally:
@@ -1099,7 +1099,7 @@ def render_assignment_management(current_user: dict) -> None:
 
 def render_current_assignments(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    view_logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
+    logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.markdown("#### Current assignments")
 
     refresh_token = int(st.session_state.get("assignment_management_refresh_token", 0))
@@ -1308,7 +1308,7 @@ def render_current_assignments(current_user: dict) -> None:
                             module_id=int(row["module_id"]),
                             learner_id=int(row["learner_id"]),
                         )
-                    view_logger.info(
+                    logger.info(
                         "Button click.",
                         action="remove_assignment",
                         assignment_count=len(selected_assignment_ids),
@@ -1320,7 +1320,7 @@ def render_current_assignments(current_user: dict) -> None:
                     st.cache_data.clear()
                     st.rerun()
                 except Exception:
-                    view_logger.exception(
+                    logger.exception(
                         "Failed removing assignments.",
                         assignment_count=len(selected_assignment_ids),
                     )
@@ -1334,7 +1334,7 @@ def render_current_assignments(current_user: dict) -> None:
                         "WHERE organization_id = ? AND assignment_id IN ?",
                         (new_due.isoformat(), current_user["user_id"], org_id, tuple(selected_assignment_ids)),
                     )
-                    view_logger.info(
+                    logger.info(
                         "Button click.",
                         action="reassign_training",
                         assignment_count=len(selected_assignment_ids),
@@ -1346,7 +1346,7 @@ def render_current_assignments(current_user: dict) -> None:
                     st.cache_data.clear()
                     st.rerun()
                 except Exception:
-                    view_logger.exception(
+                    logger.exception(
                         "Failed reassigning training.",
                         assignment_count=len(selected_assignment_ids),
                     )
@@ -1360,6 +1360,7 @@ def render_current_assignments(current_user: dict) -> None:
 
 def render_grading_center(current_user: dict) -> None:
     org_id = current_user["organization_id"]
+    logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     st.subheader("Submission Grading")
     st.caption("Review learner submissions and scoring results for assigned modules.")
 
@@ -1830,7 +1831,7 @@ def render_grading_center(current_user: dict) -> None:
             "show_ai_review_to_learner": bool(show_ai_review_to_learner),
             "show_learner_responses_to_learner": bool(show_learner_responses_to_learner),
         }
-        view_logger.info(
+        logger.info(
             "Saving learner results visibility",
             submission_score_id=int(submission_score_id),
             results_visibility=results_visibility,
