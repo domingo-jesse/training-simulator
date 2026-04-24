@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import math
+from decimal import Decimal
 from html import escape
 from contextlib import contextmanager
 from typing import Any, Dict, Optional
 
 import pandas as pd
 import streamlit as st
+import numpy as np
 
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 _ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
@@ -625,6 +627,39 @@ def _format_numeric_value(value: Any, decimals: int = 1) -> str:
         return "—"
 
 
+def normalize_display_value(raw_value: Any) -> str:
+    if raw_value is None:
+        return "—"
+    if isinstance(raw_value, str):
+        return raw_value if raw_value != "" else "—"
+    if isinstance(raw_value, Decimal):
+        return format(raw_value, "f")
+    if isinstance(raw_value, np.ndarray):
+        if raw_value.size == 0:
+            return "—"
+        return np.array2string(raw_value, separator=", ")
+    if isinstance(raw_value, (list, tuple)):
+        if len(raw_value) == 0:
+            return "—"
+        try:
+            return json.dumps(raw_value, ensure_ascii=False, default=str)
+        except Exception:
+            return str(raw_value)
+    if isinstance(raw_value, dict):
+        if len(raw_value) == 0:
+            return "—"
+        try:
+            return json.dumps(raw_value, ensure_ascii=False, default=str, sort_keys=True)
+        except Exception:
+            return str(raw_value)
+    try:
+        if pd.isna(raw_value):
+            return "—"
+    except Exception:
+        pass
+    return str(raw_value)
+
+
 def format_status_display(value: Any) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -1006,7 +1041,7 @@ def render_app_table(
         html.append("<tr>")
         for idx, col in enumerate(render_df.columns):
             raw_value = row[col]
-            display_value = raw_value if pd.notna(raw_value) and raw_value != "" else "—"
+            display_value = normalize_display_value(raw_value)
             alignment = "right" if numeric_align.get(col) == "right" else "left"
             if col in badge_columns:
                 badge_kind = badge_columns[col]

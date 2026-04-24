@@ -12,7 +12,17 @@ import pandas as pd
 import psycopg2
 import streamlit as st
 
-from db import execute, executemany, fetch_all, fetch_one, fetch_table_rows, list_public_tables, get_database_debug_info
+from db import (
+    ensure_module_rubric_criteria_table,
+    execute,
+    executemany,
+    fetch_all,
+    fetch_one,
+    fetch_table_rows,
+    get_database_debug_info,
+    list_public_tables,
+    table_exists,
+)
 from ai_grading import grade_submission_with_ai
 from logger import get_logger
 from log_viewer import (
@@ -3807,15 +3817,23 @@ def render_module_builder(current_user: dict) -> None:
                     )
                 )
         if criteria_rows:
-            executemany(
-                """
-                INSERT INTO module_rubric_criteria (
-                    module_id, question_id, criterion_order, label, description, weight, max_points, grading_guidance, is_active
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                criteria_rows,
-            )
+            try:
+                ensure_module_rubric_criteria_table()
+                if table_exists("module_rubric_criteria"):
+                    executemany(
+                        """
+                        INSERT INTO module_rubric_criteria (
+                            module_id, question_id, criterion_order, label, description, weight, max_points, grading_guidance, is_active
+                        )
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        criteria_rows,
+                    )
+                else:
+                    st.warning("Module saved, but rubric criteria table is unavailable so rubric details were not saved.")
+            except Exception:
+                admin_logger.exception("Failed to save module rubric criteria.", module_id=module_id)
+                st.warning("Module saved, but rubric criteria could not be saved. Please retry after database initialization completes.")
 
         created_module_id = int(module_id)
         created_module_title = module_form["title"].strip() or f"Module {created_module_id}"

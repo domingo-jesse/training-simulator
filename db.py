@@ -186,6 +186,108 @@ def _ensure_column(conn, table: str, column: str, definition: str) -> bool:
     return False
 
 
+def _table_exists_conn(conn, table_name: str) -> bool:
+    if not _is_safe_identifier(table_name):
+        raise ValueError(f"Unsafe table name: {table_name}")
+    if RUNTIME_USE_POSTGRES:
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass(%s) AS regclass_name", (f"public.{table_name}",))
+            row = cur.fetchone()
+            return bool(row and row.get("regclass_name"))
+    row = conn.execute(
+        """
+        SELECT 1
+        FROM sqlite_master
+        WHERE type='table' AND name=?
+        LIMIT 1
+        """,
+        (table_name,),
+    ).fetchone()
+    return bool(row)
+
+
+def table_exists(table_name: str) -> bool:
+    with get_conn() as conn:
+        return _table_exists_conn(conn, table_name)
+
+
+def ensure_module_rubric_criteria_table(conn: Any = None) -> None:
+    if conn is None:
+        with get_conn() as managed_conn:
+            ensure_module_rubric_criteria_table(managed_conn)
+        return
+    if RUNTIME_USE_POSTGRES:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS module_rubric_criteria (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    module_id BIGINT NOT NULL,
+                    question_id BIGINT NOT NULL,
+                    criterion_order INTEGER NOT NULL DEFAULT 1,
+                    label TEXT NOT NULL,
+                    description TEXT DEFAULT '',
+                    max_score NUMERIC DEFAULT 1.0,
+                    weight NUMERIC DEFAULT 1.0,
+                    feedback TEXT DEFAULT '',
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_module_rubric_criteria_module_id
+                ON module_rubric_criteria(module_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_module_rubric_criteria_question_id
+                ON module_rubric_criteria(question_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_module_rubric_criteria_module_question
+                ON module_rubric_criteria(module_id, question_id)
+                """
+            )
+        _ensure_column(conn, "module_rubric_criteria", "max_points", "NUMERIC DEFAULT 1.0")
+        _ensure_column(conn, "module_rubric_criteria", "grading_guidance", "TEXT DEFAULT ''")
+    else:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS module_rubric_criteria (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                module_id INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                criterion_order INTEGER NOT NULL DEFAULT 1,
+                label TEXT NOT NULL,
+                description TEXT DEFAULT '',
+                max_score REAL DEFAULT 1.0,
+                weight REAL DEFAULT 1.0,
+                feedback TEXT DEFAULT '',
+                is_active INTEGER DEFAULT 1,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_module_rubric_criteria_module_id ON module_rubric_criteria(module_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_module_rubric_criteria_question_id ON module_rubric_criteria(question_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_module_rubric_criteria_module_question ON module_rubric_criteria(module_id, question_id)"
+        )
+        _ensure_column(conn, "module_rubric_criteria", "max_points", "REAL DEFAULT 1.0")
+        _ensure_column(conn, "module_rubric_criteria", "grading_guidance", "TEXT DEFAULT ''")
+
+
 def _ensure_attempts_result_approver_fk_postgres(conn) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -1815,6 +1917,7 @@ def init_db() -> None:
                     )
                     """
                 )
+            ensure_module_rubric_criteria_table(conn)
 
             if RUNTIME_USE_POSTGRES:
                 _executescript(
