@@ -18,7 +18,6 @@ learner_logger = get_logger(module="learner_views")
 WIZARD_STEPS = [
     "Scenario Overview",
     "Assessment Questions",
-    "Final Response / Decision",
     "Review and Submit",
 ]
 
@@ -771,10 +770,6 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
             current_step = ?,
             progress_status = ?,
             learner_notes = learner_notes,
-            diagnosis_response = ?,
-            next_steps_response = ?,
-            customer_response = ?,
-            escalation_choice = ?,
             question_responses = ?,
             revealed_actions = ?,
             used_actions = ?,
@@ -789,10 +784,6 @@ def _persist_workspace_state(*, assignment_id: int, module_id: int, user: Dict) 
         (
             _clamp_wizard_step(int(st.session_state.get(f"wizard_step_{assignment_id}", 1))),
             "submitted" if st.session_state.get(f"submitted_{assignment_id}") else "in_progress",
-            st.session_state.get(f"diagnosis_{assignment_id}", ""),
-            st.session_state.get(f"next_steps_{assignment_id}", ""),
-            st.session_state.get(f"customer_{assignment_id}", ""),
-            st.session_state.get(f"escalation_{assignment_id}", "No escalation"),
             json.dumps(st.session_state.get(f"question_answers_{assignment_id}", {})),
             json.dumps(st.session_state.get(f"revealed_{assignment_id}", {})),
             json.dumps(st.session_state.get(f"used_actions_{assignment_id}", [])),
@@ -874,14 +865,6 @@ def render_scenario_page(user: Dict) -> None:
     st.session_state.setdefault(f"used_actions_{assignment_id}", json.loads(persisted.get("used_actions") or "[]"))
     st.session_state.setdefault(f"revealed_{assignment_id}", json.loads(persisted.get("revealed_actions") or "{}"))
     st.session_state.setdefault(f"started_at_{assignment_id}", persisted.get("started_at") or datetime.now(timezone.utc).isoformat())
-    st.session_state.setdefault(f"diagnosis_{assignment_id}", persisted.get("diagnosis_response") or "")
-    st.session_state.setdefault(f"next_steps_{assignment_id}", persisted.get("next_steps_response") or "")
-    st.session_state.setdefault(f"customer_{assignment_id}", persisted.get("customer_response") or "")
-    st.session_state.setdefault(f"escalation_{assignment_id}", persisted.get("escalation_choice") or "No escalation")
-    st.session_state.setdefault(f"review_diagnosis_{assignment_id}", st.session_state.get(f"diagnosis_{assignment_id}", ""))
-    st.session_state.setdefault(f"review_next_steps_{assignment_id}", st.session_state.get(f"next_steps_{assignment_id}", ""))
-    st.session_state.setdefault(f"review_customer_{assignment_id}", st.session_state.get(f"customer_{assignment_id}", ""))
-    st.session_state.setdefault(f"review_escalation_{assignment_id}", st.session_state.get(f"escalation_{assignment_id}", "No escalation"))
     st.session_state.setdefault(f"review_actions_{assignment_id}", list(st.session_state.get(f"used_actions_{assignment_id}", [])))
     st.session_state.setdefault(f"question_answers_{assignment_id}", json.loads(persisted.get("question_responses") or "{}"))
     persisted_submitted_state = _submitted_state_value(persisted.get("submitted_state"))
@@ -1007,12 +990,7 @@ def render_scenario_page(user: Dict) -> None:
         elapsed_seconds = int((submitted_at - started_at).total_seconds()) if started_at else None
         time_limit_seconds = persisted_limit_minutes * 60
         time_remaining_seconds = max(0, time_limit_seconds - (elapsed_seconds or 0)) if elapsed_seconds is not None else None
-        time_out_note = "\n\nTime limit reached before completion." if timed_out else ""
         answers = {
-            "diagnosis_answer": st.session_state.get(f"diagnosis_{assignment_id}", ""),
-            "next_steps_answer": st.session_state.get(f"next_steps_{assignment_id}", ""),
-            "customer_response": st.session_state.get(f"customer_{assignment_id}", ""),
-            "escalation_choice": st.session_state.get(f"escalation_{assignment_id}", "No escalation"),
             # Deprecated: notes/learner_notes is retained in schema for backward compatibility, but no longer populated.
             "notes": "",
             "started_at": started_at.isoformat() if started_at else None,
@@ -1116,42 +1094,6 @@ def render_scenario_page(user: Dict) -> None:
                     for name, details in st.session_state[revealed_key].items():
                         with st.expander(name, expanded=True):
                             st.write(details)
-            elif current_step_local == 3:
-                st.markdown("### Final Response / Decision")
-                with st.form(key=f"wizard_step3_form_{assignment_id}", clear_on_submit=False):
-                    diagnosis_value = st.text_area("Diagnosis", key=f"diagnosis_{assignment_id}", height=100)
-                    next_steps_value = st.text_area("Next steps", key=f"next_steps_{assignment_id}", height=120)
-                    customer_response_value = st.text_area("Customer response", key=f"customer_{assignment_id}", height=120)
-                    st.selectbox(
-                        "Escalation decision",
-                        ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-                        key=f"escalation_{assignment_id}",
-                    )
-                    c1, c2 = st.columns(2)
-                    with c1:
-                        back_clicked = st.form_submit_button("Back")
-                    with c2:
-                        next_clicked = st.form_submit_button("Next", type="primary")
-
-                if back_clicked:
-                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                    st.session_state[step_key] = max(1, current_step_local - 1)
-                    st.rerun()
-                elif next_clicked:
-                    step_validation_error = None
-                    if (
-                        not (diagnosis_value or "").strip()
-                        or not (next_steps_value or "").strip()
-                        or not (customer_response_value or "").strip()
-                    ):
-                        step_validation_error = "Diagnosis, next steps, and customer response are required before continuing."
-                    if step_validation_error:
-                        st.warning(step_validation_error)
-                    else:
-                        st.session_state[step_key] = _clamp_wizard_step(current_step_local + 1)
-                        _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                        st.toast("Progress saved.")
-                        st.rerun()
             else:
                 st.markdown("### Review and Submit")
                 st.caption("Review your answers below. You can make final edits before submitting.")
@@ -1167,8 +1109,7 @@ def render_scenario_page(user: Dict) -> None:
                 with summary_col2:
                     st.metric("Assessment questions", f"{answered}/{len(assessment_questions)}")
                 with summary_col3:
-                    has_diagnosis = bool(st.session_state.get(f"diagnosis_{assignment_id}", "").strip())
-                    st.metric("Diagnosis provided", "Yes" if has_diagnosis else "No")
+                    st.metric("Readiness", "Ready to submit")
 
                 action_name_to_details = {
                     action.get("action_name"): action.get("revealed_information", "")
@@ -1178,18 +1119,6 @@ def render_scenario_page(user: Dict) -> None:
                 action_names = list(action_name_to_details.keys())
                 with st.form(key=f"wizard_step4_review_form_{assignment_id}", clear_on_submit=False):
                     st.markdown("#### Review and Edit")
-                    diagnosis_value = st.text_area("Diagnosis", key=f"review_diagnosis_{assignment_id}", height=100)
-                    next_steps_value = st.text_area("Next steps", key=f"review_next_steps_{assignment_id}", height=120)
-                    customer_response_value = st.text_area(
-                        "Customer/client response",
-                        key=f"review_customer_{assignment_id}",
-                        height=120,
-                    )
-                    escalation_value = st.selectbox(
-                        "Escalation decision",
-                        ["No escalation", "Escalate to Engineering", "Escalate to Security", "Escalate to Product"],
-                        key=f"review_escalation_{assignment_id}",
-                    )
                     selected_actions = st.multiselect(
                         "Selected actions",
                         options=action_names,
@@ -1243,10 +1172,6 @@ def render_scenario_page(user: Dict) -> None:
                         )
 
                 if back_clicked or save_clicked or submit_clicked:
-                    st.session_state[f"diagnosis_{assignment_id}"] = diagnosis_value or ""
-                    st.session_state[f"next_steps_{assignment_id}"] = next_steps_value or ""
-                    st.session_state[f"customer_{assignment_id}"] = customer_response_value or ""
-                    st.session_state[f"escalation_{assignment_id}"] = escalation_value or "No escalation"
                     st.session_state[used_actions_key] = list(selected_actions or [])
                     for action_name in st.session_state[used_actions_key]:
                         if action_name not in st.session_state[revealed_key] and action_name in action_name_to_details:
@@ -1275,12 +1200,6 @@ def render_scenario_page(user: Dict) -> None:
                     ]
                     if unanswered:
                         review_validation_error = "Please answer all assessment questions before submitting."
-                    elif (
-                        not st.session_state.get(f"diagnosis_{assignment_id}", "").strip()
-                        or not st.session_state.get(f"next_steps_{assignment_id}", "").strip()
-                        or not st.session_state.get(f"customer_{assignment_id}", "").strip()
-                    ):
-                        review_validation_error = "Diagnosis, next steps, and customer response are required before submitting."
 
                     if review_validation_error:
                         st.warning(review_validation_error)

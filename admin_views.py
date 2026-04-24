@@ -3940,9 +3940,6 @@ def render_manage_modules(current_user: dict) -> None:
                 f"edit_module_scenario_context_{state_prefix}_",
                 f"edit_module_hidden_root_cause_{state_prefix}_",
                 f"edit_module_expected_reasoning_path_{state_prefix}_",
-                f"edit_module_expected_diagnosis_{state_prefix}_",
-                f"edit_module_expected_next_steps_{state_prefix}_",
-                f"edit_module_expected_customer_response_{state_prefix}_",
                 f"edit_module_llm_scoring_enabled_{state_prefix}_",
                 f"edit_module_scoring_style_{state_prefix}_",
                 f"edit_module_grader_instructions_{state_prefix}_",
@@ -3987,9 +3984,6 @@ def render_manage_modules(current_user: dict) -> None:
             "scenario_context": "",
             "hidden_root_cause": "",
             "expected_reasoning_path": "",
-            "expected_diagnosis": "",
-            "expected_next_steps": "",
-            "expected_customer_response": "",
             "llm_scoring_enabled": True,
             "scoring_style": "keyword",
             "llm_grader_instructions": "",
@@ -4012,9 +4006,6 @@ def render_manage_modules(current_user: dict) -> None:
                 "scenario_context": module_row.get("scenario_context") or edit_form_defaults["scenario_context"],
                 "hidden_root_cause": module_row.get("hidden_root_cause") or edit_form_defaults["hidden_root_cause"],
                 "expected_reasoning_path": module_row.get("expected_reasoning_path") or edit_form_defaults["expected_reasoning_path"],
-                "expected_diagnosis": module_row.get("expected_diagnosis") or edit_form_defaults["expected_diagnosis"],
-                "expected_next_steps": module_row.get("expected_next_steps") or edit_form_defaults["expected_next_steps"],
-                "expected_customer_response": module_row.get("expected_customer_response") or edit_form_defaults["expected_customer_response"],
                 "llm_scoring_enabled": bool(module_row.get("llm_scoring_enabled", False)),
                 "scoring_style": _normalize_module_scoring_fallback(module_row.get("scoring_style")),
                 "llm_grader_instructions": module_row.get("llm_grader_instructions") or "",
@@ -4132,12 +4123,6 @@ def render_manage_modules(current_user: dict) -> None:
                     value=edit_form.get("hidden_root_cause", ""),
                     height=120,
                 )
-                edit_form["expected_diagnosis"] = st.text_area(
-                    "Expected diagnosis",
-                    key=f"edit_module_expected_diagnosis_{state_prefix}_{module_id}",
-                    value=edit_form.get("expected_diagnosis", ""),
-                    height=120,
-                )
             with scenario_col_2:
                 edit_form["expected_reasoning_path"] = st.text_area(
                     "Expected reasoning path",
@@ -4145,18 +4130,6 @@ def render_manage_modules(current_user: dict) -> None:
                     value=edit_form.get("expected_reasoning_path", ""),
                     height=120,
                 )
-                edit_form["expected_next_steps"] = st.text_area(
-                    "Expected next steps",
-                    key=f"edit_module_expected_next_steps_{state_prefix}_{module_id}",
-                    value=edit_form.get("expected_next_steps", ""),
-                    height=120,
-                )
-            edit_form["expected_customer_response"] = st.text_area(
-                "Expected customer response",
-                key=f"edit_module_expected_customer_response_{state_prefix}_{module_id}",
-                value=edit_form.get("expected_customer_response", ""),
-                height=100,
-            )
 
             st.markdown("---")
             st.markdown("#### Assessment questions")
@@ -4704,7 +4677,7 @@ def render_manage_modules(current_user: dict) -> None:
                         UPDATE modules
                         SET title = ?, category = ?, difficulty = ?, description = ?, estimated_time = ?,
                             scenario_ticket = ?, scenario_context = ?, hidden_root_cause = ?, expected_reasoning_path = ?,
-                            expected_diagnosis = ?, expected_next_steps = ?, expected_customer_response = ?, lesson_takeaway = ?,
+                            lesson_takeaway = ?,
                             learning_objectives = ?, content_sections = ?, completion_requirements = ?, quiz_required = ?,
                             llm_scoring_enabled = ?, scoring_style = ?, llm_grader_instructions = ?, learner_feedback_visibility = ?, scoring_config_json = ?,
                             updated_at = CURRENT_TIMESTAMP
@@ -4720,9 +4693,6 @@ def render_manage_modules(current_user: dict) -> None:
                             edit_form.get("scenario_context", ""),
                             edit_form.get("hidden_root_cause", ""),
                             edit_form.get("expected_reasoning_path", ""),
-                            edit_form.get("expected_diagnosis", ""),
-                            edit_form.get("expected_next_steps", ""),
-                            edit_form.get("expected_customer_response", ""),
                             edit_form.get("lesson_takeaway", ""),
                             _parse_lines(edit_form.get("learning_objectives", "")),
                             _parse_lines(edit_form.get("content_sections", "")),
