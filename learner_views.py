@@ -245,10 +245,13 @@ def get_submission_status(result_row: Dict | None) -> Dict[str, str]:
 
 
 def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
-    if not result_row or not is_result_approved(result_row):
+    if not result_row:
+        return None
+    approval_status = str(result_row.get("approval_status") or result_row.get("review_status") or "").strip().lower()
+    if approval_status != APPROVED_REVIEW_STATUS:
         return None
     visibility = _visibility_settings(result_row)
-    if not visibility.get("show_results_to_learner", True):
+    if not visibility.get("show_results_to_learner", False):
         return None
 
     strengths = parse_json_list(result_row.get("learner_strengths") or result_row.get("strengths"))
@@ -1504,6 +1507,7 @@ def render_progress_results_page(user: Dict) -> None:
             SELECT DISTINCT ON (a.assignment_id)
                 a.assignment_id,
                 t.attempt_id,
+                ss.submission_score_id AS submission_score_id,
                 t.result_status,
                 t.timed_out,
                 t.attempt_state,
@@ -1511,33 +1515,36 @@ def render_progress_results_page(user: Dict) -> None:
                 t.elapsed_seconds,
                 t.time_remaining_seconds,
                 m.title,
-                COALESCE(t.result_status, 'pending_review') AS review_status,
-                t.total_score AS approved_percentage,
-                t.ai_feedback AS learner_visible_feedback,
-                t.strengths AS learner_strengths,
-                t.missed_points AS learner_weaknesses,
-                t.best_practice_reasoning AS best_practice_reasoning,
-                COALESCE(t.recommended_response, m.expected_customer_response) AS recommended_response,
-                COALESCE(t.takeaway_summary, m.lesson_takeaway) AS lesson_takeaway,
-                t.understanding_score AS understanding_score,
-                t.investigation_score AS investigation_score,
-                t.solution_score AS solution_score,
-                t.communication_score AS communication_score,
-                FALSE AS show_results_to_learner,
-                FALSE AS show_overall_score_to_learner,
-                FALSE AS show_question_scores_to_learner,
-                FALSE AS show_feedback_to_learner,
-                FALSE AS show_expected_answers_to_learner,
-                FALSE AS show_grading_criteria_to_learner,
-                FALSE AS show_ai_evaluation_details_to_learner,
+                COALESCE(ss.review_status, ss.grading_status, t.result_status, 'pending_review') AS review_status,
+                COALESCE(ss.review_status, ss.grading_status, t.result_status, 'pending_review') AS approval_status,
+                COALESCE(ss.final_total_score, ss.admin_total_score, ss.ai_total_score, t.total_score) AS approved_percentage,
+                COALESCE(ss.learner_visible_feedback, t.ai_feedback) AS learner_visible_feedback,
+                COALESCE(ss.learner_strengths, t.strengths) AS learner_strengths,
+                COALESCE(ss.learner_weaknesses, t.missed_points) AS learner_weaknesses,
+                COALESCE(ss.best_practice_reasoning, t.best_practice_reasoning) AS best_practice_reasoning,
+                COALESCE(ss.recommended_response, t.recommended_response, m.expected_customer_response) AS recommended_response,
+                COALESCE(ss.lesson_takeaway, t.takeaway_summary, m.lesson_takeaway) AS lesson_takeaway,
+                COALESCE(ss.understanding_score, t.understanding_score) AS understanding_score,
+                COALESCE(ss.investigation_score, t.investigation_score) AS investigation_score,
+                COALESCE(ss.solution_score, t.solution_score) AS solution_score,
+                COALESCE(ss.communication_score, t.communication_score) AS communication_score,
+                COALESCE(ss.show_results_to_learner, FALSE) AS show_results_to_learner,
+                COALESCE(ss.show_overall_score_to_learner, FALSE) AS show_overall_score_to_learner,
+                COALESCE(ss.show_question_scores_to_learner, FALSE) AS show_question_scores_to_learner,
+                COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
+                COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
+                COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
+                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
                 TRUE AS show_learner_responses_to_learner,
-                '' AS results_visibility_json
+                COALESCE(ss.results_visibility_json, '') AS results_visibility_json
             FROM assignments a
             LEFT JOIN attempts t
                 ON t.user_id = a.learner_id
                AND t.module_id = a.module_id
                AND t.organization_id = a.organization_id
                AND t.created_at >= a.assigned_at
+            LEFT JOIN submission_scores ss
+              ON ss.attempt_id = t.attempt_id
             LEFT JOIN modules m ON m.module_id = a.module_id
             WHERE a.learner_id = ?
               AND a.organization_id = ?
