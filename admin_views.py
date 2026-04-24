@@ -3783,46 +3783,54 @@ def render_manage_modules(current_user: dict) -> None:
             st.session_state[selected_module_state_key] = selected_module_id
             st.session_state[explicit_selection_key] = True
 
-        module_dropdown_options = [int(module_row["module_id"]) for _, module_row in tab_df.iterrows()]
+        module_ids = [int(module_row["module_id"]) for _, module_row in tab_df.iterrows()]
         module_select_sentinel = None
-        module_select_options = [module_select_sentinel] + module_dropdown_options
-        module_dropdown_labels = {
+        module_options = [module_select_sentinel] + module_ids
+        module_map = {
             int(module_row["module_id"]): f"{int(module_row['module_id'])} — {module_row.get('title') or 'Untitled module'}"
             for _, module_row in tab_df.iterrows()
         }
 
-        if selected_module_id not in module_dropdown_options:
+        if selected_module_id not in module_ids:
             selected_module_id = None
             st.session_state[selected_module_state_key] = None
             st.session_state[explicit_selection_key] = False
 
         if dropdown_state_key not in st.session_state:
-            st.session_state[dropdown_state_key] = selected_module_id
-        elif selected_module_id is not None and st.session_state.get(dropdown_state_key) != selected_module_id:
-            st.session_state[dropdown_state_key] = selected_module_id
+            st.session_state[dropdown_state_key] = module_select_sentinel
 
         selected_module_from_dropdown = st.selectbox(
             "Select module to edit",
-            options=module_select_options,
-            index=0,
-            format_func=lambda option: "Select a module"
-            if option is module_select_sentinel
-            else module_dropdown_labels.get(option, f"{option}"),
+            module_options,
+            format_func=lambda option: "Select a module" if option is None else module_map.get(option, f"{option}"),
             key=dropdown_state_key,
             help="Choose a module directly from this dropdown to open it in the editor.",
         )
 
-        if selected_module_from_dropdown is not module_select_sentinel:
-            module_id = int(selected_module_from_dropdown)
-            st.session_state[selected_module_state_key] = module_id
-            st.session_state[explicit_selection_key] = True
-        else:
+        if selected_module_from_dropdown is None:
             st.session_state[selected_module_state_key] = None
             st.session_state[explicit_selection_key] = False
-            st.session_state[dropdown_state_key] = module_select_sentinel
+            keys_to_clear = [
+                "current_module",
+                "module_title",
+                "module_description",
+                "module_category",
+                "module_difficulty",
+                "module_duration",
+                "module_objectives",
+                "module_takeaway",
+                "quiz_required",
+            ]
+            for key in keys_to_clear:
+                if key in st.session_state:
+                    del st.session_state[key]
             st.markdown("### Edit Selected Module")
             st.info("Choose a module to edit.")
-            return
+            st.stop()
+
+        module_id = int(selected_module_from_dropdown)
+        st.session_state[selected_module_state_key] = module_id
+        st.session_state[explicit_selection_key] = True
 
         module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
         module_questions = fetch_all(
