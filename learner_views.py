@@ -422,19 +422,13 @@ def _learner_stats_cached(user_id: int, organization_id: int) -> Dict:
             a.module_id,
             a.created_at,
             m.title,
-            CASE
-                WHEN COALESCE(ss.show_results_to_learner, FALSE)
-                 AND COALESCE(ss.show_overall_score_to_learner, FALSE)
-                THEN COALESCE(ss.percentage, a.total_score)
-                ELSE NULL
-            END AS approved_score,
-            COALESCE(ss.learner_visible_feedback, ss.overall_ai_feedback, a.ai_feedback) AS learner_feedback
+            a.total_score AS approved_score,
+            a.ai_feedback AS learner_feedback
         FROM attempts a
         JOIN modules m ON a.module_id = m.module_id
-        LEFT JOIN submission_scores ss ON ss.attempt_id = a.attempt_id
         WHERE a.user_id = ?
           AND a.organization_id = ?
-          AND COALESCE(ss.review_status, ss.grading_status, a.result_status, 'pending_review') = 'approved'
+          AND COALESCE(a.result_status, 'pending_review') = 'approved'
         ORDER BY a.created_at DESC
         """,
         (user_id, organization_id),
@@ -1484,15 +1478,14 @@ def render_progress_results_page(user: Dict) -> None:
             a.attempt_id,
             a.module_id,
             m.title,
-            COALESCE(ss.percentage, a.total_score) AS total_score,
-            COALESCE(ss.learner_strengths, a.strengths) AS strengths,
-            COALESCE(ss.learner_weaknesses, ss.learner_missed_points, a.missed_points) AS missed_points
+            a.total_score AS total_score,
+            a.strengths AS strengths,
+            a.missed_points AS missed_points
         FROM attempts a
-        LEFT JOIN submission_scores ss ON ss.attempt_id = a.attempt_id
         JOIN modules m ON a.module_id = m.module_id
         WHERE a.user_id = ?
           AND a.organization_id = ?
-          AND COALESCE(ss.review_status, ss.grading_status, a.result_status, 'pending_review') = 'approved'
+          AND COALESCE(a.result_status, 'pending_review') = 'approved'
         ORDER BY a.created_at
         """,
         (user["user_id"], user["organization_id"]),
@@ -1518,34 +1511,33 @@ def render_progress_results_page(user: Dict) -> None:
                 t.elapsed_seconds,
                 t.time_remaining_seconds,
                 m.title,
-                COALESCE(ss.review_status, ss.grading_status, t.result_status, 'pending_review') AS review_status,
-                COALESCE(ss.percentage, t.total_score) AS approved_percentage,
-                COALESCE(ss.learner_visible_feedback, ss.overall_ai_feedback, t.ai_feedback) AS learner_visible_feedback,
-                COALESCE(ss.learner_strengths, t.strengths) AS learner_strengths,
-                COALESCE(ss.learner_weaknesses, ss.learner_missed_points, t.missed_points) AS learner_weaknesses,
-                COALESCE(ss.best_practice_reasoning, t.best_practice_reasoning) AS best_practice_reasoning,
-                COALESCE(ss.recommended_response, t.recommended_response, m.expected_customer_response) AS recommended_response,
-                COALESCE(ss.lesson_takeaway, t.takeaway_summary, m.lesson_takeaway) AS lesson_takeaway,
-                COALESCE(ss.understanding_score, t.understanding_score) AS understanding_score,
-                COALESCE(ss.investigation_score, t.investigation_score) AS investigation_score,
-                COALESCE(ss.solution_score, t.solution_score) AS solution_score,
-                COALESCE(ss.communication_score, t.communication_score) AS communication_score,
-                COALESCE(ss.show_results_to_learner, FALSE) AS show_results_to_learner,
-                COALESCE(ss.show_overall_score_to_learner, FALSE) AS show_overall_score_to_learner,
-                COALESCE(ss.show_question_scores_to_learner, FALSE) AS show_question_scores_to_learner,
-                COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
-                COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
-                COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
-                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
+                COALESCE(t.result_status, 'pending_review') AS review_status,
+                t.total_score AS approved_percentage,
+                t.ai_feedback AS learner_visible_feedback,
+                t.strengths AS learner_strengths,
+                t.missed_points AS learner_weaknesses,
+                t.best_practice_reasoning AS best_practice_reasoning,
+                COALESCE(t.recommended_response, m.expected_customer_response) AS recommended_response,
+                COALESCE(t.takeaway_summary, m.lesson_takeaway) AS lesson_takeaway,
+                t.understanding_score AS understanding_score,
+                t.investigation_score AS investigation_score,
+                t.solution_score AS solution_score,
+                t.communication_score AS communication_score,
+                FALSE AS show_results_to_learner,
+                FALSE AS show_overall_score_to_learner,
+                FALSE AS show_question_scores_to_learner,
+                FALSE AS show_feedback_to_learner,
+                FALSE AS show_expected_answers_to_learner,
+                FALSE AS show_grading_criteria_to_learner,
+                FALSE AS show_ai_evaluation_details_to_learner,
                 TRUE AS show_learner_responses_to_learner,
-                COALESCE(ss.results_visibility_json, '') AS results_visibility_json
+                '' AS results_visibility_json
             FROM assignments a
             LEFT JOIN attempts t
                 ON t.user_id = a.learner_id
                AND t.module_id = a.module_id
                AND t.organization_id = a.organization_id
                AND t.created_at >= a.assigned_at
-            LEFT JOIN submission_scores ss ON ss.attempt_id = t.attempt_id
             LEFT JOIN modules m ON m.module_id = a.module_id
             WHERE a.learner_id = ?
               AND a.organization_id = ?
