@@ -491,7 +491,7 @@ def init_db() -> None:
                     show_ai_evaluation_details_to_learner BOOLEAN DEFAULT FALSE,
                     show_ai_review_to_learner BOOLEAN DEFAULT FALSE,
                     show_learner_responses_to_learner BOOLEAN DEFAULT FALSE,
-                    results_visibility_json TEXT,
+                    results_visibility_json JSONB DEFAULT '{}'::jsonb,
                     approved_by BIGINT,
                     approved_at TIMESTAMPTZ,
                     FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE
@@ -1406,6 +1406,33 @@ def init_db() -> None:
                 "results_visibility_json",
                 "JSONB" if RUNTIME_USE_POSTGRES else "TEXT",
             )
+            if RUNTIME_USE_POSTGRES:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        ALTER TABLE submission_scores
+                        ADD COLUMN IF NOT EXISTS show_results_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_overall_score_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_question_scores_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_feedback_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_expected_answers_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_ai_review_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_grading_criteria_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS show_learner_responses_to_learner BOOLEAN DEFAULT FALSE,
+                        ADD COLUMN IF NOT EXISTS results_visibility_json JSONB DEFAULT '{}'::jsonb
+                        """
+                    )
+                    cur.execute(
+                        """
+                        ALTER TABLE submission_scores
+                        ALTER COLUMN results_visibility_json
+                        TYPE JSONB
+                        USING CASE
+                            WHEN COALESCE(BTRIM(results_visibility_json::text), '') = '' THEN '{}'::jsonb
+                            ELSE results_visibility_json::jsonb
+                        END
+                        """
+                    )
             _ensure_column(conn, "submission_scores", "approved_by", "BIGINT")
             _ensure_column(conn, "submission_scores", "approved_at", "TIMESTAMPTZ")
             _ensure_column(conn, "submission_scores", "scoring_method", "TEXT DEFAULT 'keyword'")
