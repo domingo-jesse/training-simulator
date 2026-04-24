@@ -1706,6 +1706,27 @@ def render_progress_results_page(user: Dict) -> None:
             _render_pending_result_state()
         return
 
+    attempt_id = learner_result.get("attempt_id")
+    if attempt_id is None:
+        learner_logger.warning(
+            "Missing attempt_id for learner result detail.",
+            assignment_id=selected_assignment_id,
+            selected_attempt=selected_attempt,
+        )
+        st.warning("Missing attempt_id for result")
+        return
+
+    module_id = selected_attempt.get("module_id")
+    if module_id is None:
+        learner_logger.warning(
+            "Missing module_id for learner result attempt.",
+            assignment_id=selected_assignment_id,
+            attempt_id=attempt_id,
+            selected_attempt=selected_attempt,
+        )
+        st.warning("Missing module_id for attempt")
+        return
+
     question_results = fetch_all(
         """
         SELECT
@@ -1727,6 +1748,6 @@ def render_progress_results_page(user: Dict) -> None:
         WHERE mq.module_id = ?
         ORDER BY mq.question_order
         """,
-        (int(learner_result["attempt_id"]), int(selected_attempt.get("module_id"))),
+        (int(attempt_id), int(module_id)),
     )
     _render_result_detail(learner_result, question_results)
