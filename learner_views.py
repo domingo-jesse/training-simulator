@@ -1537,7 +1537,7 @@ def render_progress_results_page(user: Dict) -> None:
                 COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
                 COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
                 COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
-                COALESCE(ss.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
+                TRUE AS show_learner_responses_to_learner,
                 COALESCE(ss.results_visibility_json, '') AS results_visibility_json
             FROM assignments a
             LEFT JOIN attempts t
