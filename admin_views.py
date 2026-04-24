@@ -1370,6 +1370,7 @@ def render_grading_center(current_user: dict) -> None:
             f"""
             SELECT
                 a.attempt_id,
+                sc.submission_score_id AS submission_score_id,
                 a.created_at,
                 u.name AS learner_name,
                 m.title AS module_title,
@@ -1409,6 +1410,7 @@ def render_grading_center(current_user: dict) -> None:
     ,
         columns=[
             "attempt_id",
+            "submission_score_id",
             "created_at",
             "learner_name",
             "module_title",
@@ -1763,15 +1765,19 @@ def render_grading_center(current_user: dict) -> None:
 
     st.markdown("#### Results Visibility")
     st.caption("Approval and visibility are separate controls. Learners only see approved result sections that are explicitly enabled here.")
+    submission_score_id_raw = selected_attempt_row.get("submission_score_id")
+    submission_score_id = safe_int(submission_score_id_raw, 0)
+    visibility_override_key = f"results_visibility_override_{selected_attempt_id}"
+    visibility_override = st.session_state.get(visibility_override_key, {})
     visibility_defaults = {
-        "show_results_to_learner": bool(selected_attempt_row.get("show_results_to_learner")),
-        "show_overall_score_to_learner": bool(selected_attempt_row.get("show_overall_score_to_learner")),
-        "show_question_scores_to_learner": bool(selected_attempt_row.get("show_question_scores_to_learner")),
-        "show_feedback_to_learner": bool(selected_attempt_row.get("show_feedback_to_learner")),
-        "show_expected_answers_to_learner": bool(selected_attempt_row.get("show_expected_answers_to_learner")),
-        "show_grading_criteria_to_learner": bool(selected_attempt_row.get("show_grading_criteria_to_learner")),
-        "show_ai_evaluation_details_to_learner": bool(selected_attempt_row.get("show_ai_evaluation_details_to_learner")),
-        "show_learner_responses_to_learner": bool(selected_attempt_row.get("show_learner_responses_to_learner")),
+        "show_results_to_learner": bool(visibility_override.get("show_results_to_learner", selected_attempt_row.get("show_results_to_learner"))),
+        "show_overall_score_to_learner": bool(visibility_override.get("show_overall_score_to_learner", selected_attempt_row.get("show_overall_score_to_learner"))),
+        "show_question_scores_to_learner": bool(visibility_override.get("show_question_scores_to_learner", selected_attempt_row.get("show_question_scores_to_learner"))),
+        "show_feedback_to_learner": bool(visibility_override.get("show_feedback_to_learner", selected_attempt_row.get("show_feedback_to_learner"))),
+        "show_expected_answers_to_learner": bool(visibility_override.get("show_expected_answers_to_learner", selected_attempt_row.get("show_expected_answers_to_learner"))),
+        "show_grading_criteria_to_learner": bool(visibility_override.get("show_grading_criteria_to_learner", selected_attempt_row.get("show_grading_criteria_to_learner"))),
+        "show_ai_evaluation_details_to_learner": bool(visibility_override.get("show_ai_evaluation_details_to_learner", selected_attempt_row.get("show_ai_evaluation_details_to_learner"))),
+        "show_learner_responses_to_learner": bool(visibility_override.get("show_learner_responses_to_learner", selected_attempt_row.get("show_learner_responses_to_learner"))),
     }
     with st.form(f"learner_visibility_form_{selected_attempt_id}"):
         show_results_to_learner = st.checkbox(
@@ -1810,6 +1816,10 @@ def render_grading_center(current_user: dict) -> None:
         show_learner_responses_to_learner = "show_learner_responses_to_learner" in selected_visibility_fields
         saved_visibility = st.form_submit_button("Save results visibility", use_container_width=True, disabled=not is_approved)
     if saved_visibility and is_approved:
+        if not submission_score_id:
+            st.session_state[approval_status_key] = ("error", "Could not save visibility: missing submission score row id.")
+            st.session_state[approval_status_expiry_key] = time.time() + 8
+            st.rerun()
         results_visibility = {
             "show_results_to_learner": bool(show_results_to_learner),
             "show_overall_score_to_learner": bool(show_overall_score_to_learner),
@@ -1820,7 +1830,7 @@ def render_grading_center(current_user: dict) -> None:
             "show_ai_evaluation_details_to_learner": bool(show_ai_evaluation_details_to_learner),
             "show_learner_responses_to_learner": bool(show_learner_responses_to_learner),
         }
-        execute(
+        updated_rows = fetch_all(
             """
             UPDATE submission_scores
             SET show_results_to_learner = ?,
@@ -1831,7 +1841,8 @@ def render_grading_center(current_user: dict) -> None:
                 show_grading_criteria_to_learner = ?,
                 show_ai_evaluation_details_to_learner = ?,
                 results_visibility_json = ?
-            WHERE attempt_id = ?
+            WHERE submission_score_id = ?
+            RETURNING submission_score_id AS id
             """,
             (
                 show_results_to_learner,
@@ -1842,9 +1853,41 @@ def render_grading_center(current_user: dict) -> None:
                 show_grading_criteria_to_learner,
                 show_ai_evaluation_details_to_learner,
                 json.dumps(results_visibility),
-                int(selected_attempt_id),
+                int(submission_score_id),
             ),
         )
+        if len(updated_rows) == 0:
+            st.session_state[approval_status_key] = ("warning", "Results visibility save did not update any rows.")
+            st.session_state[approval_status_expiry_key] = time.time() + 8
+            st.rerun()
+        reloaded_visibility = fetch_one(
+            """
+            SELECT
+                submission_score_id,
+                show_results_to_learner,
+                show_overall_score_to_learner,
+                show_question_scores_to_learner,
+                show_feedback_to_learner,
+                show_expected_answers_to_learner,
+                show_grading_criteria_to_learner,
+                show_ai_evaluation_details_to_learner,
+                results_visibility_json
+            FROM submission_scores
+            WHERE submission_score_id = ?
+            """,
+            (int(submission_score_id),),
+        )
+        if reloaded_visibility:
+            st.session_state[visibility_override_key] = {
+                "show_results_to_learner": bool(reloaded_visibility.get("show_results_to_learner")),
+                "show_overall_score_to_learner": bool(reloaded_visibility.get("show_overall_score_to_learner")),
+                "show_question_scores_to_learner": bool(reloaded_visibility.get("show_question_scores_to_learner")),
+                "show_feedback_to_learner": bool(reloaded_visibility.get("show_feedback_to_learner")),
+                "show_expected_answers_to_learner": bool(reloaded_visibility.get("show_expected_answers_to_learner")),
+                "show_grading_criteria_to_learner": bool(reloaded_visibility.get("show_grading_criteria_to_learner")),
+                "show_ai_evaluation_details_to_learner": bool(reloaded_visibility.get("show_ai_evaluation_details_to_learner")),
+                "show_learner_responses_to_learner": bool(show_learner_responses_to_learner),
+            }
         st.session_state[approval_status_key] = ("success", "Results visibility settings saved.")
         st.session_state[approval_status_expiry_key] = time.time() + 8
         st.rerun()
