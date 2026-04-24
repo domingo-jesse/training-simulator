@@ -1437,31 +1437,31 @@ def init_db() -> None:
                     )
                     cur.execute(
                         """
-                        UPDATE submission_scores ss
+                        UPDATE submission_scores
                         SET results_visibility_json = jsonb_build_object(
-                            'show_results_to_learner', COALESCE(ss.show_results_to_learner, FALSE),
-                            'show_overall_score_to_learner', COALESCE(ss.show_overall_score_to_learner, FALSE),
-                            'show_question_scores_to_learner', COALESCE(ss.show_question_scores_to_learner, FALSE),
-                            'show_feedback_to_learner', COALESCE(ss.show_feedback_to_learner, FALSE),
-                            'show_expected_answers_to_learner', COALESCE(ss.show_expected_answers_to_learner, FALSE),
-                            'show_grading_criteria_to_learner', COALESCE(ss.show_grading_criteria_to_learner, FALSE),
-                            'show_ai_evaluation_details_to_learner', COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE),
-                            'show_learner_responses_to_learner', COALESCE(ss.show_learner_responses_to_learner, FALSE)
+                            'show_results_to_learner', COALESCE(submission_scores.show_results_to_learner, FALSE),
+                            'show_overall_score_to_learner', COALESCE(submission_scores.show_overall_score_to_learner, FALSE),
+                            'show_question_scores_to_learner', COALESCE(submission_scores.show_question_scores_to_learner, FALSE),
+                            'show_feedback_to_learner', COALESCE(submission_scores.show_feedback_to_learner, FALSE),
+                            'show_expected_answers_to_learner', COALESCE(submission_scores.show_expected_answers_to_learner, FALSE),
+                            'show_grading_criteria_to_learner', COALESCE(submission_scores.show_grading_criteria_to_learner, FALSE),
+                            'show_ai_evaluation_details_to_learner', COALESCE(submission_scores.show_ai_evaluation_details_to_learner, FALSE),
+                            'show_learner_responses_to_learner', TRUE
                         )::TEXT
                         FROM attempts a
                         JOIN modules m ON m.module_id = a.module_id
-                        WHERE ss.attempt_id = a.attempt_id
-                          AND COALESCE(BTRIM(ss.results_visibility_json), '') = ''
+                        WHERE submission_scores.attempt_id = a.attempt_id
+                          AND COALESCE(BTRIM(submission_scores.results_visibility_json), '') = ''
                         """
                     )
                     cur.execute(
                         """
-                        UPDATE submission_scores ss
+                        UPDATE submission_scores
                         SET show_feedback_to_learner = TRUE
                         FROM attempts a
                         JOIN modules m ON m.module_id = a.module_id
-                        WHERE ss.attempt_id = a.attempt_id
-                          AND COALESCE(ss.show_feedback_to_learner, FALSE) = FALSE
+                        WHERE submission_scores.attempt_id = a.attempt_id
+                          AND COALESCE(submission_scores.show_feedback_to_learner, FALSE) = FALSE
                           AND LOWER(BTRIM(COALESCE(m.learner_feedback_visibility, 'admin_approved_only'))) = 'always_show_ai_feedback'
                         """
                     )
