@@ -139,6 +139,50 @@ def _rubric_grade(learner_answer: str, rubric: str, criteria_json: str | None, m
     }
 
 
+def _parse_multiple_choice_options(options_text: str | None) -> tuple[list[str], int | None]:
+    text = str(options_text or "").strip()
+    if not text:
+        return [], None
+    try:
+        parsed = json.loads(text)
+    except Exception:
+        return [line.strip() for line in text.splitlines() if line.strip()], None
+    if isinstance(parsed, dict):
+        raw_choices = parsed.get("choices")
+        choices = [str(choice) for choice in raw_choices] if isinstance(raw_choices, list) else []
+        correct_idx = parsed.get("correct_choice_index")
+        if isinstance(correct_idx, int) and 0 <= correct_idx < len(choices):
+            return choices, correct_idx
+        return choices, None
+    if isinstance(parsed, list):
+        return [str(choice) for choice in parsed], None
+    return [], None
+
+
+def _multiple_choice_grade(learner_answer: str, options_text: str | None, max_points: float) -> dict[str, Any]:
+    choices, correct_idx = _parse_multiple_choice_options(options_text)
+    if correct_idx is None:
+        return {
+            "awarded_points": 0.0,
+            "max_points": max_points,
+            "reasoning": "Correct answer is not configured for this multiple-choice question.",
+            "feedback": "Question configuration is incomplete; awaiting admin review.",
+            "missing_elements": [],
+            "breakdown": [],
+        }
+    selected = str(learner_answer or "").strip()
+    correct_answer = str(choices[correct_idx]).strip() if 0 <= correct_idx < len(choices) else ""
+    is_correct = bool(selected) and selected == correct_answer
+    return {
+        "awarded_points": round(max_points if is_correct else 0.0, 2),
+        "max_points": max_points,
+        "reasoning": "Learner selected the configured correct answer." if is_correct else "Learner selected an incorrect answer choice.",
+        "feedback": "Correct selection." if is_correct else "Incorrect selection.",
+        "missing_elements": [],
+        "breakdown": [],
+    }
+
+
 def _compose_grading_reference(question: dict[str, Any]) -> str:
     sections: list[str] = []
     for label, value in [
@@ -179,6 +223,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                COALESCE(rubric, rationale, '') AS rubric,
                COALESCE(max_points, 10) AS max_points,
                COALESCE(question_type, 'open_text') AS question_type,
+               COALESCE(options_text, '') AS options_text,
                COALESCE(scoring_type, scoring_style, '') AS scoring_type,
                COALESCE(llm_grading_criteria, llm_grading_instructions, '') AS llm_grading_criteria,
                COALESCE(keyword_expected_terms, '') AS keyword_expected_terms,
@@ -233,9 +278,16 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                 learner_answer = str(raw_answer or "")
             max_points = float(question.get("max_points") or 0)
             q_style = _normalize_scoring_type(question.get("scoring_type"), fallback=default_style)
-            if str(question.get("question_type") or "").strip() == "ai_conversation" and q_style == "keyword":
+            question_type = str(question.get("question_type") or "").strip()
+            if question_type == "ai_conversation" and q_style == "keyword":
                 q_style = "manual"
-            if q_style == "manual":
+            if question_type == "multiple_choice" and q_style == "keyword":
+                q_style = "manual"
+            if question_type == "multiple_choice":
+                graded = _multiple_choice_grade(learner_answer, question.get("options_text"), max_points)
+                if q_style == "manual":
+                    graded["reasoning"] = f"{graded['reasoning']} Pending admin review approval."
+            elif q_style == "manual":
                 graded = {
                     "awarded_points": 0.0,
                     "max_points": max_points,
