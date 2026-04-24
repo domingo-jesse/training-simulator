@@ -3750,6 +3750,8 @@ def render_manage_modules(current_user: dict) -> None:
         if recently_created_module_title:
             st.caption(f"Editing newly created module: {recently_created_module_title}")
         st.session_state["manage_modules_selected_module_id_existing"] = int(recently_created_module_id)
+        st.session_state["manage_modules_has_explicit_selection_existing"] = True
+        st.session_state["manage_modules_module_dropdown_existing"] = str(int(recently_created_module_id))
 
     def _render_module_management_tab(tab_df: pd.DataFrame, tab_label: str, state_prefix: str) -> None:
         if tab_df.empty:
@@ -3772,35 +3774,44 @@ def render_manage_modules(current_user: dict) -> None:
                 height=400,
             )
 
-        if not selected_module_ids:
-            fallback_module_id = int(tab_df.iloc[0]["module_id"])
-            st.session_state[f"manage_modules_selected_module_id_{state_prefix}"] = fallback_module_id
-            selected_module_ids = [fallback_module_id]
+        selected_module_state_key = f"manage_modules_selected_module_id_{state_prefix}"
+        explicit_selection_key = f"manage_modules_has_explicit_selection_{state_prefix}"
+        dropdown_state_key = f"manage_modules_module_dropdown_{state_prefix}"
 
-        module_id = int(selected_module_ids[0])
-        module_dropdown_options = []
-        module_dropdown_index = 0
-        for row_index, (_, module_row) in enumerate(tab_df.iterrows()):
+        has_explicit_selection = bool(st.session_state.get(explicit_selection_key, False))
+        selected_module_id = st.session_state.get(selected_module_state_key) if has_explicit_selection else None
+
+        module_dropdown_options = [""]
+        module_dropdown_labels = {"": "Select a module"}
+        for _, module_row in tab_df.iterrows():
             current_module_id = int(module_row["module_id"])
-            module_dropdown_options.append(
-                (
-                    current_module_id,
-                    f"{current_module_id} — {module_row.get('title') or 'Untitled module'}",
-                )
-            )
-            if current_module_id == module_id:
-                module_dropdown_index = row_index
+            option_value = str(current_module_id)
+            module_dropdown_options.append(option_value)
+            module_dropdown_labels[option_value] = f"{current_module_id} — {module_row.get('title') or 'Untitled module'}"
+
+        if selected_module_id is None or str(selected_module_id) not in module_dropdown_labels:
+            st.session_state[dropdown_state_key] = ""
+        elif dropdown_state_key not in st.session_state:
+            st.session_state[dropdown_state_key] = str(selected_module_id)
 
         selected_module_from_dropdown = st.selectbox(
             "Select module to edit",
             options=module_dropdown_options,
-            index=module_dropdown_index,
-            format_func=lambda option: option[1],
-            key=f"manage_modules_module_dropdown_{state_prefix}",
+            format_func=lambda option: module_dropdown_labels.get(option, "Select a module"),
+            key=dropdown_state_key,
             help="Choose a module directly from this dropdown to open it in the editor.",
         )
-        module_id = int(selected_module_from_dropdown[0])
-        st.session_state[f"manage_modules_selected_module_id_{state_prefix}"] = module_id
+
+        if selected_module_from_dropdown:
+            module_id = int(selected_module_from_dropdown)
+            st.session_state[selected_module_state_key] = module_id
+            st.session_state[explicit_selection_key] = True
+        else:
+            st.session_state[selected_module_state_key] = None
+            st.session_state[explicit_selection_key] = False
+            st.markdown("### Edit Selected Module")
+            st.info("Choose a module to edit.")
+            return
 
         module = fetch_one("SELECT * FROM modules WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
         module_questions = fetch_all(
