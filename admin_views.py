@@ -2968,6 +2968,26 @@ def render_module_builder(current_user: dict) -> None:
         category = _normalize_text(generated_draft.get("category"))
         if category:
             module_form["category"] = category
+        role_focus = _normalize_text(generated_draft.get("role_focus"))
+        if role_focus:
+            module_form["role_focus"] = role_focus
+        test_focus = _normalize_text(generated_draft.get("test_focus"))
+        if test_focus:
+            module_form["test_focus"] = test_focus
+        learning_objectives = generated_draft.get("learning_objectives")
+        if isinstance(learning_objectives, list):
+            learning_objectives_text = "\n".join(
+                str(item).strip() for item in learning_objectives if str(item).strip()
+            )
+            if learning_objectives_text:
+                module_form["learning_objectives"] = learning_objectives_text
+        content_sections = generated_draft.get("content_sections")
+        if isinstance(content_sections, list):
+            content_sections_text = "\n".join(
+                str(item).strip() for item in content_sections if str(item).strip()
+            )
+            if content_sections_text:
+                module_form["content_sections"] = content_sections_text
         module_form["difficulty"] = _normalize_generated_difficulty(generated_draft.get("difficulty"), module_form.get("difficulty"))
         time_limit = generated_draft.get("time_limit_minutes")
         if isinstance(time_limit, (int, float)) and int(time_limit) > 0:
@@ -2984,6 +3004,10 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state["module_builder_scenario_constraints"] = module_form["scenario_constraints"]
         st.session_state["module_builder_category"] = module_form["category"]
         st.session_state["module_builder_difficulty"] = module_form["difficulty"]
+        st.session_state["module_builder_role_focus"] = module_form.get("role_focus", "")
+        st.session_state["module_builder_test_focus"] = module_form.get("test_focus", "")
+        st.session_state["module_builder_learning_objectives"] = module_form.get("learning_objectives", "")
+        st.session_state["module_builder_content_sections"] = module_form.get("content_sections", "")
         st.session_state["module_builder_estimated_minutes"] = int(module_form["estimated_minutes"])
         st.session_state["module_builder_completion_requirements"] = module_form["completion_requirements"]
         keys_to_clear = [k for k in list(st.session_state.keys()) if k.startswith("module_builder_q_")]
@@ -3187,6 +3211,54 @@ def render_module_builder(current_user: dict) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    def _render_module_settings_section() -> None:
+        st.markdown("### Settings")
+        with st.container(border=True):
+            settings_col_1, settings_col_2 = st.columns(2)
+            with settings_col_1:
+                st.text_input("Category", key="module_builder_category", on_change=lambda: _mark_dirty("category"))
+                st.selectbox(
+                    "Difficulty",
+                    ["Beginner", "Intermediate", "Advanced"],
+                    key="module_builder_difficulty",
+                    on_change=lambda: _mark_dirty("difficulty"),
+                )
+                st.checkbox("Quiz required", key="module_builder_quiz_required", on_change=lambda: _mark_dirty("quiz_required"))
+            with settings_col_2:
+                st.number_input(
+                    "Time limit (minutes)",
+                    min_value=1,
+                    max_value=240,
+                    step=1,
+                    key="module_builder_estimated_minutes",
+                    on_change=lambda: _mark_dirty("estimated_minutes"),
+                )
+                st.number_input(
+                    "Attempt limit",
+                    min_value=1,
+                    max_value=10,
+                    step=1,
+                    key="module_builder_attempt_limit",
+                    on_change=lambda: _mark_dirty("attempt_limit"),
+                )
+                st.text_input("Role being simulated", key="module_builder_role_focus", on_change=lambda: _mark_dirty("role_focus"))
+
+            st.text_input("What should this module test?", key="module_builder_test_focus", on_change=lambda: _mark_dirty("test_focus"))
+            st.text_area(
+                "Learning objectives (one per line)",
+                key="module_builder_learning_objectives",
+                on_change=lambda: _mark_dirty("learning_objectives"),
+                height=120,
+            )
+            st.text_area(
+                "Content sections (one per line)",
+                key="module_builder_content_sections",
+                on_change=lambda: _mark_dirty("content_sections"),
+                height=120,
+            )
+
+    _render_module_settings_section()
 
     st.markdown("### Basic Info")
     with st.container(border=True):
@@ -3456,51 +3528,6 @@ def render_module_builder(current_user: dict) -> None:
             "Completion requirements / passing rubric *",
             key="module_builder_completion_requirements",
             on_change=lambda: _mark_dirty("completion_requirements"),
-            height=120,
-        )
-
-    st.markdown("### Settings")
-    with st.container(border=True):
-        settings_col_1, settings_col_2 = st.columns(2)
-        with settings_col_1:
-            st.text_input("Category", key="module_builder_category", on_change=lambda: _mark_dirty("category"))
-            st.selectbox(
-                "Difficulty",
-                ["Beginner", "Intermediate", "Advanced"],
-                key="module_builder_difficulty",
-                on_change=lambda: _mark_dirty("difficulty"),
-            )
-            st.checkbox("Quiz required", key="module_builder_quiz_required", on_change=lambda: _mark_dirty("quiz_required"))
-        with settings_col_2:
-            st.number_input(
-                "Time limit (minutes)",
-                min_value=1,
-                max_value=240,
-                step=1,
-                key="module_builder_estimated_minutes",
-                on_change=lambda: _mark_dirty("estimated_minutes"),
-            )
-            st.number_input(
-                "Attempt limit",
-                min_value=1,
-                max_value=10,
-                step=1,
-                key="module_builder_attempt_limit",
-                on_change=lambda: _mark_dirty("attempt_limit"),
-            )
-            st.text_input("Role being simulated", key="module_builder_role_focus", on_change=lambda: _mark_dirty("role_focus"))
-
-        st.text_input("What should this module test?", key="module_builder_test_focus", on_change=lambda: _mark_dirty("test_focus"))
-        st.text_area(
-            "Learning objectives (one per line)",
-            key="module_builder_learning_objectives",
-            on_change=lambda: _mark_dirty("learning_objectives"),
-            height=120,
-        )
-        st.text_area(
-            "Content sections (one per line)",
-            key="module_builder_content_sections",
-            on_change=lambda: _mark_dirty("content_sections"),
             height=120,
         )
 
