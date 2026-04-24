@@ -1741,7 +1741,7 @@ def render_progress_results_page(user: Dict) -> None:
             COALESCE(sqs.admin_feedback, sqs.ai_feedback, sqs.feedback, '') AS feedback,
             COALESCE(sqs.ai_reasoning, '') AS ai_reasoning,
             COALESCE(sqs.learner_answer, '') AS learner_answer,
-            COALESCE(sqs.conversation_transcript, '') AS conversation_transcript
+            COALESCE(sqs.conversation_transcript, '[]'::jsonb) AS conversation_transcript
         FROM module_questions mq
         LEFT JOIN submission_question_scores sqs
           ON sqs.question_id = mq.question_id
