@@ -3465,13 +3465,22 @@ def render_module_builder(current_user: dict) -> None:
                     on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
                     height=70,
                 )
-            scoring_type = _normalize_question_scoring_type(st.session_state.get(f"{q_prefix}_scoring_type"), fallback="manual")
             st.markdown("**Scoring method**")
+            scoring_state_key = f"{q_prefix}_scoring_type"
             scoring_options = QUESTION_SCORING_OPTIONS if not (is_ai_conversation or is_multiple_choice) else ["manual", "llm"]
+            normalized_scoring_type = _normalize_scoring_for_question_type(
+                active_question_type,
+                st.session_state.get(scoring_state_key),
+                fallback="manual",
+            )
+            if normalized_scoring_type not in scoring_options:
+                normalized_scoring_type = scoring_options[0]
+            if st.session_state.get(scoring_state_key) != normalized_scoring_type:
+                st.session_state[scoring_state_key] = normalized_scoring_type
             st.radio(
                 "Scoring method",
                 options=scoring_options,
-                key=f"{q_prefix}_scoring_type",
+                key=scoring_state_key,
                 format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                 horizontal=True,
                 label_visibility="collapsed",
@@ -3479,10 +3488,9 @@ def render_module_builder(current_user: dict) -> None:
             )
             scoring_type = _normalize_scoring_for_question_type(
                 active_question_type,
-                st.session_state.get(f"{q_prefix}_scoring_type"),
+                st.session_state.get(scoring_state_key),
                 fallback="manual",
             )
-            st.session_state[f"{q_prefix}_scoring_type"] = scoring_type
             st.number_input(
                 "Max points",
                 min_value=0.0,
