@@ -32,7 +32,7 @@ VISIBILITY_FLAG_FIELDS = (
     "show_feedback_to_learner",
     "show_expected_answers_to_learner",
     "show_grading_criteria_to_learner",
-    "show_ai_evaluation_details_to_learner",
+    "show_ai_review_to_learner",
     "show_learner_responses_to_learner",
 )
 
@@ -193,7 +193,7 @@ def _visibility_flag_enabled(result_row: Dict | None, field_name: str, default: 
 
 
 def _visibility_settings(result_row: Dict | None) -> Dict[str, bool]:
-    defaults = {field: (field == "show_results_to_learner") for field in VISIBILITY_FLAG_FIELDS}
+    defaults = {field: False for field in VISIBILITY_FLAG_FIELDS}
     if not result_row:
         return defaults
     raw_json = result_row.get("results_visibility_json")
@@ -201,10 +201,27 @@ def _visibility_settings(result_row: Dict | None) -> Dict[str, bool]:
         try:
             parsed = json.loads(raw_json)
             if isinstance(parsed, dict):
-                return {field: _visibility_flag_enabled(parsed, field, default=defaults[field]) for field in VISIBILITY_FLAG_FIELDS}
+                return {
+                    field: _visibility_flag_enabled(
+                        parsed,
+                        field,
+                        default=_visibility_flag_enabled(
+                            parsed,
+                            "show_ai_evaluation_details_to_learner",
+                            default=defaults[field],
+                        ) if field == "show_ai_review_to_learner" else defaults[field],
+                    )
+                    for field in VISIBILITY_FLAG_FIELDS
+                }
         except Exception:
             pass
-    return {field: _visibility_flag_enabled(result_row, field, default=defaults[field]) for field in VISIBILITY_FLAG_FIELDS}
+    resolved = {field: _visibility_flag_enabled(result_row, field, default=defaults[field]) for field in VISIBILITY_FLAG_FIELDS}
+    resolved["show_ai_review_to_learner"] = _visibility_flag_enabled(
+        result_row,
+        "show_ai_review_to_learner",
+        default=_visibility_flag_enabled(result_row, "show_ai_evaluation_details_to_learner", default=False),
+    )
+    return resolved
 
 
 def is_result_approved(result_row: Dict | None) -> bool:
@@ -247,10 +264,24 @@ def get_submission_status(result_row: Dict | None) -> Dict[str, str]:
 def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
     if not result_row:
         return None
-    approval_status = str(result_row.get("approval_status") or result_row.get("review_status") or "").strip().lower()
+    approval_status = _normalized_review_status(result_row)
+    submission_score_id = result_row.get("submission_score_id")
+    visibility = _visibility_settings(result_row)
+    learner_logger.info(
+        "Learner results visibility check",
+        submission_score_id=submission_score_id,
+        approval_status=approval_status,
+        show_results_to_learner=visibility.get("show_results_to_learner", False),
+        show_overall_score_to_learner=visibility.get("show_overall_score_to_learner", False),
+        show_question_scores_to_learner=visibility.get("show_question_scores_to_learner", False),
+        show_feedback_to_learner=visibility.get("show_feedback_to_learner", False),
+        show_expected_answers_to_learner=visibility.get("show_expected_answers_to_learner", False),
+        show_ai_review_to_learner=visibility.get("show_ai_review_to_learner", False),
+        show_grading_criteria_to_learner=visibility.get("show_grading_criteria_to_learner", False),
+        show_learner_responses_to_learner=visibility.get("show_learner_responses_to_learner", False),
+    )
     if approval_status != APPROVED_REVIEW_STATUS:
         return None
-    visibility = _visibility_settings(result_row)
     if not visibility.get("show_results_to_learner", False):
         return None
 
@@ -258,6 +289,7 @@ def get_learner_visible_result(result_row: Dict | None) -> Dict | None:
     weaknesses = parse_json_list(result_row.get("learner_weaknesses") or result_row.get("missed_points"))
     learner_result = {
         "attempt_id": result_row.get("attempt_id"),
+        "submission_score_id": result_row.get("submission_score_id"),
         "title": result_row.get("title"),
         "timed_out": result_row.get("timed_out"),
         "attempt_state": result_row.get("attempt_state"),
@@ -1306,7 +1338,9 @@ def render_scenario_page(user: Dict) -> None:
 
 def _render_results_summary_tab(attempt: Dict, question_results: list[Dict] | None = None) -> None:
     visibility = attempt.get("visibility") or {}
+    rendered_sections: list[str] = []
     if visibility.get("show_overall_score_to_learner"):
+        rendered_sections.append("overall_score")
         metric_row(
             {
                 "Total score": f"{attempt.get('total_score') or 0}%",
@@ -1320,6 +1354,7 @@ def _render_results_summary_tab(attempt: Dict, question_results: list[Dict] | No
         st.info("Scores are hidden for this result.")
 
     if visibility.get("show_feedback_to_learner"):
+        rendered_sections.append("feedback")
         with st.container(border=True):
             st.markdown("#### Feedback summary")
             st.write(attempt.get("learner_visible_feedback") or "No narrative feedback has been shared yet.")
@@ -1356,9 +1391,10 @@ def _render_results_summary_tab(attempt: Dict, question_results: list[Dict] | No
         or visibility.get("show_learner_responses_to_learner")
         or visibility.get("show_expected_answers_to_learner")
         or visibility.get("show_grading_criteria_to_learner")
-        or visibility.get("show_ai_evaluation_details_to_learner")
+        or visibility.get("show_ai_review_to_learner")
         or visibility.get("show_feedback_to_learner")
     ):
+        rendered_sections.append("question_details")
         st.markdown("#### Question details")
         for row in question_results:
             with st.container(border=True):
@@ -1373,8 +1409,15 @@ def _render_results_summary_tab(attempt: Dict, question_results: list[Dict] | No
                     st.caption(f"Expected answer: {row.get('expected_answer') or '—'}")
                 if visibility.get("show_grading_criteria_to_learner"):
                     st.caption(f"Grading criteria: {row.get('rubric') or '—'}")
-                if visibility.get("show_ai_evaluation_details_to_learner"):
+                if visibility.get("show_ai_review_to_learner"):
+                    if "ai_review" not in rendered_sections:
+                        rendered_sections.append("ai_review")
                     st.caption(f"AI reasoning: {row.get('ai_reasoning') or '—'}")
+    learner_logger.info(
+        "Learner rendered results sections",
+        submission_score_id=attempt.get("submission_score_id"),
+        rendered_sections=rendered_sections,
+    )
 
 
 def _render_ai_transcript(transcript_raw: object) -> bool:
@@ -1450,6 +1493,33 @@ def _render_result_detail(attempt: Dict, question_results: list[Dict] | None = N
     )
 
     visibility = attempt.get("visibility") or {}
+    rendered_sections = [
+        section_name
+        for section_name, enabled in (
+            ("overall_score", visibility.get("show_overall_score_to_learner")),
+            ("question_scores", visibility.get("show_question_scores_to_learner")),
+            ("feedback", visibility.get("show_feedback_to_learner")),
+            ("expected_answers", visibility.get("show_expected_answers_to_learner")),
+            ("ai_review", visibility.get("show_ai_review_to_learner")),
+            ("grading_criteria", visibility.get("show_grading_criteria_to_learner")),
+            ("learner_responses", visibility.get("show_learner_responses_to_learner")),
+        )
+        if enabled
+    ]
+    learner_logger.info(
+        "Learner opened approved results",
+        submission_score_id=attempt.get("submission_score_id"),
+        approval_status=attempt.get("review_status"),
+        show_results_to_learner=visibility.get("show_results_to_learner", False),
+        show_overall_score_to_learner=visibility.get("show_overall_score_to_learner", False),
+        show_question_scores_to_learner=visibility.get("show_question_scores_to_learner", False),
+        show_feedback_to_learner=visibility.get("show_feedback_to_learner", False),
+        show_expected_answers_to_learner=visibility.get("show_expected_answers_to_learner", False),
+        show_ai_review_to_learner=visibility.get("show_ai_review_to_learner", False),
+        show_grading_criteria_to_learner=visibility.get("show_grading_criteria_to_learner", False),
+        show_learner_responses_to_learner=visibility.get("show_learner_responses_to_learner", False),
+        rendered_sections=rendered_sections,
+    )
     tab_results, tab_responses = st.tabs(["Results", "Your Responses"])
     with tab_results:
         _render_results_summary_tab(attempt, question_results)
@@ -1534,8 +1604,8 @@ def render_progress_results_page(user: Dict) -> None:
                 COALESCE(ss.show_feedback_to_learner, FALSE) AS show_feedback_to_learner,
                 COALESCE(ss.show_expected_answers_to_learner, FALSE) AS show_expected_answers_to_learner,
                 COALESCE(ss.show_grading_criteria_to_learner, FALSE) AS show_grading_criteria_to_learner,
-                COALESCE(ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_evaluation_details_to_learner,
-                TRUE AS show_learner_responses_to_learner,
+                COALESCE(ss.show_ai_review_to_learner, ss.show_ai_evaluation_details_to_learner, FALSE) AS show_ai_review_to_learner,
+                COALESCE(ss.show_learner_responses_to_learner, FALSE) AS show_learner_responses_to_learner,
                 COALESCE(ss.results_visibility_json, '') AS results_visibility_json
             FROM assignments a
             LEFT JOIN attempts t
