@@ -343,63 +343,94 @@ def render_admin_dashboard(current_user: dict) -> None:
         """
         <style>
         .dashboard-section-title {
-            font-size: 0.96rem;
+            font-size: 0.95rem;
             font-weight: 700;
             color: #344054;
-            margin: 0.15rem 0 0.35rem 0;
+            margin: 0.05rem 0 0.4rem 0;
+        }
+        .dashboard-surface {
+            border: 1px solid #eaecf0;
+            border-radius: 14px;
+            background: #ffffff;
+            padding: 12px;
+            height: 100%;
         }
         .attention-panel {
-            border: 1px solid #f1d2ce;
-            border-radius: 14px;
-            background: #fff8f7;
-            padding: 12px;
+            border: 1px solid #f3d9d6;
+            border-radius: 12px;
+            background: #fff9f8;
+            padding: 10px;
         }
         .attention-row {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 6px 0;
+            padding: 7px 0;
             border-bottom: 1px dashed #f0dbd7;
-            font-size: 0.86rem;
+            font-size: 0.84rem;
         }
         .attention-row:last-child { border-bottom: none; padding-bottom: 2px; }
         .attention-label { color: #7a271a; font-weight: 600; }
         .attention-value { color: #b42318; font-weight: 700; }
-        .dashboard-submission-item {
+        .dashboard-meta-list {
+            margin: 0;
+            padding: 0;
+            list-style: none;
+        }
+        .dashboard-meta-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
             padding: 7px 0;
+            border-bottom: 1px solid #f2f4f7;
+            font-size: 0.84rem;
+            color: #475467;
+        }
+        .dashboard-meta-item:last-child { border-bottom: none; }
+        .dashboard-meta-value {
+            font-weight: 700;
+            color: #101828;
+        }
+        .dashboard-submission-item {
+            padding: 9px 0;
             border-bottom: 1px solid #eaecf0;
         }
         .dashboard-submission-item:last-child { border-bottom: none; padding-bottom: 0; }
         .submission-title {
             margin: 0;
-            font-size: 0.85rem;
+            font-size: 0.9rem;
             font-weight: 600;
             color: #1d2939;
-            line-height: 1.2;
+            line-height: 1.25;
         }
         .submission-meta {
-            margin-top: 2px;
+            margin-top: 3px;
             color: #667085;
-            font-size: 0.77rem;
+            font-size: 0.8rem;
+        }
+        .module-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
         }
         .module-stat-card {
             border: 1px solid #eaecf0;
-            border-radius: 12px;
+            border-radius: 10px;
             background: #fcfcfd;
-            padding: 10px 11px;
-            margin-bottom: 8px;
+            padding: 10px;
+            min-height: 76px;
         }
         .module-stat-label {
             color: #667085;
-            font-size: 0.75rem;
+            font-size: 0.73rem;
             text-transform: uppercase;
             letter-spacing: .02em;
-            margin-bottom: 2px;
+            margin-bottom: 4px;
             font-weight: 600;
         }
         .module-stat-value {
             color: #101828;
-            font-size: 1.2rem;
+            font-size: 1.25rem;
             font-weight: 700;
             line-height: 1.1;
         }
@@ -424,32 +455,39 @@ def render_admin_dashboard(current_user: dict) -> None:
     with m4:
         render_kpi_card("Overdue", overdue_assignments, "Need follow-up", tone="danger", compact=True)
 
-    top_left, top_right = st.columns([2.2, 1], gap="small")
+    top_left, top_right = st.columns([2, 1], gap="small")
     with top_left:
-        st.markdown("<div class='dashboard-section-title'>Status breakdown</div>", unsafe_allow_html=True)
-        if assignments_df.empty:
-            st.info("No assignments yet.")
-        else:
-            st.bar_chart(assignments_df["status"].value_counts(), height=220)
-    with top_right:
-        st.markdown("<div class='dashboard-section-title'>Needs attention</div>", unsafe_allow_html=True)
-        st.markdown(
-            f"""
-            <div class="attention-panel">
-              <div class="attention-row"><span class="attention-label">🔴 Overdue assignments</span><span class="attention-value">{overdue_assignments}</span></div>
-              <div class="attention-row"><span class="attention-label">🟠 Inactive learners</span><span class="attention-value">{inactive_learners}</span></div>
-              <div class="attention-row"><span class="attention-label">🟡 Completion rate below goal</span><span class="attention-value">{completion_rate}%</span></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-    c3, c4, c5 = st.columns([1.1, 1.9, 1], gap="small")
-    with c3:
         with st.container(border=True):
-            st.markdown("<div class='dashboard-section-title'>Learner status</div>", unsafe_allow_html=True)
-            st.bar_chart(pd.Series({"Active": active_learners, "Inactive": inactive_learners}), height=180)
-    with c4:
+            st.markdown("<div class='dashboard-section-title'>Status breakdown</div>", unsafe_allow_html=True)
+            if assignments_df.empty:
+                st.info("No assignments yet.")
+            else:
+                status_counts = assignments_df["status"].value_counts().reindex(
+                    ["Completed", "In Progress", "Not Started", "Overdue"],
+                    fill_value=0,
+                )
+                st.bar_chart(status_counts, height=240)
+    with top_right:
+        with st.container(border=True):
+            st.markdown("<div class='dashboard-section-title'>Needs attention</div>", unsafe_allow_html=True)
+            st.markdown(
+                f"""
+                <div class="attention-panel">
+                  <div class="attention-row"><span class="attention-label">🔴 Overdue assignments</span><span class="attention-value">{overdue_assignments}</span></div>
+                  <div class="attention-row"><span class="attention-label">🟠 Inactive learners</span><span class="attention-value">{inactive_learners}</span></div>
+                  <div class="attention-row"><span class="attention-label">🟡 Completion rate</span><span class="attention-value">{completion_rate}%</span></div>
+                </div>
+                <ul class="dashboard-meta-list">
+                  <li class="dashboard-meta-item"><span>Active learners</span><span class="dashboard-meta-value">{active_learners}</span></li>
+                  <li class="dashboard-meta-item"><span>Total modules</span><span class="dashboard-meta-value">{modules_created}</span></li>
+                  <li class="dashboard-meta-item"><span>In progress assignments</span><span class="dashboard-meta-value">{in_progress_assignments}</span></li>
+                </ul>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    lower_left, lower_right = st.columns([1.8, 1], gap="small")
+    with lower_left:
         with st.container(border=True):
             st.markdown("<div class='dashboard-section-title'>Recent submissions</div>", unsafe_allow_html=True)
             if has_dataframe_columns(assignments_df, ["last_attempt_at"]):
@@ -472,22 +510,24 @@ def render_admin_dashboard(current_user: dict) -> None:
                         """,
                         unsafe_allow_html=True,
                     )
-    with c5:
+    with lower_right:
         with st.container(border=True):
             st.markdown("<div class='dashboard-section-title'>Module catalog</div>", unsafe_allow_html=True)
             st.markdown(
                 f"""
-                <div class="module-stat-card">
-                  <div class="module-stat-label">Created modules</div>
-                  <div class="module-stat-value">{modules_created}</div>
-                </div>
-                <div class="module-stat-card">
-                  <div class="module-stat-label">Inactive learners</div>
-                  <div class="module-stat-value">{inactive_learners}</div>
-                </div>
-                <div class="module-stat-card">
-                  <div class="module-stat-label">In progress</div>
-                  <div class="module-stat-value">{in_progress_assignments}</div>
+                <div class="module-stat-grid">
+                  <div class="module-stat-card">
+                    <div class="module-stat-label">Created modules</div>
+                    <div class="module-stat-value">{modules_created}</div>
+                  </div>
+                  <div class="module-stat-card">
+                    <div class="module-stat-label">Active learners</div>
+                    <div class="module-stat-value">{active_learners}</div>
+                  </div>
+                  <div class="module-stat-card">
+                    <div class="module-stat-label">In progress</div>
+                    <div class="module-stat-value">{in_progress_assignments}</div>
+                  </div>
                 </div>
                 """,
                 unsafe_allow_html=True,
