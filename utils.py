@@ -60,17 +60,18 @@ def inject_styles() -> None:
             --warning: #b54708;
             --danger: #b42318;
         }
+        .main .block-container,
+        [data-testid="stAppViewBlockContainer"],
+        [data-testid="stMainBlockContainer"] {
+            padding-top: 0.35rem !important;
+        }
         .main .block-container {
-            padding-top: 0.35rem;
             padding-bottom: 2rem;
             padding-left: 20px !important;
             padding-right: 20px !important;
             max-width: 1120px !important;
             margin-left: auto !important;
             margin-right: auto !important;
-        }
-        [data-testid="stAppViewBlockContainer"] {
-            padding-top: 0.35rem;
         }
         @media (min-width: 1600px) {
             .main .block-container {
