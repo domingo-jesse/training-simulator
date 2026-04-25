@@ -105,18 +105,18 @@ def inject_styles() -> None:
         }
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
-            width: 250px !important;
-            min-width: 250px !important;
-            max-width: 250px !important;
-            flex: 0 0 250px !important;
+            width: 220px !important;
+            min-width: 220px !important;
+            max-width: 220px !important;
+            flex: 0 0 220px !important;
         }
         section[data-testid="stSidebar"] > div:first-child,
         [data-testid="stSidebar"] > div:first-child {
             background: var(--surface);
             border-right: 1px solid var(--line);
-            width: 250px !important;
-            min-width: 250px !important;
-            max-width: 250px !important;
+            width: 220px !important;
+            min-width: 220px !important;
+            max-width: 220px !important;
             padding-top: 0.45rem;
             overflow: visible !important;
         }
@@ -300,6 +300,9 @@ def inject_styles() -> None:
         }
         .stApp [data-testid="stVerticalBlock"] > div {
             margin-bottom: 0.75rem;
+        }
+        [data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div {
+            margin-bottom: 0.2rem;
         }
         section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] > div:has([data-testid="sidebar-profile-compact"]) {
             margin-bottom: 0.2rem !important;
