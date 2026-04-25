@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from db import execute, fetch_all, fetch_one
+from db import ensure_question_conversation_messages_table, execute, fetch_all, fetch_one
 from logger import get_logger
 
 grading_service_logger = get_logger(module="grading_service")
@@ -201,6 +201,8 @@ def _compose_grading_reference(question: dict[str, Any]) -> str:
 
 
 def grade_submission(attempt_id: int) -> dict[str, Any]:
+    ensure_question_conversation_messages_table()
+
     attempt = fetch_one(
         """
         SELECT a.*, m.organization_id AS module_org_id, m.expected_customer_response, m.lesson_takeaway,
