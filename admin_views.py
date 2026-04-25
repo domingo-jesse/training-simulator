@@ -333,12 +333,10 @@ def render_admin_dashboard(current_user: dict) -> None:
     active_learners = int(learners_df["is_active"].fillna(False).astype(bool).sum()) if not learners_df.empty else 0
     inactive_learners = total_learners - active_learners
     modules_created = len(modules_df)
-    modules_assigned = len(assignments_df)
     completion_rate = round((assignments_df["status"].eq("Completed").mean() * 100), 1) if not assignments_df.empty else 0.0
     overdue_assignments = int(assignments_df["status"].eq("Overdue").sum()) if not assignments_df.empty else 0
     in_progress_assignments = int(assignments_df["status"].eq("In Progress").sum()) if not assignments_df.empty else 0
 
-    completion_tone = "warning" if completion_rate < 70 else "default"
     st.markdown(
         """
         <style>
@@ -408,86 +406,13 @@ def render_admin_dashboard(current_user: dict) -> None:
             color: #667085;
             font-size: 0.8rem;
         }
-        .module-stat-grid {
-            display: grid;
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-            gap: 10px;
-        }
-        .module-stat-card {
-            border: 1px solid #eaecf0;
-            border-radius: 10px;
-            background: #fcfcfd;
-            padding: 10px;
-            min-height: 76px;
-        }
-        .module-stat-label {
-            color: #667085;
-            font-size: 0.73rem;
-            text-transform: uppercase;
-            letter-spacing: .02em;
-            margin-bottom: 4px;
-            font-weight: 600;
-        }
-        .module-stat-value {
-            color: #101828;
-            font-size: 1.25rem;
-            font-weight: 700;
-            line-height: 1.1;
-        }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    m1, m2, m3, m4 = st.columns(4, gap="small")
-    with m1:
-        render_kpi_card("Total learners", total_learners, f"{active_learners} active", compact=True)
-    with m2:
-        render_kpi_card("Active assignments", modules_assigned, f"{in_progress_assignments} in progress", compact=True)
-    with m3:
-        render_kpi_card(
-            "Completion rate",
-            f"{completion_rate}%",
-            "Across all active assignments",
-            tone=completion_tone,
-            compact=True,
-        )
-    with m4:
-        render_kpi_card("Overdue", overdue_assignments, "Need follow-up", tone="danger", compact=True)
-
-    top_left, top_right = st.columns([2, 1], gap="small")
+    top_left, top_right = st.columns([1.8, 1], gap="small")
     with top_left:
-        with st.container(border=True):
-            st.markdown("<div class='dashboard-section-title'>Status breakdown</div>", unsafe_allow_html=True)
-            if assignments_df.empty:
-                st.info("No assignments yet.")
-            else:
-                status_counts = assignments_df["status"].value_counts().reindex(
-                    ["Completed", "In Progress", "Not Started", "Overdue"],
-                    fill_value=0,
-                )
-                st.bar_chart(status_counts, height=240)
-    with top_right:
-        with st.container(border=True):
-            st.markdown("<div class='dashboard-section-title'>Needs attention</div>", unsafe_allow_html=True)
-            st.markdown(
-                f"""
-                <div class="attention-panel">
-                  <div class="attention-row"><span class="attention-label">🔴 Overdue assignments</span><span class="attention-value">{overdue_assignments}</span></div>
-                  <div class="attention-row"><span class="attention-label">🟠 Inactive learners</span><span class="attention-value">{inactive_learners}</span></div>
-                  <div class="attention-row"><span class="attention-label">🟡 Completion rate</span><span class="attention-value">{completion_rate}%</span></div>
-                </div>
-                <ul class="dashboard-meta-list">
-                  <li class="dashboard-meta-item"><span>Active learners</span><span class="dashboard-meta-value">{active_learners}</span></li>
-                  <li class="dashboard-meta-item"><span>Total modules</span><span class="dashboard-meta-value">{modules_created}</span></li>
-                  <li class="dashboard-meta-item"><span>In progress assignments</span><span class="dashboard-meta-value">{in_progress_assignments}</span></li>
-                </ul>
-                """,
-                unsafe_allow_html=True,
-            )
-
-    lower_left, lower_right = st.columns([1.8, 1], gap="small")
-    with lower_left:
         with st.container(border=True):
             st.markdown("<div class='dashboard-section-title'>Recent submissions</div>", unsafe_allow_html=True)
             if has_dataframe_columns(assignments_df, ["last_attempt_at"]):
@@ -510,25 +435,21 @@ def render_admin_dashboard(current_user: dict) -> None:
                         """,
                         unsafe_allow_html=True,
                     )
-    with lower_right:
+    with top_right:
         with st.container(border=True):
-            st.markdown("<div class='dashboard-section-title'>Module catalog</div>", unsafe_allow_html=True)
+            st.markdown("<div class='dashboard-section-title'>Needs attention</div>", unsafe_allow_html=True)
             st.markdown(
                 f"""
-                <div class="module-stat-grid">
-                  <div class="module-stat-card">
-                    <div class="module-stat-label">Created modules</div>
-                    <div class="module-stat-value">{modules_created}</div>
-                  </div>
-                  <div class="module-stat-card">
-                    <div class="module-stat-label">Active learners</div>
-                    <div class="module-stat-value">{active_learners}</div>
-                  </div>
-                  <div class="module-stat-card">
-                    <div class="module-stat-label">In progress</div>
-                    <div class="module-stat-value">{in_progress_assignments}</div>
-                  </div>
+                <div class="attention-panel">
+                  <div class="attention-row"><span class="attention-label">🔴 Overdue assignments</span><span class="attention-value">{overdue_assignments}</span></div>
+                  <div class="attention-row"><span class="attention-label">🟠 Inactive learners</span><span class="attention-value">{inactive_learners}</span></div>
+                  <div class="attention-row"><span class="attention-label">🟡 Completion rate</span><span class="attention-value">{completion_rate}%</span></div>
                 </div>
+                <ul class="dashboard-meta-list">
+                  <li class="dashboard-meta-item"><span>Active learners</span><span class="dashboard-meta-value">{active_learners}</span></li>
+                  <li class="dashboard-meta-item"><span>Total modules</span><span class="dashboard-meta-value">{modules_created}</span></li>
+                  <li class="dashboard-meta-item"><span>In progress assignments</span><span class="dashboard-meta-value">{in_progress_assignments}</span></li>
+                </ul>
                 """,
                 unsafe_allow_html=True,
             )
