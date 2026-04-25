@@ -1332,8 +1332,7 @@ def render_current_assignments(current_user: dict) -> None:
 def render_grading_center(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.subheader("Submission Grading")
-    st.caption("Review learner submissions and scoring results for assigned modules.")
+    render_page_header("Submission Grading", "Review learner submissions and scoring results for assigned modules.")
 
     total_score_expr = "COALESCE(sc.final_total_score, sc.admin_total_score, sc.ai_total_score, 0)"
     jsonb_empty_object_expr = "'{}'::jsonb"
@@ -2185,7 +2184,7 @@ def render_admin_assignment_review(current_user: dict, assignment_id: int | None
 
 def render_progress_tracking(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    st.subheader("Progress Tracking")
+    render_page_header("Progress Tracking", "Monitor assignment completion and learner activity across your organization.")
 
     assignments_df = _assignments_with_status(org_id)
     if assignments_df.empty:
