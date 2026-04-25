@@ -30,7 +30,7 @@ from learner_views import (
 )
 from logger import get_logger
 from permissions import is_dev_account
-from utils import inject_scroll_to_top, inject_styles, page_container
+from utils import inject_scroll_to_top, inject_styles, page_container, render_page_header
 
 DEBUG = False  # set to True only when debugging
 
@@ -1128,8 +1128,7 @@ def render_login_view() -> None:
 
 def render_create_account_view() -> None:
     _log_render_debug("Render create-account view.", page="create_account")
-    st.markdown("### Create your account")
-    st.caption("You can register both Learner and Admin accounts using the same email address.")
+    render_page_header("Create your account", "You can register both Learner and Admin accounts using the same email address.")
     role = render_horizontal_button_group(
         "Select role",
         ["learner", "admin"],
@@ -1328,8 +1327,7 @@ def render_profile_page() -> None:
         if st.button("← Back to Dashboard", key="profile_back_btn", use_container_width=True):
             _navigate_back_to_main_app()
     st.caption("Dashboard / Profile")
-    st.markdown("### Profile")
-    st.caption("Update your account information and security settings.")
+    render_page_header("Profile", "Update your account information and security settings.")
     if not profile:
         st.error("Could not load profile details.")
         return
@@ -1394,8 +1392,7 @@ def render_settings_page() -> None:
         if st.button("← Back to Dashboard", key="settings_back_btn", use_container_width=True):
             _navigate_back_to_main_app()
     st.caption("Dashboard / Settings")
-    st.markdown("### Settings")
-    st.caption("Personalization and account preferences.")
+    render_page_header("Settings", "Personalization and account preferences.")
     _, content, _ = st.columns([1, 2.2, 1])
     with content:
         with st.container(border=True):
