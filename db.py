@@ -288,6 +288,73 @@ def ensure_module_rubric_criteria_table(conn: Any = None) -> None:
         _ensure_column(conn, "module_rubric_criteria", "grading_guidance", "TEXT DEFAULT ''")
 
 
+def ensure_question_conversation_messages_table(conn: Any = None) -> None:
+    if conn is None:
+        with get_conn() as managed_conn:
+            ensure_question_conversation_messages_table(managed_conn)
+        return
+    if RUNTIME_USE_POSTGRES:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS question_conversation_messages (
+                    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                    attempt_id BIGINT NOT NULL,
+                    question_id BIGINT NOT NULL,
+                    message_role TEXT NOT NULL,
+                    message_content TEXT NOT NULL,
+                    message_order INTEGER NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                    FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_question_conversation_messages_attempt_id
+                ON question_conversation_messages(attempt_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_question_conversation_messages_question_id
+                ON question_conversation_messages(question_id)
+                """
+            )
+            cur.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_question_conversation_messages_attempt_question
+                ON question_conversation_messages(attempt_id, question_id)
+                """
+            )
+    else:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS question_conversation_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                attempt_id INTEGER NOT NULL,
+                question_id INTEGER NOT NULL,
+                message_role TEXT NOT NULL,
+                message_content TEXT NOT NULL,
+                message_order INTEGER NOT NULL,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
+                FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_question_conversation_messages_attempt_id ON question_conversation_messages(attempt_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_question_conversation_messages_question_id ON question_conversation_messages(question_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_question_conversation_messages_attempt_question ON question_conversation_messages(attempt_id, question_id)"
+        )
+
+
 def _ensure_attempts_result_approver_fk_postgres(conn) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -1783,23 +1850,9 @@ def init_db() -> None:
             _ensure_column(conn, "assignment_workspace_state", "time_limit_minutes", "INTEGER")
             _ensure_column(conn, "assignment_workspace_state", "end_time", "TEXT")
             _ensure_column(conn, "assignment_workspace_state", "auto_submitted_state", "INTEGER DEFAULT 0")
+            ensure_question_conversation_messages_table(conn)
             if RUNTIME_USE_POSTGRES:
                 with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS question_conversation_messages (
-                            id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                            attempt_id BIGINT NOT NULL,
-                            question_id BIGINT NOT NULL,
-                            message_role TEXT NOT NULL,
-                            message_content TEXT NOT NULL,
-                            message_order INTEGER NOT NULL,
-                            created_at TIMESTAMPTZ DEFAULT NOW(),
-                            FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
-                            FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
-                        )
-                        """
-                    )
                     cur.execute(
                         """
                         CREATE TABLE IF NOT EXISTS submission_question_scores (
@@ -1826,21 +1879,6 @@ def init_db() -> None:
                         """
                     )
             else:
-                conn.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS question_conversation_messages (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        attempt_id INTEGER NOT NULL,
-                        question_id INTEGER NOT NULL,
-                        message_role TEXT NOT NULL,
-                        message_content TEXT NOT NULL,
-                        message_order INTEGER NOT NULL,
-                        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY(attempt_id) REFERENCES attempts(attempt_id) ON DELETE CASCADE,
-                        FOREIGN KEY(question_id) REFERENCES module_questions(question_id) ON DELETE CASCADE
-                    )
-                    """
-                )
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS submission_question_scores (
