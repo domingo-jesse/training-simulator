@@ -902,7 +902,17 @@ def _render_assignment_tool(current_user: dict) -> None:
         module_select_key = "assignment_tool_selected_module_label"
         module_id_to_label = {module_id: title for title, module_id in module_map.items()}
         pending_prefill_module_id = st.session_state.pop("assignment_tool_prefill_module_id", None)
+        query_prefill_module_id = None
+        query_prefill_value = st.query_params.get("module_id")
+        if query_prefill_value is not None:
+            try:
+                query_prefill_module_id = int(str(query_prefill_value).strip())
+            except (TypeError, ValueError):
+                query_prefill_module_id = None
+
         default_prefill_module_id = pending_prefill_module_id
+        if default_prefill_module_id is None:
+            default_prefill_module_id = query_prefill_module_id
         if default_prefill_module_id is None:
             default_prefill_module_id = st.session_state.get("recently_created_module_id")
         if (
@@ -1056,6 +1066,10 @@ def _render_assignment_tool(current_user: dict) -> None:
 
 def render_assignment_management(current_user: dict) -> None:
     render_page_header("Assignment Management", "Assign modules in bulk and monitor assignment status.")
+    publish_notice = st.session_state.pop("module_publish_notice", None)
+    if publish_notice:
+        st.success("Module published successfully.")
+        st.info("You can now assign this module to learners.")
     recently_created_module_id = st.session_state.get("recently_created_module_id")
     recently_created_module_title = st.session_state.get("recently_created_module_title")
     if isinstance(recently_created_module_id, int):
@@ -3799,6 +3813,8 @@ def render_module_builder(current_user: dict) -> None:
         created_module_title = module_form["title"].strip() or f"Module {created_module_id}"
         st.session_state[recently_created_module_id_key] = created_module_id
         st.session_state[recently_created_module_title_key] = created_module_title
+        st.session_state["module_publish_notice"] = True
+        st.session_state["assignment_tool_prefill_module_id"] = created_module_id
         st.session_state[form_key] = dict(default_form)
         st.session_state[save_status_key] = "Saved"
         st.session_state[publish_attempted_key] = False
@@ -3809,10 +3825,12 @@ def render_module_builder(current_user: dict) -> None:
         for key in widget_keys:
             st.session_state.pop(key, None)
         st.session_state["admin_nav_group"] = "Operations"
-        st.session_state["admin_page"] = "📚 Manage Modules"
-        st.session_state["current_page"] = "admin:manage-modules"
-        st.session_state["nav"] = "manage-modules"
-        st.query_params["page"] = "manage-modules"
+        st.session_state["admin_page"] = "📁 Assignment Management"
+        st.session_state["current_page"] = "admin:assignment-management"
+        st.session_state["nav"] = "assignment-management"
+        st.query_params["page"] = "assignment-management"
+        st.query_params["module_id"] = str(created_module_id)
+        st.query_params["module_title"] = created_module_title
         st.rerun()
 
 
