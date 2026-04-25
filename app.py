@@ -1438,12 +1438,12 @@ def render_main_app() -> None:
             return
         operations_pages = [
             "📊 Dashboard",
-            "🗂️ Assignment Management",
+            "🧩 Module Builder",
+            "📚 Manage Modules",
+            "📁 Assignment Management",
             "✅ Submission Grading",
             "📈 Progress Tracking",
             "👥 Learner Management",
-            "🧩 Module Builder",
-            "📚 Manage Modules",
         ]
         if is_dev_user:
             operations_pages.extend(["🛠️ Database Tables", "📝 Debug Logs"])

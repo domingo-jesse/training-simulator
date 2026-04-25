@@ -3850,7 +3850,7 @@ def render_manage_modules(current_user: dict) -> None:
             if st.button("Assign Recently Created Module", type="primary", use_container_width=True):
                 st.session_state["assignment_tool_prefill_module_id"] = int(recently_created_module_id)
                 st.session_state["admin_nav_group"] = "Operations"
-                st.session_state["admin_page"] = "🗂️ Assignment Management"
+                st.session_state["admin_page"] = "📁 Assignment Management"
                 st.session_state["current_page"] = "admin:assignment-management"
                 st.session_state["nav"] = "assignment-management"
                 st.query_params["page"] = "assignment-management"
