@@ -638,8 +638,9 @@ def render_learner_management(current_user: dict) -> None:
             "Selected learners",
             options=option_labels,
             key=multiselect_key,
-            help="Selections stay synced with the table above.",
+            help="Read-only list synced from the table above.",
             label_visibility="collapsed",
+            disabled=True,
         )
         selected_from_multiselect = {learner_options[label] for label in selected_learners if label in learner_options}
         unified_selected_ids = (set(st.session_state.get(selected_ids_key, [])) - visible_ids) | selected_from_multiselect
