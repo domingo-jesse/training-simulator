@@ -872,11 +872,11 @@ def _render_assignment_tool(current_user: dict) -> None:
         st.caption(f"{selected_count} learner{'s' if selected_count != 1 else ''} selected")
         action_col1, action_col2, _ = st.columns([1, 1, 3])
         with action_col1:
-            if st.button("Clear selection", use_container_width=True):
+            if st.button("Clear selection", key="assignment_tool_clear_selection", use_container_width=True):
                 st.session_state[selected_learner_ids_key] = []
                 st.rerun()
         with action_col2:
-            if st.button("Select all visible learners", use_container_width=True):
+            if st.button("Select all visible learners", key="assignment_tool_select_all_visible", use_container_width=True):
                 st.session_state[selected_learner_ids_key] = sorted(prior_selected_ids | visible_ids)
                 st.rerun()
 
@@ -1320,7 +1320,7 @@ def render_current_assignments(current_user: dict) -> None:
 
         c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("Send to database: Remove selected assignments", type="primary", use_container_width=True):
+            if st.button("Send to database: Remove selected assignments", key="assignment_management_bulk_remove", type="primary", use_container_width=True):
                 try:
                     rows_to_cleanup = fetch_all(
                         """
@@ -1359,7 +1359,7 @@ def render_current_assignments(current_user: dict) -> None:
                     st.error("Could not remove selected assignments.")
         with c2:
             new_due = st.date_input("Reassign due date", key="reassign_due", value=date.today())
-            if st.button("Send to database: Reassign selected training", use_container_width=True):
+            if st.button("Send to database: Reassign selected training", key="assignment_management_bulk_reassign", use_container_width=True):
                 try:
                     execute(
                         "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP "
@@ -1385,7 +1385,7 @@ def render_current_assignments(current_user: dict) -> None:
                     st.error("Could not update selected assignments.")
         with c3:
             st.caption("Selection controls")
-            if st.button("Clear selection", use_container_width=True):
+            if st.button("Clear selection", key="assignment_management_bulk_clear_selection", use_container_width=True):
                 st.session_state[selection_state_key] = set()
                 st.rerun()
 
