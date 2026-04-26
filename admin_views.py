@@ -790,9 +790,9 @@ def _render_assignment_tool(current_user: dict) -> None:
             with fc4:
                 apply_filters = st.form_submit_button("Apply filters", use_container_width=True)
             with fc5:
-                selected_filtered_learners = st.form_submit_button("Select filtered learners", use_container_width=True)
+                selected_filtered_learners = st.form_submit_button("Select all filtered learners", use_container_width=True)
             with fc6:
-                clear_filtered_selection = st.form_submit_button("Clear filtered selection", use_container_width=True)
+                clear_filtered_selection = st.form_submit_button("Clear selection", use_container_width=True)
 
         if apply_filters:
             st.session_state["assignment_tool_filters"] = {
@@ -812,41 +812,30 @@ def _render_assignment_tool(current_user: dict) -> None:
             team_filter=team_filter,
             org_filter=org_filter,
         )
-        all_active_learner_map = {
-            build_learner_option_label(row): int(row["user_id"])
+        label_by_id = {
+            int(row["user_id"]): build_learner_option_label(row)
             for _, row in all_active_learners.sort_values("name").iterrows()
         }
-        learner_map = {
-            build_learner_option_label(row): int(row["user_id"])
-            for _, row in filtered_active_learners.sort_values("name").iterrows()
-        }
-        learner_options = list(learner_map.keys())
-        label_by_id = {learner_id: label for label, learner_id in all_active_learner_map.items()}
-        learner_multiselect_key = "assign_training_learners"
-        unified_selection_key = "assignment_tool_unified_selected_learner_ids"
-        table_selection_key = "assignment_tool_selected_learner_ids"
+        selected_learner_ids_key = "selected_learner_ids"
+        table_selection_key = "assignment_tool_selected_filtered_learner_ids"
         visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
-        filtered_selected_count = len(set(st.session_state.get(unified_selection_key, [])) & visible_ids)
-
-        if learner_multiselect_key not in st.session_state:
-            st.session_state[learner_multiselect_key] = []
+        all_active_ids = {int(v) for v in all_active_learners["user_id"].tolist()}
 
         existing_ids = {
-            int(v) for v in st.session_state.get(unified_selection_key, []) if int(v) in set(all_active_learners["user_id"].tolist())
+            int(v) for v in st.session_state.get(selected_learner_ids_key, []) if int(v) in all_active_ids
         }
-        st.session_state[unified_selection_key] = sorted(existing_ids)
+        st.session_state[selected_learner_ids_key] = sorted(existing_ids)
         st.session_state[table_selection_key] = sorted(existing_ids & visible_ids)
 
         if selected_filtered_learners:
-            merged_ids = set(st.session_state.get(unified_selection_key, [])) | visible_ids
-            st.session_state[unified_selection_key] = sorted(int(v) for v in merged_ids)
-            st.session_state[table_selection_key] = sorted(set(st.session_state[unified_selection_key]) & visible_ids)
+            merged_ids = set(st.session_state.get(selected_learner_ids_key, [])) | visible_ids
+            st.session_state[selected_learner_ids_key] = sorted(int(v) for v in merged_ids)
+            st.session_state[table_selection_key] = sorted(set(st.session_state[selected_learner_ids_key]) & visible_ids)
             st.rerun()
 
         if clear_filtered_selection:
-            remaining_ids = set(st.session_state.get(unified_selection_key, [])) - visible_ids
-            st.session_state[unified_selection_key] = sorted(int(v) for v in remaining_ids)
-            st.session_state[table_selection_key] = sorted(set(st.session_state[unified_selection_key]) & visible_ids)
+            st.session_state[selected_learner_ids_key] = []
+            st.session_state[table_selection_key] = []
             st.rerun()
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
@@ -871,21 +860,22 @@ def _render_assignment_tool(current_user: dict) -> None:
             height=420,
         )
         selected_id_set = {int(v) for v in selected_learner_ids}
-        unified_selected_ids = (set(st.session_state.get(unified_selection_key, [])) - visible_ids) | selected_id_set
-        st.session_state[unified_selection_key] = sorted(int(v) for v in unified_selected_ids)
-        st.session_state[table_selection_key] = sorted(set(st.session_state[unified_selection_key]) & visible_ids)
+        updated_selected_ids = (set(st.session_state.get(selected_learner_ids_key, [])) - visible_ids) | selected_id_set
+        st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
+        st.session_state[table_selection_key] = sorted(set(st.session_state[selected_learner_ids_key]) & visible_ids)
         selected_labels = [
             label_by_id[learner_id]
-            for learner_id in st.session_state[unified_selection_key]
+            for learner_id in st.session_state[selected_learner_ids_key]
             if learner_id in label_by_id
         ]
-        selectbox_options = list(dict.fromkeys(learner_options + selected_labels))
-        st.session_state[learner_multiselect_key] = [
-            label for label in st.session_state.get(learner_multiselect_key, []) if label in selectbox_options
-        ]
-        st.session_state[learner_multiselect_key] = selected_labels
-        filtered_selected_count = len(set(st.session_state[unified_selection_key]) & visible_ids)
+        filtered_selected_count = len(set(st.session_state[selected_learner_ids_key]) & visible_ids)
         st.caption(f"{filtered_selected_count} filtered learners selected")
+        selected_count = len(st.session_state[selected_learner_ids_key])
+        st.caption(f"{selected_count} learner{'s' if selected_count != 1 else ''} selected")
+        if selected_labels:
+            st.markdown(" ".join(f"`{label}`" for label in selected_labels))
+        else:
+            st.caption("No learners selected.")
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
@@ -925,12 +915,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             st.session_state[module_select_key] = next(iter(module_map.keys()))
 
         selected_module = st.selectbox("Module", list(module_map.keys()), key=module_select_key)
-        selected_learners = st.multiselect(
-            "Selected learners (from table)",
-            selectbox_options,
-            key=learner_multiselect_key,
-            help="Primary selection happens in the table above.",
-        )
         st.checkbox(
             "Set due date",
             key=due_date_enabled_key,
@@ -953,19 +937,9 @@ def _render_assignment_tool(current_user: dict) -> None:
         if assign_submitted and not st.session_state.get(assign_in_progress_key, False):
             module_id = module_map[selected_module]
             due_date_value = due_date.isoformat() if st.session_state[due_date_enabled_key] and due_date else None
-            selected_ids: list[int] = []
-            missing_labels: list[str] = []
-            for learner_label in selected_learners:
-                learner_id = all_active_learner_map.get(learner_label)
-                if learner_id is None:
-                    missing_labels.append(learner_label)
-                    continue
-                selected_ids.append(int(learner_id))
+            selected_ids = [int(v) for v in st.session_state.get(selected_learner_ids_key, [])]
             if not selected_ids:
                 st.session_state[assign_status_key] = ("warning", "Select at least one learner before assigning.")
-                st.session_state[assign_status_expiry_key] = time.time() + 6
-            elif missing_labels:
-                st.session_state[assign_status_key] = ("warning", "Some selected learners are no longer available. Refresh and try again.")
                 st.session_state[assign_status_expiry_key] = time.time() + 6
             else:
                 st.session_state[pending_payload_key] = {
