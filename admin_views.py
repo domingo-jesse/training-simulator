@@ -787,10 +787,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             team_filter=team_filter,
             org_filter=org_filter,
         )
-        label_by_id = {
-            int(row["user_id"]): build_learner_option_label(row)
-            for _, row in all_active_learners.sort_values("name").iterrows()
-        }
         selected_learner_ids_key = "selected_learner_ids"
         visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
         all_active_ids = {int(v) for v in all_active_learners["user_id"].tolist()}
@@ -871,7 +867,6 @@ def _render_assignment_tool(current_user: dict) -> None:
         updated_selected_ids = (prior_selected_ids - visible_ids) | set(st.session_state[table_selection_key])
         st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
         selected_count = len(st.session_state[selected_learner_ids_key])
-        st.caption(f"{selected_count} learner{'s' if selected_count != 1 else ''} selected")
         action_col1, action_col2, _ = st.columns([1, 1, 3])
         with action_col1:
             if st.button("Clear selection", key="assignment_tool_clear_selection", use_container_width=True):
@@ -997,18 +992,18 @@ def _render_assignment_tool(current_user: dict) -> None:
                         learners=len(valid_ids),
                     )
                     if skipped_count:
-                        assigned_labels = [label_by_id.get(learner_id, f"Learner #{learner_id}") for learner_id in valid_ids]
                         st.session_state[assign_status_key] = (
                             "success",
-                            f"Assigned to the following: {', '.join(assigned_labels)}. ({skipped_count} learner(s) skipped)",
+                            f"Assigned training to {len(valid_ids)} learner(s). ({skipped_count} learner(s) skipped)",
                         )
                     else:
-                        assigned_labels = [label_by_id.get(learner_id, f"Learner #{learner_id}") for learner_id in valid_ids]
                         st.session_state[assign_status_key] = (
                             "success",
-                            f"Assigned to the following: {', '.join(assigned_labels)}",
+                            f"Assigned training to {len(valid_ids)} learner(s).",
                         )
                     st.session_state[assign_status_expiry_key] = time.time() + 5
+                    st.session_state[selected_learner_ids_key] = []
+                    st.session_state[table_selection_key] = []
                     st.cache_data.clear()
                     st.session_state["assignment_management_refresh_token"] = int(st.session_state.get("assignment_management_refresh_token", 0)) + 1
                     st.session_state.pop("assignment_management_filtered_cache", None)
@@ -1216,6 +1211,7 @@ def render_current_assignments(current_user: dict) -> None:
         selection_help="Select assignments for actions.",
         single_select=False,
         height=520,
+        show_selection_caption=False,
     )
     selected_ids_key = f"{assignment_table_key}_selected_ids"
     filtered_assignment_ids = set(assignment_table_df["assignment_id"].tolist())
@@ -1230,7 +1226,6 @@ def render_current_assignments(current_user: dict) -> None:
 
     with st.container(border=True):
         st.markdown("#### Assignment actions")
-        st.caption(f"{selected_count} selected")
         action_cols = st.columns([1.2, 1.6, 2.2, 2.2, 1.5])
 
         with action_cols[0]:

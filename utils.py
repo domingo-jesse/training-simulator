@@ -824,6 +824,7 @@ def render_admin_selection_table(
     hide_index: bool = True,
     height: int = 450,
     empty_message: str | None = None,
+    show_selection_caption: bool = True,
 ) -> tuple[pd.DataFrame, list]:
     _inject_admin_selection_table_styles()
     table_selection_key = f"{table_key}_selected_ids"
@@ -907,12 +908,13 @@ def render_admin_selection_table(
         st.session_state[selection_state_key] = selected_ids
     st.session_state[table_selection_key] = selected_ids
 
-    if selected_ids and single_select:
-        st.caption(f"Selected: {selected_ids[0]}")
-    elif selected_ids:
-        st.caption(f"Selected: {len(selected_ids)}")
-    else:
-        st.caption("Selected: None")
+    if show_selection_caption:
+        if selected_ids and single_select:
+            st.caption(f"Selected: {selected_ids[0]}")
+        elif selected_ids:
+            st.caption(f"Selected: {len(selected_ids)}")
+        else:
+            st.caption("Selected: None")
 
     return selected_df, selected_ids
 
