@@ -769,7 +769,7 @@ def _render_assignment_tool(current_user: dict) -> None:
 
         # Filter controls are grouped in a form to avoid reruns while typing/changing each control.
         with st.form("assignment_tool_filters_form", clear_on_submit=False):
-            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2, 1, 1, 1, 1, 1])
+            fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
             with fc1:
                 search_draft = st.text_input("Search learners", value=active_filters.get("search", ""))
             with fc2:
@@ -790,10 +790,6 @@ def _render_assignment_tool(current_user: dict) -> None:
                 )
             with fc4:
                 apply_filters = st.form_submit_button("Apply filters", use_container_width=True)
-            with fc5:
-                selected_filtered_learners = st.form_submit_button("Select all filtered learners", use_container_width=True)
-            with fc6:
-                clear_filtered_selection = st.form_submit_button("Clear selection", use_container_width=True)
 
         if apply_filters:
             st.session_state["assignment_tool_filters"] = {
@@ -818,7 +814,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             for _, row in all_active_learners.sort_values("name").iterrows()
         }
         selected_learner_ids_key = "selected_learner_ids"
-        table_selection_key = "assignment_tool_selected_filtered_learner_ids"
         visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
         all_active_ids = {int(v) for v in all_active_learners["user_id"].tolist()}
 
@@ -826,18 +821,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             int(v) for v in st.session_state.get(selected_learner_ids_key, []) if int(v) in all_active_ids
         }
         st.session_state[selected_learner_ids_key] = sorted(existing_ids)
-        st.session_state[table_selection_key] = sorted(existing_ids & visible_ids)
-
-        if selected_filtered_learners:
-            merged_ids = set(st.session_state.get(selected_learner_ids_key, [])) | visible_ids
-            st.session_state[selected_learner_ids_key] = sorted(int(v) for v in merged_ids)
-            st.session_state[table_selection_key] = sorted(set(st.session_state[selected_learner_ids_key]) & visible_ids)
-            st.rerun()
-
-        if clear_filtered_selection:
-            st.session_state[selected_learner_ids_key] = []
-            st.session_state[table_selection_key] = []
-            st.rerun()
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
         assignment_learner_grid = filtered_active_learners[
@@ -850,33 +833,120 @@ def _render_assignment_tool(current_user: dict) -> None:
                 "organization_name": "Organization",
             }
         )
-        _, selected_learner_ids = render_admin_selection_table(
-            assignment_learner_grid,
-            row_id_col="learner_id",
-            selection_state_key=table_selection_key,
-            table_key="assignment_tool_learner_data_editor",
-            selection_label="Select",
-            selection_help="Select learners to assign this module.",
-            single_select=False,
-            height=420,
+        assignment_editor_df = assignment_learner_grid.copy()
+        prior_selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
+        assignment_editor_df.insert(
+            0,
+            "selected",
+            assignment_editor_df["learner_id"].apply(lambda learner_id: int(learner_id) in prior_selected_ids),
         )
-        selected_id_set = {int(v) for v in selected_learner_ids}
-        updated_selected_ids = (set(st.session_state.get(selected_learner_ids_key, [])) - visible_ids) | selected_id_set
+        st.markdown('<div class="app-table-host">', unsafe_allow_html=True)
+        edited_df = st.data_editor(
+            assignment_editor_df,
+            key="assignment_tool_learner_data_editor",
+            use_container_width=True,
+            hide_index=True,
+            height=420,
+            row_height=44,
+            column_config={
+                "selected": st.column_config.CheckboxColumn(
+                    "Select",
+                    width="small",
+                    help="Select learners to assign this module.",
+                )
+            },
+            disabled=[column for column in assignment_editor_df.columns if column != "selected"],
+        )
+        st.markdown("</div>", unsafe_allow_html=True)
+        visible_selected_ids = {
+            int(v) for v in edited_df.loc[edited_df["selected"] == True, "learner_id"].tolist()
+        }
+        updated_selected_ids = (prior_selected_ids - visible_ids) | visible_selected_ids
         st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
-        st.session_state[table_selection_key] = sorted(set(st.session_state[selected_learner_ids_key]) & visible_ids)
         selected_labels = [
             label_by_id[learner_id]
             for learner_id in st.session_state[selected_learner_ids_key]
             if learner_id in label_by_id
         ]
-        filtered_selected_count = len(set(st.session_state[selected_learner_ids_key]) & visible_ids)
-        st.caption(f"{filtered_selected_count} filtered learners selected")
         selected_count = len(st.session_state[selected_learner_ids_key])
         st.caption(f"{selected_count} learner{'s' if selected_count != 1 else ''} selected")
+        action_col1, action_col2, _ = st.columns([1, 1, 3])
+        with action_col1:
+            if st.button("Clear selection", use_container_width=True):
+                st.session_state[selected_learner_ids_key] = []
+                st.rerun()
+        with action_col2:
+            if st.button("Select all visible learners", use_container_width=True):
+                st.session_state[selected_learner_ids_key] = sorted(prior_selected_ids | visible_ids)
+                st.rerun()
+
+        st.markdown(
+            """
+            <style>
+            .assignment-selected-panel {
+                margin: 1rem 0 1.25rem 0;
+                border: 1px solid #e5e7eb;
+                border-radius: 16px;
+                background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+                padding: 1rem 1rem 0.75rem 1rem;
+            }
+            .assignment-selected-panel .assignment-selected-title {
+                font-size: 1rem;
+                font-weight: 650;
+                color: #111827;
+                margin-bottom: 0.2rem;
+            }
+            .assignment-selected-panel .assignment-selected-help {
+                color: #6b7280;
+                margin-bottom: 0.8rem;
+                font-size: 0.9rem;
+            }
+            .assignment-selected-chips {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+            }
+            .assignment-selected-chip {
+                background: #eef2ff;
+                border: 1px solid #c7d2fe;
+                border-radius: 999px;
+                padding: 0.45rem 0.7rem;
+                font-size: 0.86rem;
+                color: #312e81;
+                line-height: 1.2;
+                white-space: nowrap;
+            }
+            .assignment-selected-chip small {
+                color: #4c51bf;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown('<div class="assignment-selected-panel">', unsafe_allow_html=True)
+        st.markdown('<div class="assignment-selected-title">Selected learners</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="assignment-selected-help">These learners will receive the selected module.</div>',
+            unsafe_allow_html=True,
+        )
         if selected_labels:
-            st.markdown(" ".join(f"`{label}`" for label in selected_labels))
+            selected_chips = []
+            for learner_id in st.session_state[selected_learner_ids_key]:
+                if learner_id not in label_by_id:
+                    continue
+                learner_parts = label_by_id[learner_id].split(" · ")
+                learner_name = learner_parts[0]
+                learner_team = learner_parts[1] if len(learner_parts) > 1 else "No team"
+                selected_chips.append(
+                    f'<span class="assignment-selected-chip"><strong>{learner_name}</strong> <small>• {learner_team}</small></span>'
+                )
+            st.markdown(
+                f'<div class="assignment-selected-chips">{"".join(selected_chips)}</div>',
+                unsafe_allow_html=True,
+            )
         else:
-            st.caption("No learners selected.")
+            st.caption("No learners selected yet. Choose learners from the table above.")
+        st.markdown("</div>", unsafe_allow_html=True)
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
@@ -932,7 +1002,9 @@ def _render_assignment_tool(current_user: dict) -> None:
         assign_submitted = st.button(
             "Send to database: Assign training",
             type="primary",
-            disabled=bool(st.session_state.get(assign_in_progress_key, False)),
+            disabled=bool(st.session_state.get(assign_in_progress_key, False))
+            or not bool(selected_module)
+            or len(st.session_state.get(selected_learner_ids_key, [])) == 0,
         )
 
         if assign_submitted and not st.session_state.get(assign_in_progress_key, False):
