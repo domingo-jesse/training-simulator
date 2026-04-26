@@ -104,35 +104,6 @@ def column_exists(table_name: str, column_name: str) -> bool:
     return bool(row)
 
 
-def _merge_row_selection_into_multiselect(
-    *,
-    table_event,
-    table_df: pd.DataFrame,
-    multiselect_key: str,
-    option_labels: list[str],
-) -> None:
-    selected_rows = []
-    if table_event:
-        selected_rows = table_event.selection.get("rows", [])
-    if not selected_rows:
-        return
-
-    labels_from_rows: list[str] = []
-    for row_idx in selected_rows:
-        if 0 <= row_idx < len(table_df):
-            labels_from_rows.append(build_learner_option_label(table_df.iloc[row_idx]))
-
-    if not labels_from_rows:
-        return
-
-    existing = st.session_state.get(multiselect_key, [])
-    merged = []
-    for label in [*existing, *labels_from_rows]:
-        if label in option_labels and label not in merged:
-            merged.append(label)
-    st.session_state[multiselect_key] = merged
-
-
 @st.cache_data(show_spinner=False)
 def _assignments_with_status(org_id: int, refresh_token: int = 0) -> pd.DataFrame:
     rows = fetch_all(
@@ -607,6 +578,7 @@ def render_learner_management(current_user: dict) -> None:
             table_key=f"learner_management_table_{tab_key}",
             selection_label="Select",
             selection_help="Select learners for archive/activate actions.",
+            single_select=False,
             height=520,
             empty_message="No learners match current filters. Adjust filters to display learners.",
         )
