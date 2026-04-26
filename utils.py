@@ -819,17 +819,20 @@ def render_admin_selection_table(
     table_key: str,
     selection_label: str = "Select",
     selection_help: str = "Select row(s).",
-    single_select: bool = False,
+    single_select: bool = True,
     use_container_width: bool = True,
     hide_index: bool = True,
     height: int = 450,
     empty_message: str | None = None,
 ) -> tuple[pd.DataFrame, list]:
     _inject_admin_selection_table_styles()
+    table_selection_key = f"{table_key}_selected_ids"
+
     if df is None or df.empty:
         if empty_message:
             st.info(empty_message)
         st.session_state[selection_state_key] = None if single_select else []
+        st.session_state[table_selection_key] = None if single_select else []
         return pd.DataFrame(), []
 
     if row_id_col not in df.columns:
@@ -842,6 +845,7 @@ def render_admin_selection_table(
     else:
         selected_ids = [value for value in (persisted_raw or []) if value in visible_ids]
     selected_set = set(selected_ids)
+    st.session_state[table_selection_key] = selected_ids[-1] if single_select and selected_ids else selected_ids
 
     data_columns = list(df.columns)
     st.markdown('<div class="app-select-table">', unsafe_allow_html=True)
@@ -863,7 +867,12 @@ def render_admin_selection_table(
         row_columns = st.columns([0.9] + [1.0] * len(data_columns))
         with row_columns[0]:
             button_label = "Selected" if is_selected else "Select"
-            if st.button(button_label, key=f"{table_key}_row_select_{row_idx}_{row_id}"):
+            if st.button(
+                button_label,
+                key=f"{table_key}_select_row_{row_id}_{row_idx}",
+                type="primary" if is_selected else "secondary",
+                use_container_width=True,
+            ):
                 if single_select:
                     selected_ids = [row_id]
                     selected_set = {row_id}
@@ -888,6 +897,7 @@ def render_admin_selection_table(
     if single_select:
         chosen_id = selected_ids[-1] if selected_ids else None
         st.session_state[selection_state_key] = chosen_id
+        st.session_state[table_selection_key] = chosen_id
         st.session_state["selected_row_id"] = chosen_id
         if chosen_id is not None:
             st.caption(f"{selection_label}: {chosen_id}")
@@ -896,6 +906,7 @@ def render_admin_selection_table(
         return df, [chosen_id] if chosen_id is not None else []
 
     st.session_state[selection_state_key] = selected_ids
+    st.session_state[table_selection_key] = selected_ids
     if selected_ids:
         st.caption(f"{len(selected_ids)} row(s) selected")
     else:
