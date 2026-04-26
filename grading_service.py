@@ -4,7 +4,7 @@ import json
 import re
 from typing import Any
 
-from db import ensure_question_conversation_messages_table, execute, fetch_all, fetch_one
+from db import ensure_question_conversation_messages_table, execute, fetch_all, fetch_one, table_exists
 from logger import get_logger
 
 grading_service_logger = get_logger(module="grading_service")
@@ -201,7 +201,17 @@ def _compose_grading_reference(question: dict[str, Any]) -> str:
 
 
 def grade_submission(attempt_id: int) -> dict[str, Any]:
-    ensure_question_conversation_messages_table()
+    conversation_table_available = False
+    try:
+        ensure_question_conversation_messages_table()
+        conversation_table_available = table_exists("question_conversation_messages")
+    except Exception:
+        grading_service_logger.warning(
+            "Unable to ensure optional conversation message table; continuing grading without transcript message persistence.",
+            attempt_id=attempt_id,
+            table_name="question_conversation_messages",
+            exc_info=True,
+        )
 
     attempt = fetch_one(
         """
@@ -361,24 +371,32 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                 ),
             )
             if str(question.get("question_type") or "").strip() == "ai_conversation":
-                execute(
-                    "DELETE FROM question_conversation_messages WHERE attempt_id = ? AND question_id = ?",
-                    (attempt_id, question_id),
-                )
-                for order, turn in enumerate(transcript_payload, start=1):
+                if conversation_table_available:
                     execute(
-                        """
-                        INSERT INTO question_conversation_messages (
-                            attempt_id, question_id, message_role, message_content, message_order
-                        ) VALUES (?, ?, ?, ?, ?)
-                        """,
-                        (
-                            attempt_id,
-                            question_id,
-                            "ai" if str(turn.get("role") or "").strip() in {"assistant", "ai"} else "learner",
-                            str(turn.get("content") or ""),
-                            order,
-                        ),
+                        "DELETE FROM question_conversation_messages WHERE attempt_id = ? AND question_id = ?",
+                        (attempt_id, question_id),
+                    )
+                    for order, turn in enumerate(transcript_payload, start=1):
+                        execute(
+                            """
+                            INSERT INTO question_conversation_messages (
+                                attempt_id, question_id, message_role, message_content, message_order
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (
+                                attempt_id,
+                                question_id,
+                                "ai" if str(turn.get("role") or "").strip() in {"assistant", "ai"} else "learner",
+                                str(turn.get("content") or ""),
+                                order,
+                            ),
+                        )
+                else:
+                    grading_service_logger.warning(
+                        "Conversation message table missing; skipping transcript message persistence.",
+                        attempt_id=attempt_id,
+                        question_id=question_id,
+                        table_name="question_conversation_messages",
                     )
             question_scores.append({"question_id": question_id, "scoring_method": q_style, **graded})
 
