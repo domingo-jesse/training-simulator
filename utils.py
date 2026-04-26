@@ -776,41 +776,9 @@ def _inject_admin_selection_table_styles() -> None:
         .app-table-host [data-testid="stDataFrame"] {
             width: 100%;
         }
-        /*
-         * Root cause note:
-         * The data editor renders a virtualized grid where column widths are computed centrally
-         * and shared between header/body containers. Earlier CSS forced widths/padding directly on
-         * [role="columnheader"] and [role="gridcell"] (especially :first-child), which created a
-         * second width system and made the checkbox column appear detached.
-         *
-         * Keep styling non-structural here; let Streamlit's column_config own sizing so header and
-         * body remain in one synchronized column model across every table using this shared helper.
-         */
         .app-table-host [data-testid="stDataFrame"] [role="columnheader"] {
             background: #f8fafc;
             border-bottom: 1px solid #e5e7eb;
-        }
-        .app-table-host [data-testid="stDataFrame"] [role="columnheader"][aria-colindex="1"],
-        .app-table-host [data-testid="stDataFrame"] [role="gridcell"][aria-colindex="1"] {
-            width: 56px !important;
-            min-width: 56px !important;
-            max-width: 56px !important;
-            padding-left: 0 !important;
-            padding-right: 0 !important;
-            justify-content: center !important;
-        }
-        .app-table-host [data-testid="stDataFrame"] [role="row"] [data-testid="stCheckbox"] {
-            margin: 0 !important;
-            width: 100%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked) {
-            background: rgba(79, 70, 229, 0.14) !important;
-        }
-        [data-testid="stDataFrame"] [role="row"]:has(input[type="checkbox"]:checked):hover {
-            background: rgba(79, 70, 229, 0.22) !important;
         }
         </style>
         """,
@@ -850,35 +818,49 @@ def render_admin_selection_table(
 
     visible_ids = set(df[row_id_col].tolist())
     persisted_ids = {value for value in persisted_ids if value in visible_ids}
-    working_df = df.copy()
-    working_df.insert(0, "selected", working_df[row_id_col].isin(persisted_ids))
+
     st.markdown('<div class="app-table-host">', unsafe_allow_html=True)
-    edited_df = st.data_editor(
-        working_df,
+    table_event = st.data_editor(
+        df,
         key=table_key,
         use_container_width=use_container_width,
         hide_index=hide_index,
         height=height,
         row_height=44,
-        column_config={
-            "selected": st.column_config.CheckboxColumn(
-                selection_label,
-                width="small",
-                help=selection_help,
-            )
-        },
-        disabled=[column for column in working_df.columns if column != "selected"],
+        disabled=True,
+        on_select="rerun",
+        selection_mode="single-row" if single_select else "multi-row",
     )
     st.markdown("</div>", unsafe_allow_html=True)
 
-    selected_ids = edited_df.loc[edited_df["selected"] == True, row_id_col].tolist()
+    selected_rows: list[int] = []
+    if table_event is not None and hasattr(table_event, "selection"):
+        selected_rows = table_event.selection.get("rows", []) or []
+    else:
+        table_state = st.session_state.get(table_key, {})
+        if isinstance(table_state, dict):
+            selected_rows = table_state.get("selection", {}).get("rows", []) or []
+
+    selected_ids = [df.iloc[row_idx][row_id_col] for row_idx in selected_rows if 0 <= row_idx < len(df)]
+    if not selected_ids and persisted_ids:
+        selected_ids = [value for value in persisted_ids if value in visible_ids]
+
     if single_select:
         chosen_id = selected_ids[-1] if selected_ids else None
         st.session_state[selection_state_key] = chosen_id
-        return edited_df, [chosen_id] if chosen_id is not None else []
+        st.session_state["selected_row_id"] = chosen_id
+        if chosen_id is not None:
+            st.caption(f"{selection_label}: {chosen_id}")
+        else:
+            st.caption(f"{selection_help}")
+        return df, [chosen_id] if chosen_id is not None else []
 
     st.session_state[selection_state_key] = selected_ids
-    return edited_df, selected_ids
+    if selected_ids:
+        st.caption(f"{len(selected_ids)} row(s) selected")
+    else:
+        st.caption(selection_help)
+    return df, selected_ids
 
 
 def _inject_app_table_styles() -> None:
