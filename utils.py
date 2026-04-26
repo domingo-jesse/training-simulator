@@ -839,6 +839,28 @@ def render_admin_selection_table(
         raise ValueError(f"row_id_col '{row_id_col}' must exist in table data.")
 
     display_df = df.reset_index(drop=True).copy()
+    css_table_key = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in table_key)
+    st.markdown(
+        f"""
+        <style>
+        .st-key-{css_table_key} [data-testid="stDataFrame"] [data-testid="stDataFrameRowHeader"] {{
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+        }}
+        .st-key-{css_table_key} [data-testid="stDataFrame"] [role="columnheader"][aria-colindex="1"] {{
+            display: none !important;
+            width: 0 !important;
+            min-width: 0 !important;
+            padding: 0 !important;
+            border: 0 !important;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     event = st.dataframe(
         display_df,
         key=table_key,
@@ -868,9 +890,9 @@ def render_admin_selection_table(
     st.session_state[table_selection_key] = selected_ids
 
     if selected_ids:
-        st.caption(f"{selection_label}: {selected_ids[0]}")
+        st.caption(f"Selected: {selected_ids[0]}")
     else:
-        st.caption(selection_help)
+        st.caption("Selected: None")
 
     return selected_df, selected_ids
 
