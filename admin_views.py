@@ -836,16 +836,40 @@ def _render_assignment_tool(current_user: dict) -> None:
             disabled=[column for column in assignment_editor_df.columns if column != "selected"],
         )
         st.markdown("</div>", unsafe_allow_html=True)
-        visible_selected_ids = {
-            int(v) for v in edited_df.loc[edited_df["selected"] == True, "learner_id"].tolist()
+        table_selection_key = "assignment_tool_learner_table_selected_ids"
+        widget_state = st.session_state.get("assignment_tool_learner_data_editor")
+        edited_rows = widget_state.get("edited_rows") if isinstance(widget_state, dict) else None
+        row_ids_by_index = [int(v) for v in assignment_editor_df["learner_id"].tolist()]
+        selected_visible_id_set = {
+            int(row["learner_id"])
+            for _, row in assignment_editor_df[assignment_editor_df["selected"]].iterrows()
         }
-        updated_selected_ids = (prior_selected_ids - visible_ids) | visible_selected_ids
+        if isinstance(edited_rows, dict):
+            for row_index_raw, change_map in edited_rows.items():
+                try:
+                    row_index = int(row_index_raw)
+                except (TypeError, ValueError):
+                    continue
+                if row_index < 0 or row_index >= len(row_ids_by_index):
+                    continue
+                if not isinstance(change_map, dict) or "selected" not in change_map:
+                    continue
+                row_id = row_ids_by_index[row_index]
+                if bool(change_map.get("selected")):
+                    selected_visible_id_set.add(row_id)
+                else:
+                    selected_visible_id_set.discard(row_id)
+        elif edited_df is not None and not edited_df.empty:
+            selected_visible_id_set = {
+                int(v) for v in edited_df.loc[edited_df["selected"] == True, "learner_id"].tolist()
+            }
+
+        visible_selected_ids = {
+            learner_id for learner_id in row_ids_by_index if learner_id in selected_visible_id_set
+        }
+        st.session_state[table_selection_key] = sorted(visible_selected_ids)
+        updated_selected_ids = (prior_selected_ids - visible_ids) | set(st.session_state[table_selection_key])
         st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
-        selected_labels = [
-            label_by_id[learner_id]
-            for learner_id in st.session_state[selected_learner_ids_key]
-            if learner_id in label_by_id
-        ]
         selected_count = len(st.session_state[selected_learner_ids_key])
         st.caption(f"{selected_count} learner{'s' if selected_count != 1 else ''} selected")
         action_col1, action_col2, _ = st.columns([1, 1, 3])
@@ -857,74 +881,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             if st.button("Select all visible learners", key="assignment_tool_select_all_visible", use_container_width=True):
                 st.session_state[selected_learner_ids_key] = sorted(prior_selected_ids | visible_ids)
                 st.rerun()
-
-        st.markdown(
-            """
-            <style>
-            .assignment-selected-panel {
-                margin: 1rem 0 1.25rem 0;
-                border: 1px solid #e5e7eb;
-                border-radius: 16px;
-                background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
-                padding: 1rem 1rem 0.75rem 1rem;
-            }
-            .assignment-selected-panel .assignment-selected-title {
-                font-size: 1rem;
-                font-weight: 650;
-                color: #111827;
-                margin-bottom: 0.2rem;
-            }
-            .assignment-selected-panel .assignment-selected-help {
-                color: #6b7280;
-                margin-bottom: 0.8rem;
-                font-size: 0.9rem;
-            }
-            .assignment-selected-chips {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 0.5rem;
-            }
-            .assignment-selected-chip {
-                background: #eef2ff;
-                border: 1px solid #c7d2fe;
-                border-radius: 999px;
-                padding: 0.45rem 0.7rem;
-                font-size: 0.86rem;
-                color: #312e81;
-                line-height: 1.2;
-                white-space: nowrap;
-            }
-            .assignment-selected-chip small {
-                color: #4c51bf;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown('<div class="assignment-selected-panel">', unsafe_allow_html=True)
-        st.markdown('<div class="assignment-selected-title">Selected learners</div>', unsafe_allow_html=True)
-        st.markdown(
-            '<div class="assignment-selected-help">These learners will receive the selected module.</div>',
-            unsafe_allow_html=True,
-        )
-        if selected_labels:
-            selected_chips = []
-            for learner_id in st.session_state[selected_learner_ids_key]:
-                if learner_id not in label_by_id:
-                    continue
-                learner_parts = label_by_id[learner_id].split(" · ")
-                learner_name = learner_parts[0]
-                learner_team = learner_parts[1] if len(learner_parts) > 1 else "No team"
-                selected_chips.append(
-                    f'<span class="assignment-selected-chip"><strong>{learner_name}</strong> <small>• {learner_team}</small></span>'
-                )
-            st.markdown(
-                f'<div class="assignment-selected-chips">{"".join(selected_chips)}</div>',
-                unsafe_allow_html=True,
-            )
-        else:
-            st.caption("No learners selected yet. Choose learners from the table above.")
-        st.markdown("</div>", unsafe_allow_html=True)
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
