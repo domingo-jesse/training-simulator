@@ -201,7 +201,6 @@ def _navigate_to_account_page(page_key: str) -> None:
     st.session_state["current_page"] = page_key
     st.session_state["page"] = page_key.title()
     _set_nav(page_key)
-    st.rerun()
 
 
 def _navigate_back_to_main_app() -> None:
@@ -219,7 +218,6 @@ def _navigate_back_to_main_app() -> None:
     else:
         st.session_state["learner_page"] = NAV_TO_LEARNER_PAGE.get(target_nav, "home")
     _set_nav(target_nav)
-    st.rerun()
 
 
 def _sync_current_page_with_query(role: str) -> str:
