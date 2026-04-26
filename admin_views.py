@@ -1041,9 +1041,17 @@ def _render_assignment_tool(current_user: dict) -> None:
                         learners=len(valid_ids),
                     )
                     if skipped_count:
-                        st.session_state[assign_status_key] = ("success", f"Training assigned successfully. ({skipped_count} learner(s) skipped)")
+                        assigned_labels = [label_by_id.get(learner_id, f"Learner #{learner_id}") for learner_id in valid_ids]
+                        st.session_state[assign_status_key] = (
+                            "success",
+                            f"Assigned to the following: {', '.join(assigned_labels)}. ({skipped_count} learner(s) skipped)",
+                        )
                     else:
-                        st.session_state[assign_status_key] = ("success", "Training assigned successfully.")
+                        assigned_labels = [label_by_id.get(learner_id, f"Learner #{learner_id}") for learner_id in valid_ids]
+                        st.session_state[assign_status_key] = (
+                            "success",
+                            f"Assigned to the following: {', '.join(assigned_labels)}",
+                        )
                     st.session_state[assign_status_expiry_key] = time.time() + 5
                     st.cache_data.clear()
                     st.session_state["assignment_management_refresh_token"] = int(st.session_state.get("assignment_management_refresh_token", 0)) + 1
@@ -1069,11 +1077,11 @@ def _render_assignment_tool(current_user: dict) -> None:
             status_level, status_message = status_payload
             with status_container:
                 if status_level == "success":
-                    st.caption("✅ " + status_message)
+                    st.success(status_message)
                 elif status_level == "warning":
-                    st.caption("⚠️ " + status_message)
+                    st.warning(status_message)
                 else:
-                    st.caption("❌ " + status_message)
+                    st.error(status_message)
 
 
 def render_assignment_management(current_user: dict) -> None:

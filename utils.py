@@ -831,8 +831,10 @@ def render_admin_selection_table(
     if df is None or df.empty:
         if empty_message:
             st.info(empty_message)
-        st.session_state[selection_state_key] = None if single_select else []
-        st.session_state[table_selection_key] = []
+        if table_selection_key not in st.session_state:
+            st.session_state[table_selection_key] = []
+        if selection_state_key not in st.session_state:
+            st.session_state[selection_state_key] = None if single_select else []
         return pd.DataFrame(), []
 
     if row_id_col not in df.columns:
@@ -868,8 +870,11 @@ def render_admin_selection_table(
         selected_df = selected_rows_df.drop(columns=[selection_col], errors="ignore")
 
     if single_select and len(selected_ids) > 1:
-        selected_ids = selected_ids[:1]
-        selected_df = selected_df.head(1)
+        previously_selected = [safe_int(v, -1) for v in st.session_state.get(table_selection_key, [])]
+        newly_selected = [row_id for row_id in selected_ids if row_id not in previously_selected]
+        keep_id = newly_selected[-1] if newly_selected else selected_ids[-1]
+        selected_ids = [keep_id]
+        selected_df = selected_df[selected_df[row_id_col].apply(lambda value: safe_int(value, -1) == keep_id)]
 
     st.session_state["selected_row_ids"] = selected_ids
     if single_select:
