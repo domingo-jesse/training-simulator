@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import streamlit as st
 import numpy as np
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 _ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
@@ -839,58 +840,47 @@ def render_admin_selection_table(
         raise ValueError(f"row_id_col '{row_id_col}' must exist in table data.")
 
     display_df = df.reset_index(drop=True).copy()
-    css_table_key = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in table_key)
-    st.markdown(
-        f"""
-        <style>
-        .st-key-{css_table_key} [data-testid="stDataFrame"] [data-testid="stDataFrameRowHeader"] {{
-            display: none !important;
-            width: 0 !important;
-            min-width: 0 !important;
-            padding: 0 !important;
-            border: 0 !important;
-        }}
-        .st-key-{css_table_key} [data-testid="stDataFrame"] [role="columnheader"][aria-colindex="1"] {{
-            display: none !important;
-            width: 0 !important;
-            min-width: 0 !important;
-            padding: 0 !important;
-            border: 0 !important;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True,
+    gb = GridOptionsBuilder.from_dataframe(display_df)
+    gb.configure_selection(
+        selection_mode="multiple",
+        use_checkbox=False,
     )
-    event = st.dataframe(
+    gb.configure_grid_options(
+        rowSelection="multiple",
+        suppressRowClickSelection=False,
+    )
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
         display_df,
-        key=table_key,
-        use_container_width=use_container_width,
-        hide_index=hide_index,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        fit_columns_on_grid_load=True,
+        theme="streamlit",
         height=height or 420,
-        on_select="rerun",
-        selection_mode="single-row",
+        allow_unsafe_jscode=True,
+        key=table_key,
     )
-    selected_rows = event.selection.rows
+    selected_rows = grid_response.get("selected_rows", [])
 
     if selected_rows:
-        selected_idx = selected_rows[0]
-        selected_id = display_df.iloc[selected_idx][row_id_col]
-        selected_ids = [selected_id]
-        selected_df = display_df.iloc[selected_rows]
+        selected_ids = [row[row_id_col] for row in selected_rows]
+        selected_df = pd.DataFrame(selected_rows).reindex(columns=display_df.columns)
     else:
-        selected_id = None
         selected_ids = []
         selected_df = display_df.iloc[0:0]
 
+    st.session_state["selected_row_ids"] = selected_ids
     if single_select:
-        st.session_state[selection_state_key] = selected_id
-        st.session_state["selected_row_id"] = selected_id
+        st.session_state[selection_state_key] = selected_ids[0] if selected_ids else None
     else:
         st.session_state[selection_state_key] = selected_ids
     st.session_state[table_selection_key] = selected_ids
 
-    if selected_ids:
+    if selected_ids and single_select:
         st.caption(f"Selected: {selected_ids[0]}")
+    elif selected_ids:
+        st.caption(f"Selected: {len(selected_ids)}")
     else:
         st.caption("Selected: None")
 
