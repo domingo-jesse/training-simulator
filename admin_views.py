@@ -3981,6 +3981,10 @@ def render_manage_modules(current_user: dict) -> None:
 
         if dropdown_state_key not in st.session_state:
             st.session_state[dropdown_state_key] = module_select_sentinel
+        if selected_module_id in module_ids and st.session_state.get(dropdown_state_key) != selected_module_id:
+            # Keep the dropdown synchronized with the table selection so one click in the
+            # table is enough to load the selected module.
+            st.session_state[dropdown_state_key] = selected_module_id
 
         selected_module_id = st.selectbox(
             "Select module to edit",
