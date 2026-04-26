@@ -859,6 +859,22 @@ def render_admin_selection_table(
         },
         disabled=[column for column in display_df.columns if column != selection_col],
     )
+    widget_state = st.session_state.get(table_key, {})
+    edited_rows = widget_state.get("edited_rows") if isinstance(widget_state, dict) else {}
+    if isinstance(edited_rows, dict) and edited_rows:
+        for row_index, row_update in edited_rows.items():
+            if not isinstance(row_update, dict):
+                continue
+            if selection_col not in row_update:
+                continue
+            try:
+                row_position = int(row_index)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= row_position < len(display_df):
+                display_df.at[row_position, selection_col] = bool(row_update.get(selection_col))
+        edited_df = display_df
+
     if edited_df is None or edited_df.empty:
         selected_ids = []
         selected_df = display_df.iloc[0:0]
