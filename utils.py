@@ -780,6 +780,31 @@ def _inject_admin_selection_table_styles() -> None:
             background: #f8fafc;
             border-bottom: 1px solid #e5e7eb;
         }
+        .app-select-table {
+            width: 100%;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            overflow: hidden;
+            background: #ffffff;
+        }
+        .app-select-header {
+            background: #f8fafc;
+            border-bottom: 1px solid #e5e7eb;
+            padding: 0.45rem 0.6rem;
+            font-weight: 600;
+            color: #111827;
+            font-size: 0.84rem;
+        }
+        .app-select-row {
+            border-bottom: 1px solid #f1f5f9;
+            padding: 0.25rem 0.35rem;
+        }
+        .app-select-row:last-child {
+            border-bottom: none;
+        }
+        .app-select-selected {
+            background: #e0f2fe;
+        }
         </style>
         """,
         unsafe_allow_html=True,
@@ -811,39 +836,54 @@ def render_admin_selection_table(
         raise ValueError(f"row_id_col '{row_id_col}' must exist in table data.")
 
     persisted_raw = st.session_state.get(selection_state_key)
-    if single_select:
-        persisted_ids = {persisted_raw} if persisted_raw is not None else set()
-    else:
-        persisted_ids = set(persisted_raw or [])
-
     visible_ids = set(df[row_id_col].tolist())
-    persisted_ids = {value for value in persisted_ids if value in visible_ids}
-
-    st.markdown('<div class="app-table-host">', unsafe_allow_html=True)
-    table_event = st.data_editor(
-        df,
-        key=table_key,
-        use_container_width=use_container_width,
-        hide_index=hide_index,
-        height=height,
-        row_height=44,
-        disabled=True,
-        on_select="rerun",
-        selection_mode="single-row" if single_select else "multi-row",
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    selected_rows: list[int] = []
-    if table_event is not None and hasattr(table_event, "selection"):
-        selected_rows = table_event.selection.get("rows", []) or []
+    if single_select:
+        selected_ids = [persisted_raw] if persisted_raw in visible_ids else []
     else:
-        table_state = st.session_state.get(table_key, {})
-        if isinstance(table_state, dict):
-            selected_rows = table_state.get("selection", {}).get("rows", []) or []
+        selected_ids = [value for value in (persisted_raw or []) if value in visible_ids]
+    selected_set = set(selected_ids)
 
-    selected_ids = [df.iloc[row_idx][row_id_col] for row_idx in selected_rows if 0 <= row_idx < len(df)]
-    if not selected_ids and persisted_ids:
-        selected_ids = [value for value in persisted_ids if value in visible_ids]
+    data_columns = list(df.columns)
+    st.markdown('<div class="app-select-table">', unsafe_allow_html=True)
+    header_columns = st.columns([0.9] + [1.0] * len(data_columns))
+    with header_columns[0]:
+        st.markdown('<div class="app-select-header">Action</div>', unsafe_allow_html=True)
+    for index, column_name in enumerate(data_columns, start=1):
+        with header_columns[index]:
+            st.markdown(
+                f'<div class="app-select-header">{column_name}</div>',
+                unsafe_allow_html=True,
+            )
+
+    for row_idx, row in df.iterrows():
+        row_id = row[row_id_col]
+        is_selected = row_id in selected_set
+        row_class = "app-select-row app-select-selected" if is_selected else "app-select-row"
+        st.markdown(f'<div class="{row_class}">', unsafe_allow_html=True)
+        row_columns = st.columns([0.9] + [1.0] * len(data_columns))
+        with row_columns[0]:
+            button_label = "Selected" if is_selected else "Select"
+            if st.button(button_label, key=f"{table_key}_row_select_{row_idx}_{row_id}"):
+                if single_select:
+                    selected_ids = [row_id]
+                    selected_set = {row_id}
+                else:
+                    if row_id in selected_set:
+                        selected_set.remove(row_id)
+                    else:
+                        selected_set.add(row_id)
+                    selected_ids = [value for value in df[row_id_col].tolist() if value in selected_set]
+        for column_idx, column_name in enumerate(data_columns, start=1):
+            with row_columns[column_idx]:
+                cell_value = row[column_name]
+                st.markdown(
+                    f'<div style="padding: 0.45rem 0.35rem; '
+                    f'background: {"#e0f2fe" if is_selected else "transparent"};">'
+                    f'{cell_value}</div>',
+                    unsafe_allow_html=True,
+                )
+        st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if single_select:
         chosen_id = selected_ids[-1] if selected_ids else None
