@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import streamlit as st
 import numpy as np
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 _ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
@@ -840,35 +839,37 @@ def render_admin_selection_table(
         raise ValueError(f"row_id_col '{row_id_col}' must exist in table data.")
 
     display_df = df.reset_index(drop=True).copy()
-    gb = GridOptionsBuilder.from_dataframe(display_df)
-    gb.configure_selection(
-        selection_mode="multiple",
-        use_checkbox=False,
-    )
-    gb.configure_grid_options(
-        rowSelection="multiple",
-        suppressRowClickSelection=False,
-    )
-    grid_options = gb.build()
+    selection_col = "__selected__"
+    preserved_ids = st.session_state.get(table_selection_key, [])
+    preserved_ids = [safe_int(v, -1) for v in preserved_ids]
+    display_df.insert(0, selection_col, display_df[row_id_col].apply(lambda value: safe_int(value, -1) in preserved_ids))
 
-    grid_response = AgGrid(
+    edited_df = st.data_editor(
         display_df,
-        gridOptions=grid_options,
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
-        fit_columns_on_grid_load=True,
-        theme="streamlit",
-        height=height or 420,
-        allow_unsafe_jscode=True,
         key=table_key,
+        hide_index=hide_index,
+        use_container_width=use_container_width,
+        height=height or 420,
+        column_config={
+            selection_col: st.column_config.CheckboxColumn(
+                selection_label,
+                help=selection_help,
+                default=False,
+            ),
+        },
+        disabled=[column for column in display_df.columns if column != selection_col],
     )
-    selected_rows = grid_response.get("selected_rows", [])
-
-    if selected_rows:
-        selected_ids = [row[row_id_col] for row in selected_rows]
-        selected_df = pd.DataFrame(selected_rows).reindex(columns=display_df.columns)
-    else:
+    if edited_df is None or edited_df.empty:
         selected_ids = []
         selected_df = display_df.iloc[0:0]
+    else:
+        selected_rows_df = edited_df[edited_df[selection_col]].copy()
+        selected_ids = [safe_int(v) for v in selected_rows_df[row_id_col].tolist()]
+        selected_df = selected_rows_df.drop(columns=[selection_col], errors="ignore")
+
+    if single_select and len(selected_ids) > 1:
+        selected_ids = selected_ids[:1]
+        selected_df = selected_df.head(1)
 
     st.session_state["selected_row_ids"] = selected_ids
     if single_select:
