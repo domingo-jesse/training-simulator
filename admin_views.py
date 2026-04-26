@@ -3932,7 +3932,7 @@ def render_manage_modules(current_user: dict) -> None:
             _, selected_module_ids = render_admin_selection_table(
                 library_df,
                 row_id_col="module_id",
-                selection_state_key=f"manage_modules_selected_module_id_{state_prefix}",
+                selection_state_key=f"manage_modules_pending_selection_{state_prefix}",
                 table_key=f"manage_modules_data_editor_{state_prefix}",
                 selection_label="Select",
                 selection_help="Select the module you want to edit.",
@@ -3947,10 +3947,9 @@ def render_manage_modules(current_user: dict) -> None:
         has_explicit_selection = bool(st.session_state.get(explicit_selection_key, False))
         selected_module_id = st.session_state.get(selected_module_state_key) if has_explicit_selection else None
 
-        if selected_module_ids:
-            selected_module_id = int(selected_module_ids[0])
-            st.session_state[selected_module_state_key] = selected_module_id
-            st.session_state[explicit_selection_key] = True
+        pending_selection_key = f"manage_modules_pending_selection_{state_prefix}"
+        pending_module_id = int(selected_module_ids[0]) if selected_module_ids else None
+        st.session_state[pending_selection_key] = pending_module_id
 
         module_ids = [int(module_row["module_id"]) for _, module_row in tab_df.iterrows()]
         module_select_sentinel = None
@@ -3967,10 +3966,37 @@ def render_manage_modules(current_user: dict) -> None:
 
         if dropdown_state_key not in st.session_state:
             st.session_state[dropdown_state_key] = module_select_sentinel
-        if selected_module_id in module_ids and st.session_state.get(dropdown_state_key) != selected_module_id:
-            # Keep the dropdown synchronized with the table selection so one click in the
-            # table is enough to load the selected module.
-            st.session_state[dropdown_state_key] = selected_module_id
+
+        pending_label = "No module selected in the table."
+        if pending_module_id in module_map:
+            pending_label = f"Selected in table: {module_map[pending_module_id]}"
+        st.caption(pending_label)
+
+        load_selected_col, clear_selected_col = st.columns([2, 1])
+        with load_selected_col:
+            if st.button(
+                "Load selected module",
+                key=f"load_selected_module_{state_prefix}",
+                type="secondary",
+                use_container_width=True,
+                disabled=pending_module_id is None,
+            ):
+                st.session_state[selected_module_state_key] = pending_module_id
+                st.session_state[explicit_selection_key] = pending_module_id is not None
+                st.session_state[dropdown_state_key] = pending_module_id
+                st.rerun()
+        with clear_selected_col:
+            if st.button(
+                "Clear",
+                key=f"clear_selected_module_{state_prefix}",
+                use_container_width=True,
+                disabled=pending_module_id is None,
+            ):
+                st.session_state[selected_module_state_key] = None
+                st.session_state[explicit_selection_key] = False
+                st.session_state[dropdown_state_key] = module_select_sentinel
+                st.session_state[pending_selection_key] = None
+                st.rerun()
 
         selected_module_id = st.selectbox(
             "Select module to edit",
