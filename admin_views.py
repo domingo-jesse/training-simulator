@@ -576,7 +576,14 @@ def render_learner_management(current_user: dict) -> None:
             int(v) for v in st.session_state.get(selected_ids_key, []) if int(v) in all_tab_ids
         }
         st.session_state[selected_ids_key] = sorted(existing_ids)
-        st.session_state[selection_state_key] = sorted(existing_ids & visible_ids)
+        if selection_state_key not in st.session_state:
+            st.session_state[selection_state_key] = sorted(existing_ids & visible_ids)
+        else:
+            st.session_state[selection_state_key] = sorted(
+                int(v)
+                for v in st.session_state.get(selection_state_key, [])
+                if int(v) in visible_ids
+            )
 
         learner_display_df = learner_table_df.rename(
             columns={
