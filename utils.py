@@ -237,20 +237,6 @@ def inject_styles() -> None:
         }
         .subtle {color: var(--muted); font-size: 0.92rem;}
         .title-chip {display:inline-block;padding:0.25rem 0.6rem;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-size:0.78rem;}
-        .admin-header,
-        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) {
-            position: sticky;
-            top: 0;
-            z-index: 1000;
-            background: var(--bg);
-            height: 46px;
-            min-height: 46px;
-            padding: 0 24px !important;
-            margin-bottom: 0 !important;
-            box-sizing: border-box;
-            display: flex;
-            align-items: center;
-        }
         .page-header {
             display: flex;
             justify-content: space-between;
@@ -259,59 +245,11 @@ def inject_styles() -> None:
             margin-bottom: 0;
         }
         .admin-content {
-            padding-top: 57px; /* 56px header + ~1px gap */
-        }
-        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) + div {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
+            padding-top: 0;
         }
         .admin-content > *:first-child {
             margin-top: 0 !important;
             padding-top: 0 !important;
-        }
-        .app-top-header-anchor {
-            height: 0;
-            margin: 0;
-            padding: 0;
-        }
-        .app-top-header-user {
-            text-align: right;
-            line-height: 1;
-            margin: 0;
-            padding: 0;
-            position: static;
-            white-space: nowrap;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.28rem;
-        }
-        .app-top-header-name {
-            font-weight: 600;
-            font-size: 0.82rem;
-            margin: 0;
-        }
-        .app-top-header-separator {
-            color: #9ca3af;
-            font-size: 0.76rem;
-            line-height: 1;
-        }
-        .app-top-header-role {
-            font-size: 0.72rem;
-            color: #6b7280;
-            margin: 0;
-        }
-        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) [data-testid="column"] {
-            padding-top: 0 !important;
-            padding-bottom: 0 !important;
-        }
-        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover > button {
-            min-height: 2rem;
-            padding-top: 0;
-            padding-bottom: 0;
-        }
-        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover {
-            position: static;
-            z-index: 1001;
         }
         h1, .page-title, .page-header-title {
             margin-top: 0 !important;
