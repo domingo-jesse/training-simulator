@@ -1341,30 +1341,48 @@ def save_user_profile_updates(
     return True, "Profile updated successfully."
 
 
-def render_sidebar_profile_section(user: dict[str, Any]) -> None:
+def render_top_header(user: dict[str, Any], title: str) -> None:
     display_name = user.get("full_name") or "User"
     role = str(user.get("role", "learner")).title()
     email = (user.get("email") or "").strip()
+    safe_title = escape(title)
     safe_display_name = escape(display_name)
     safe_role = escape(role)
     safe_email = escape(email)
 
-    with st.container():
+    header_left, header_right = st.columns([8, 2], vertical_alignment="center")
+    with header_left:
+        st.markdown(f"### {safe_title}")
+    with header_right:
         st.markdown(
             f"""
-            <section class="sidebar-profile sidebar-profile-compact" data-testid="sidebar-profile-compact">
-                <div class="sidebar-profile-name">{safe_display_name}</div>
-                <div class="sidebar-profile-label">{safe_role}</div>
-                {"<div class='sidebar-profile-email'>" + safe_email + "</div>" if safe_email else ""}
-            </section>
+            <div style="text-align: right; line-height: 1.2;">
+                <div style="font-weight: 600;">{safe_display_name}</div>
+                <div style="font-size: 12px; color: #6b7280;">{safe_role}</div>
+            </div>
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Settings", key="sidebar_profile_settings_btn", type="secondary", width="stretch"):
-            _navigate_to_account_page("settings")
-        if st.button("Logout", key="sidebar_profile_logout_btn", type="secondary", width="stretch"):
-            logout_user()
-            st.rerun()
+        with st.popover("⚙️", use_container_width=False):
+            st.markdown(f"**{safe_display_name}**")
+            if safe_email:
+                st.caption(safe_email)
+            st.divider()
+            if st.button("Settings", key="header_profile_settings_btn", type="secondary", width="stretch"):
+                _navigate_to_account_page("settings")
+            if st.button("Logout", key="header_profile_logout_btn", type="secondary", width="stretch"):
+                logout_user()
+                st.rerun()
+    st.markdown("<hr style='margin: 0.3rem 0 0.8rem 0; border: 0; border-top: 1px solid #e5e7eb;'>", unsafe_allow_html=True)
+
+
+def _current_header_title(user: dict[str, Any], nav_page: str) -> str:
+    if user.get("role") == "admin":
+        return NAV_TO_ADMIN_PAGE.get(nav_page, "Dashboard")
+    learner_page = NAV_TO_LEARNER_PAGE.get(nav_page, "home")
+    if learner_page in {"profile", "settings"}:
+        return learner_page.title()
+    return LEARNER_NAV_CONFIG.get(learner_page, "Home")
 
 
 def _initialize_profile_form(profile: dict[str, Any]) -> None:
@@ -1469,10 +1487,9 @@ def render_settings_page() -> None:
 def render_main_app() -> None:
     user = st.session_state["current_user"]
     is_dev_user = is_dev_account(user)
-    with st.sidebar:
-        render_sidebar_profile_section(user)
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
+    render_top_header(user, _current_header_title(user, nav_page))
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
