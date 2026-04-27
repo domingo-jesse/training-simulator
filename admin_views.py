@@ -11,6 +11,7 @@ from uuid import uuid4
 import pandas as pd
 import psycopg2
 import streamlit as st
+from st_aggrid import AgGrid, DataReturnMode, GridOptionsBuilder, GridUpdateMode
 
 from db import (
     ensure_module_rubric_criteria_table,
@@ -172,6 +173,35 @@ def _assignments_with_status(org_id: int, refresh_token: int = 0) -> pd.DataFram
             "attempt_count",
             "last_attempt_at",
         ],
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_assignment_tool_learners(org_id: int) -> list[dict]:
+    return fetch_all(
+        """
+        SELECT
+            u.user_id,
+            u.name,
+            u.team,
+            u.is_active,
+            u.role,
+            u.email,
+            o.name AS organization_name
+        FROM users u
+        LEFT JOIN organizations o ON o.organization_id = u.organization_id
+        WHERE u.organization_id=?
+        ORDER BY u.name
+        """,
+        (org_id,),
+    )
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _load_assignment_tool_modules(org_id: int) -> list[dict]:
+    return fetch_all(
+        "SELECT module_id, title, status FROM modules WHERE organization_id=? AND COALESCE(status, 'existing') <> 'archived' ORDER BY title",
+        (org_id,),
     )
 
 
@@ -646,7 +676,7 @@ def render_learner_management(current_user: dict) -> None:
                 action_label,
                 type=action_type,
                 key=f"bulk_action_{tab_key}",
-                use_container_width=True,
+                width="stretch",
             )
 
         if run_bulk_action:
@@ -689,30 +719,24 @@ def render_learner_management(current_user: dict) -> None:
 def _render_assignment_tool(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
+    logger.info("Assignment page rendered.", action="assignment_tool_render")
     st.subheader("Assignment Tool")
     assign_status_key = "assignment_tool_assign_status"
     assign_status_expiry_key = "assignment_tool_assign_status_expiry"
     assign_in_progress_key = "assignment_tool_is_assigning"
+    selected_learner_ids_key = "assignment_selected_learner_ids"
+    if selected_learner_ids_key not in st.session_state:
+        st.session_state[selected_learner_ids_key] = []
 
     current_user_is_dev = is_dev_account(current_user)
-    learners = fetch_all(
-        """
-        SELECT
-            u.user_id,
-            u.name,
-            u.team,
-            u.is_active,
-            u.role,
-            u.email,
-            o.name AS organization_name
-        FROM users u
-        LEFT JOIN organizations o ON o.organization_id = u.organization_id
-        WHERE u.organization_id=?
-        ORDER BY u.name
-        """,
-        (org_id,),
+    learners = _load_assignment_tool_learners(org_id)
+    modules = _load_assignment_tool_modules(org_id)
+    logger.info(
+        "Assignment tool data loaded.",
+        action="assignment_tool_load",
+        learner_count=len(learners),
+        module_count=len(modules),
     )
-    modules = fetch_all("SELECT module_id, title, status FROM modules WHERE organization_id=? AND COALESCE(status, 'existing') <> 'archived' ORDER BY title", (org_id,))
     if not learners:
         st.info("No learners available yet. Add or activate learners first.")
         return
@@ -767,7 +791,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                     else 0,
                 )
             with fc4:
-                apply_filters = st.form_submit_button("Apply filters", use_container_width=True)
+                apply_filters = st.form_submit_button("Apply filters", width="stretch")
 
         if apply_filters:
             st.session_state["assignment_tool_filters"] = {
@@ -787,19 +811,15 @@ def _render_assignment_tool(current_user: dict) -> None:
             team_filter=team_filter,
             org_filter=org_filter,
         )
-        selected_learner_ids_key = "selected_learner_ids"
         visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
         all_active_ids = {int(v) for v in all_active_learners["user_id"].tolist()}
-
-        existing_ids = {
-            int(v) for v in st.session_state.get(selected_learner_ids_key, []) if int(v) in all_active_ids
-        }
+        existing_ids = {int(v) for v in st.session_state.get(selected_learner_ids_key, []) if int(v) in all_active_ids}
         st.session_state[selected_learner_ids_key] = sorted(existing_ids)
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        assignment_learner_grid = filtered_active_learners[
-            ["user_id", "name", "team", "organization_name"]
-        ].reset_index(drop=True).rename(
+        assignment_learner_grid = filtered_active_learners[["user_id", "name", "team", "organization_name"]].reset_index(
+            drop=True
+        ).rename(
             columns={
                 "user_id": "learner_id",
                 "name": "Learner",
@@ -807,75 +827,55 @@ def _render_assignment_tool(current_user: dict) -> None:
                 "organization_name": "Organization",
             }
         )
-        assignment_editor_df = assignment_learner_grid.copy()
         prior_selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
-        assignment_editor_df.insert(
-            0,
-            "selected",
-            assignment_editor_df["learner_id"].apply(lambda learner_id: int(learner_id) in prior_selected_ids),
-        )
-        st.markdown('<div class="app-table-host">', unsafe_allow_html=True)
-        edited_df = st.data_editor(
-            assignment_editor_df,
-            key="assignment_tool_learner_data_editor",
-            use_container_width=True,
-            hide_index=True,
-            height=420,
-            row_height=44,
-            column_config={
-                "selected": st.column_config.CheckboxColumn(
-                    "Select",
-                    width="small",
-                    help="Select learners to assign this module.",
-                )
-            },
-            disabled=[column for column in assignment_editor_df.columns if column != "selected"],
-        )
-        st.markdown("</div>", unsafe_allow_html=True)
-        table_selection_key = "assignment_tool_learner_table_selected_ids"
-        widget_state = st.session_state.get("assignment_tool_learner_data_editor")
-        edited_rows = widget_state.get("edited_rows") if isinstance(widget_state, dict) else None
-        row_ids_by_index = [int(v) for v in assignment_editor_df["learner_id"].tolist()]
-        selected_visible_id_set = {
-            int(row["learner_id"])
-            for _, row in assignment_editor_df[assignment_editor_df["selected"]].iterrows()
-        }
-        if isinstance(edited_rows, dict):
-            for row_index_raw, change_map in edited_rows.items():
-                try:
-                    row_index = int(row_index_raw)
-                except (TypeError, ValueError):
-                    continue
-                if row_index < 0 or row_index >= len(row_ids_by_index):
-                    continue
-                if not isinstance(change_map, dict) or "selected" not in change_map:
-                    continue
-                row_id = row_ids_by_index[row_index]
-                if bool(change_map.get("selected")):
-                    selected_visible_id_set.add(row_id)
-                else:
-                    selected_visible_id_set.discard(row_id)
-        elif edited_df is not None and not edited_df.empty:
-            selected_visible_id_set = {
-                int(v) for v in edited_df.loc[edited_df["selected"] == True, "learner_id"].tolist()
-            }
+        preselected_rows = [
+            idx
+            for idx, learner_id in enumerate(assignment_learner_grid["learner_id"].tolist())
+            if int(learner_id) in prior_selected_ids
+        ]
 
-        visible_selected_ids = {
-            learner_id for learner_id in row_ids_by_index if learner_id in selected_visible_id_set
+        gb = GridOptionsBuilder.from_dataframe(assignment_learner_grid)
+        gb.configure_default_column(filter=True, sortable=True, resizable=True)
+        gb.configure_selection(
+            selection_mode="multiple",
+            use_checkbox=False,
+            rowMultiSelectWithClick=True,
+            suppressRowDeselection=False,
+            pre_selected_rows=preselected_rows,
+        )
+        gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=12)
+        gb.configure_column("learner_id", hide=True)
+        gb.configure_grid_options(
+            suppressRowClickSelection=False,
+            rowSelection="multiple",
+            domLayout="normal",
+        )
+        grid_response = AgGrid(
+            assignment_learner_grid,
+            gridOptions=gb.build(),
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            update_mode=GridUpdateMode.SELECTION_CHANGED,
+            height=420,
+            width="stretch",
+            allow_unsafe_jscode=False,
+            key="assignment_tool_learner_aggrid",
+            fit_columns_on_grid_load=False,
+            theme="streamlit",
+        )
+        selected_rows = grid_response.get("selected_rows", [])
+        if isinstance(selected_rows, pd.DataFrame):
+            selected_rows = selected_rows.to_dict("records")
+        selected_visible_ids = {
+            int(row["learner_id"]) for row in selected_rows if isinstance(row, dict) and row.get("learner_id") is not None
         }
-        st.session_state[table_selection_key] = sorted(visible_selected_ids)
-        updated_selected_ids = (prior_selected_ids - visible_ids) | set(st.session_state[table_selection_key])
+        updated_selected_ids = (prior_selected_ids - visible_ids) | selected_visible_ids
         st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
         selected_count = len(st.session_state[selected_learner_ids_key])
-        action_col1, action_col2, _ = st.columns([1, 1, 3])
-        with action_col1:
-            if st.button("Clear selection", key="assignment_tool_clear_selection", use_container_width=True):
-                st.session_state[selected_learner_ids_key] = []
-                st.rerun()
-        with action_col2:
-            if st.button("Select all visible learners", key="assignment_tool_select_all_visible", use_container_width=True):
-                st.session_state[selected_learner_ids_key] = sorted(prior_selected_ids | visible_ids)
-                st.rerun()
+        logger.info(
+            "Assignment learner selection updated.",
+            action="assignment_tool_selection",
+            selected_count=selected_count,
+        )
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
@@ -928,49 +928,67 @@ def _render_assignment_tool(current_user: dict) -> None:
             help="Select a due date.",
         )
         status_container = st.container()
-        assign_submitted = st.button(
-            "Send to database: Assign training",
-            type="primary",
-            disabled=bool(st.session_state.get(assign_in_progress_key, False))
-            or not bool(selected_module)
-            or len(st.session_state.get(selected_learner_ids_key, [])) == 0,
-        )
+        action_col1, action_col2, action_col3 = st.columns(3)
+        with action_col1:
+            assign_submitted = st.button(
+                "Assign Training",
+                key="assignment_tool_assign_training",
+                type="primary",
+                width="stretch",
+                disabled=bool(st.session_state.get(assign_in_progress_key, False)),
+            )
+        with action_col2:
+            reassign_submitted = st.button(
+                "Reassign",
+                key="assignment_tool_reassign_training",
+                width="stretch",
+                disabled=bool(st.session_state.get(assign_in_progress_key, False)),
+            )
+        with action_col3:
+            update_due_date_submitted = st.button(
+                "Update Due Date",
+                key="assignment_tool_update_due_date",
+                width="stretch",
+                disabled=bool(st.session_state.get(assign_in_progress_key, False)),
+            )
 
-        if assign_submitted and not st.session_state.get(assign_in_progress_key, False):
-            module_id = module_map[selected_module]
-            due_date_value = due_date.isoformat() if st.session_state[due_date_enabled_key] and due_date else None
+        def _validate_action_requirements(require_due_date: bool = False) -> tuple[list[int], int | None, str | None]:
             selected_ids = [int(v) for v in st.session_state.get(selected_learner_ids_key, [])]
+            module_id = module_map.get(selected_module)
+            due_date_value = due_date.isoformat() if st.session_state[due_date_enabled_key] and due_date else None
             if not selected_ids:
-                st.session_state[assign_status_key] = ("warning", "Select at least one learner before assigning.")
-                st.session_state[assign_status_expiry_key] = time.time() + 6
-            else:
-                st.session_state[assign_in_progress_key] = True
-                st.session_state[assign_status_key] = None
-                st.session_state[assign_status_expiry_key] = None
-                try:
-                    with status_container:
-                        with st.spinner("Assigning training..."):
-                            active_rows = fetch_all(
-                                """
-                                SELECT user_id, role, email
-                                FROM users
-                                WHERE organization_id = ?
-                                  AND is_active = TRUE
-                                  AND user_id = ANY(?)
-                                """,
-                                (org_id, selected_ids),
-                            )
-                            active_ids = {
-                                int(row["user_id"])
-                                for row in active_rows
-                                if row.get("role") == "learner"
-                                or (current_user_is_dev and is_dev_account(row))
-                            }
-                            valid_ids = [learner_id for learner_id in selected_ids if learner_id in active_ids]
-                            skipped_count = len(selected_ids) - len(valid_ids)
-                            if not valid_ids:
-                                raise ValueError("No active learners were selected. Refresh and try again.")
-                            for learner_id in valid_ids:
+                raise ValueError("Select at least one learner.")
+            if module_id is None:
+                raise ValueError("Select a module before continuing.")
+            if require_due_date and not due_date_value:
+                raise ValueError("Enable and select a due date before updating due dates.")
+            return selected_ids, module_id, due_date_value
+
+        action_name = None
+        if assign_submitted:
+            action_name = "assign"
+        elif reassign_submitted:
+            action_name = "reassign"
+        elif update_due_date_submitted:
+            action_name = "update_due_date"
+
+        if action_name and not st.session_state.get(assign_in_progress_key, False):
+            st.session_state[assign_in_progress_key] = True
+            st.session_state[assign_status_key] = None
+            st.session_state[assign_status_expiry_key] = None
+            try:
+                selected_ids, module_id, due_date_value = _validate_action_requirements(
+                    require_due_date=(action_name == "update_due_date")
+                )
+                logger.info(
+                    "Assignment bulk action started.",
+                    action=f"assignment_tool_{action_name}_start",
+                    learner_count=len(selected_ids),
+                )
+                with status_container:
+                    with st.spinner("Applying updates..."):
+                        if action_name == "assign":
+                            for learner_id in selected_ids:
                                 execute(
                                     """
                                     INSERT INTO assignments (organization_id, module_id, learner_id, assigned_by, due_date, is_active)
@@ -985,38 +1003,58 @@ def _render_assignment_tool(current_user: dict) -> None:
                                     learner_id=learner_id,
                                     assigned_by_user_id=current_user["user_id"],
                                 )
-                    logger.info(
-                        "Admin submitted training assignment form.",
-                        form="assign_training",
-                        scenario_id=module_id,
-                        learners=len(valid_ids),
-                    )
-                    if skipped_count:
-                        st.session_state[assign_status_key] = (
-                            "success",
-                            f"Assigned training to {len(valid_ids)} learner(s). ({skipped_count} learner(s) skipped)",
-                        )
-                    else:
-                        st.session_state[assign_status_key] = (
-                            "success",
-                            f"Assigned training to {len(valid_ids)} learner(s).",
-                        )
-                    st.session_state[assign_status_expiry_key] = time.time() + 5
-                    st.session_state[selected_learner_ids_key] = []
-                    st.session_state[table_selection_key] = []
-                    st.cache_data.clear()
-                    st.session_state["assignment_management_refresh_token"] = int(st.session_state.get("assignment_management_refresh_token", 0)) + 1
-                    st.session_state.pop("assignment_management_filtered_cache", None)
-                except ValueError as validation_error:
-                    st.session_state[assign_status_key] = ("error", str(validation_error))
-                    st.session_state[assign_status_expiry_key] = time.time() + 8
-                except Exception:
-                    logger.exception("Failed assigning training.", scenario_id=module_id)
-                    st.session_state[assign_status_key] = ("error", "Could not assign training.")
-                    st.session_state[assign_status_expiry_key] = time.time() + 8
-                finally:
-                    st.session_state[assign_in_progress_key] = False
-                st.rerun()
+                            success_message = f"Assigned training to {len(selected_ids)} learner(s)."
+                        elif action_name == "reassign":
+                            execute(
+                                """
+                                UPDATE assignments
+                                SET module_id = ?, due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP
+                                WHERE organization_id = ? AND is_active = TRUE AND learner_id = ANY(?)
+                                """,
+                                (module_id, due_date_value, current_user["user_id"], org_id, selected_ids),
+                            )
+                            for learner_id in selected_ids:
+                                _sync_assignment_tracking_records(
+                                    organization_id=org_id,
+                                    module_id=module_id,
+                                    learner_id=learner_id,
+                                    assigned_by_user_id=current_user["user_id"],
+                                )
+                            success_message = f"Reassigned training for {len(selected_ids)} learner(s)."
+                        else:
+                            execute(
+                                """
+                                UPDATE assignments
+                                SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP
+                                WHERE organization_id = ? AND is_active = TRUE AND learner_id = ANY(?) AND module_id = ?
+                                """,
+                                (due_date_value, current_user["user_id"], org_id, selected_ids, module_id),
+                            )
+                            success_message = f"Updated due date for {len(selected_ids)} learner(s)."
+                logger.info(
+                    "Assignment bulk action succeeded.",
+                    action=f"assignment_tool_{action_name}_success",
+                    learner_count=len(selected_ids),
+                )
+                st.session_state[assign_status_key] = ("success", success_message)
+                st.session_state[assign_status_expiry_key] = time.time() + 5
+                st.session_state[selected_learner_ids_key] = []
+                _load_assignment_tool_learners.clear()
+                _assignments_with_status.clear()
+                st.session_state["assignment_management_refresh_token"] = int(
+                    st.session_state.get("assignment_management_refresh_token", 0)
+                ) + 1
+                st.session_state.pop("assignment_management_filtered_cache", None)
+            except ValueError as validation_error:
+                st.session_state[assign_status_key] = ("warning", str(validation_error))
+                st.session_state[assign_status_expiry_key] = time.time() + 8
+            except Exception:
+                logger.exception("Failed assignment bulk action.", action=f"assignment_tool_{action_name}_error")
+                st.session_state[assign_status_key] = ("error", "Could not complete the selected action.")
+                st.session_state[assign_status_expiry_key] = time.time() + 8
+            finally:
+                st.session_state[assign_in_progress_key] = False
+            st.rerun()
 
         status_payload = st.session_state.get(assign_status_key)
         status_expiry = st.session_state.get(assign_status_expiry_key)
@@ -1133,7 +1171,7 @@ def render_current_assignments(current_user: dict) -> None:
                     else 0,
                 )
             with f6:
-                apply_assignment_filters = st.form_submit_button("Apply filters", use_container_width=True)
+                apply_assignment_filters = st.form_submit_button("Apply filters", width="stretch")
 
     if apply_assignment_filters:
         st.session_state["current_assignments_filters"] = {
@@ -1238,7 +1276,7 @@ def render_current_assignments(current_user: dict) -> None:
             if st.button(
                 "Reassign selected training",
                 key="assignment_management_bulk_reassign",
-                use_container_width=True,
+                width="stretch",
                 disabled=selected_count == 0,
             ):
                 try:
@@ -1271,7 +1309,7 @@ def render_current_assignments(current_user: dict) -> None:
                 "Remove selected assignments",
                 key="assignment_management_bulk_remove",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 disabled=selected_count == 0,
             ):
                 try:
@@ -1316,7 +1354,7 @@ def render_current_assignments(current_user: dict) -> None:
             if st.button(
                 "Clear selection",
                 key="assignment_management_bulk_clear_selection",
-                use_container_width=True,
+                width="stretch",
                 disabled=selected_count == 0,
             ):
                 st.session_state[selected_ids_key] = []
@@ -1501,7 +1539,7 @@ def render_grading_center(current_user: dict) -> None:
             """,
             (selected_review_attempt_id, org_id),
         )
-        with st.popover("Review submission", use_container_width=True):
+        with st.popover("Review submission", width="stretch"):
             if not review_attempt:
                 st.info("Submission details are unavailable for this attempt.")
             else:
@@ -1635,7 +1673,7 @@ def render_grading_center(current_user: dict) -> None:
 
     action_columns = st.columns([1, 1.5, 3.5])
     with action_columns[0]:
-        if st.button("Approve Result", disabled=is_approved, use_container_width=True):
+        if st.button("Approve Result", disabled=is_approved, width="stretch"):
             execute(
                 """
                 UPDATE attempts
@@ -1702,7 +1740,7 @@ def render_grading_center(current_user: dict) -> None:
             st.session_state[approval_status_expiry_key] = time.time() + 8
             st.rerun()
     with action_columns[1]:
-        if st.button("Mark Unapproved", disabled=not is_approved, use_container_width=True):
+        if st.button("Mark Unapproved", disabled=not is_approved, width="stretch"):
             execute(
                 """
                 UPDATE attempts
@@ -1780,7 +1818,7 @@ def render_grading_center(current_user: dict) -> None:
         show_grading_criteria_to_learner = "show_grading_criteria_to_learner" in selected_visibility_fields
         show_ai_review_to_learner = "show_ai_review_to_learner" in selected_visibility_fields
         show_learner_responses_to_learner = "show_learner_responses_to_learner" in selected_visibility_fields
-        saved_visibility = st.form_submit_button("Save results visibility", use_container_width=True, disabled=not is_approved)
+        saved_visibility = st.form_submit_button("Save results visibility", width="stretch", disabled=not is_approved)
     if saved_visibility and is_approved:
         if not submission_score_id:
             st.session_state[approval_status_key] = ("error", "Could not save visibility: missing submission score row id.")
@@ -2005,7 +2043,7 @@ def render_grading_center(current_user: dict) -> None:
 
         controls_col_a, controls_col_b = st.columns(2)
         with controls_col_a:
-            if st.button("Save admin edits", use_container_width=True):
+            if st.button("Save admin edits", width="stretch"):
                 execute(
                     """
                     INSERT INTO submission_scores (
@@ -2029,7 +2067,7 @@ def render_grading_center(current_user: dict) -> None:
                 st.success("Admin edits saved.")
                 st.rerun()
         with controls_col_b:
-            if st.button("Retry AI grading", use_container_width=True):
+            if st.button("Retry AI grading", width="stretch"):
                 grade_submission_with_ai(int(selected_attempt_id))
                 st.success("AI grading completed.")
                 st.rerun()
@@ -2280,8 +2318,8 @@ def render_progress_tracking(current_user: dict) -> None:
             )
 
             apply_col, clear_col = st.columns([1, 1])
-            apply_pressed = apply_col.form_submit_button("Apply Filters", use_container_width=True, type="primary")
-            clear_pressed = clear_col.form_submit_button("Clear Filters", use_container_width=True)
+            apply_pressed = apply_col.form_submit_button("Apply Filters", width="stretch", type="primary")
+            clear_pressed = clear_col.form_submit_button("Clear Filters", width="stretch")
 
         if clear_pressed:
             st.session_state[reset_filters_key] = True
@@ -2909,7 +2947,7 @@ def render_module_builder(current_user: dict) -> None:
         with header_title_col:
             st.markdown("### Module Builder")
         with header_action_col:
-            if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
+            if st.button("Change creation method", key="module_builder_change_creation_method", width="stretch"):
                 _queue_builder_reset(None)
     else:
         render_page_header("Module Builder", header_description)
@@ -2919,9 +2957,9 @@ def render_module_builder(current_user: dict) -> None:
         st.markdown("### Create a Module")
         st.caption("Choose how you want to begin before opening the full module builder.")
         mode_col_1, mode_col_2 = st.columns(2)
-        if mode_col_1.button("Start from Scratch", use_container_width=True):
+        if mode_col_1.button("Start from Scratch", width="stretch"):
             _queue_builder_reset("manual")
-        if mode_col_2.button("Generate with AI", use_container_width=True):
+        if mode_col_2.button("Generate with AI", width="stretch"):
             _queue_builder_reset("ai")
         st.info("Select a creation mode to continue.")
         return
@@ -2931,7 +2969,7 @@ def render_module_builder(current_user: dict) -> None:
         with mode_summary_col:
             st.caption("Mode: Start from Scratch")
         with mode_action_col:
-            if st.button("Change creation method", key="module_builder_change_creation_method", use_container_width=True):
+            if st.button("Change creation method", key="module_builder_change_creation_method", width="stretch"):
                 _queue_builder_reset(None)
 
     if form_key not in st.session_state:
@@ -3162,7 +3200,7 @@ def render_module_builder(current_user: dict) -> None:
             value=int(st.session_state.get(ai_question_count_key, 3)),
             key=ai_question_count_key,
         )
-        if ai_button_col.button("Generate", key="module_builder_generate_ai", type="secondary", use_container_width=True):
+        if ai_button_col.button("Generate", key="module_builder_generate_ai", type="secondary", width="stretch"):
             prompt = str(st.session_state.get(ai_prompt_key, "")).strip()
             if not prompt:
                 st.warning("Please describe what you want the module to cover before generating.")
@@ -3197,7 +3235,7 @@ def render_module_builder(current_user: dict) -> None:
         if st.session_state.get(ai_draft_key):
             st.success("Draft generated. You can regenerate, clear, or keep editing.")
             generated_actions = st.columns(3)
-            if generated_actions[0].button("Regenerate", key="module_builder_regenerate_ai", use_container_width=True):
+            if generated_actions[0].button("Regenerate", key="module_builder_regenerate_ai", width="stretch"):
                 prompt = str(st.session_state.get(ai_prompt_key) or st.session_state.get(ai_last_prompt_key) or "").strip()
                 if not prompt:
                     st.warning("Enter a prompt to regenerate the module draft.")
@@ -3215,9 +3253,9 @@ def render_module_builder(current_user: dict) -> None:
                     st.session_state[ai_keep_editing_key] = False
                     _apply_generated_draft_to_form(generated_draft)
                     st.rerun()
-            if generated_actions[1].button("Clear Draft", key="module_builder_clear_ai_draft", use_container_width=True):
+            if generated_actions[1].button("Clear Draft", key="module_builder_clear_ai_draft", width="stretch"):
                 _queue_builder_reset("ai")
-            if generated_actions[2].button("Keep Editing", key="module_builder_keep_editing_ai", use_container_width=True):
+            if generated_actions[2].button("Keep Editing", key="module_builder_keep_editing_ai", width="stretch"):
                 st.session_state[ai_keep_editing_key] = True
                 st.session_state[ai_feedback_key] = None
             if st.session_state.get(ai_keep_editing_key):
@@ -3846,7 +3884,7 @@ def render_manage_modules(current_user: dict) -> None:
         st.success("Module created successfully.")
         action_col_1, action_col_2 = st.columns([2, 1])
         with action_col_1:
-            if st.button("Assign Recently Created Module", type="primary", use_container_width=True):
+            if st.button("Assign Recently Created Module", type="primary", width="stretch"):
                 st.session_state["assignment_tool_prefill_module_id"] = int(recently_created_module_id)
                 st.session_state["admin_nav_group"] = "Operations"
                 st.session_state["admin_page"] = "📁 Assignment Management"
@@ -3855,7 +3893,7 @@ def render_manage_modules(current_user: dict) -> None:
                 st.query_params["page"] = "assignment-management"
                 st.rerun()
         with action_col_2:
-            if st.button("Continue Editing", use_container_width=True):
+            if st.button("Continue Editing", width="stretch"):
                 st.rerun()
         if recently_created_module_title:
             st.caption(f"Recently created module: {recently_created_module_title}")
@@ -3919,7 +3957,7 @@ def render_manage_modules(current_user: dict) -> None:
                 "Load selected module",
                 key=f"load_selected_module_{state_prefix}",
                 type="secondary",
-                use_container_width=True,
+                width="stretch",
                 disabled=pending_module_id is None,
             ):
                 st.session_state[selected_module_state_key] = pending_module_id
@@ -3930,7 +3968,7 @@ def render_manage_modules(current_user: dict) -> None:
             if st.button(
                 "Clear",
                 key=f"clear_selected_module_{state_prefix}",
-                use_container_width=True,
+                width="stretch",
                 disabled=pending_module_id is None,
             ):
                 st.session_state[selected_module_state_key] = None
@@ -4471,9 +4509,9 @@ def render_manage_modules(current_user: dict) -> None:
                     )
                     q_action_col_1, q_action_col_2 = st.columns(2)
                     with q_action_col_1:
-                        question_saved = st.button("Save question", key=f"save_question_{state_prefix}_{question['question_id']}", use_container_width=True)
+                        question_saved = st.button("Save question", key=f"save_question_{state_prefix}_{question['question_id']}", width="stretch")
                     with q_action_col_2:
-                        question_deleted = st.button("Delete question", key=f"delete_question_{state_prefix}_{question['question_id']}", use_container_width=True)
+                        question_deleted = st.button("Delete question", key=f"delete_question_{state_prefix}_{question['question_id']}", width="stretch")
                     if question_saved:
                             if (
                                 edit_question_type == "multiple_choice"
@@ -4721,7 +4759,7 @@ def render_manage_modules(current_user: dict) -> None:
 
             c1, c2, c3 = st.columns(3)
             with c1:
-                if st.button("Save / Update module", key=f"edit_module_save_{state_prefix}_{module_id}", type="primary", disabled=bool(missing_required), use_container_width=True):
+                if st.button("Save / Update module", key=f"edit_module_save_{state_prefix}_{module_id}", type="primary", disabled=bool(missing_required), width="stretch"):
                     execute(
                         """
                         UPDATE modules
@@ -4766,12 +4804,12 @@ def render_manage_modules(current_user: dict) -> None:
                     st.success("Module updated.")
                     st.rerun()
             with c2:
-                if st.button("Send to database: Archive", disabled=str(module.get("status") or "existing").lower() == "archived", use_container_width=True, key=f"archive_module_{state_prefix}_{module_id}"):
+                if st.button("Send to database: Archive", disabled=str(module.get("status") or "existing").lower() == "archived", width="stretch", key=f"archive_module_{state_prefix}_{module_id}"):
                     execute("UPDATE modules SET status = 'archived', updated_at = CURRENT_TIMESTAMP WHERE module_id = ? AND organization_id = ?", (module_id, org_id))
                     st.success("Module archived.")
                     st.rerun()
             with c3:
-                if st.button("Send to database: Duplicate", use_container_width=True, key=f"duplicate_module_{state_prefix}_{module_id}"):
+                if st.button("Send to database: Duplicate", width="stretch", key=f"duplicate_module_{state_prefix}_{module_id}"):
                     execute(
                         """
                         INSERT INTO modules (
@@ -5655,7 +5693,7 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
     ]
     for i, (label, mode, failed_only) in enumerate(actions):
         with run_cols[i]:
-            if st.button(label, use_container_width=True, type="primary" if label == "Run Quick Tests" else "secondary"):
+            if st.button(label, width="stretch", type="primary" if label == "Run Quick Tests" else "secondary"):
                 run_mode = "full" if mode == "all" else mode
                 targets = _qa_filter_definitions(definitions, run_mode=run_mode, failed_only=failed_only)
                 records, history = _qa_execute_batch(targets, current_user, environment, mode, current_user.get("email", "admin"))
@@ -5664,7 +5702,7 @@ def _qa_render_controls(definitions: list[dict], current_user: dict, environment
 
     with run_cols[5]:
         selected = st.selectbox("Run Single Test", options=[d["id"] for d in definitions], format_func=lambda tid: next(d["name"] for d in definitions if d["id"] == tid))
-        if st.button("Run Single Test", use_container_width=True):
+        if st.button("Run Single Test", width="stretch"):
             definition = next(d for d in definitions if d["id"] == selected)
             record = _qa_execute_test(definition, current_user, environment)
             st.session_state["qa_test_results_v2"][selected] = sanitize_for_storage(record)
@@ -5945,7 +5983,7 @@ def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
 
     action_col_1, action_col_2 = st.columns([1, 1])
     with action_col_1:
-        if st.button("Refresh", key=f"{key_prefix}_refresh", use_container_width=True):
+        if st.button("Refresh", key=f"{key_prefix}_refresh", width="stretch"):
             st.rerun()
     with action_col_2:
         file_bytes, download_error = read_full_file_for_download(log_path)
@@ -5956,7 +5994,7 @@ def _render_log_tab(tab_name: str, log_path: str, key_prefix: str) -> None:
                 file_name=log_path.split("/")[-1],
                 mime="text/plain",
                 key=f"{key_prefix}_download",
-                use_container_width=True,
+                width="stretch",
             )
         elif download_error:
             st.caption(download_error)

@@ -753,7 +753,7 @@ def render_admin_table(
     st.markdown('<div class="admin-table-card">', unsafe_allow_html=True)
     st.dataframe(
         df,
-        use_container_width=True,
+        width="stretch",
         height=height,
     )
     st.markdown("</div>", unsafe_allow_html=True)
@@ -851,7 +851,7 @@ def render_admin_selection_table(
         display_df,
         key=table_key,
         hide_index=hide_index,
-        use_container_width=use_container_width,
+        width="stretch" if use_container_width else "content",
         height=height or 420,
         column_config={
             selection_col: st.column_config.CheckboxColumn(

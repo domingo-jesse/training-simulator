@@ -341,7 +341,7 @@ def render_horizontal_button_group(
                 button_label,
                 key=f"{state_key}_btn_{index}",
                 type=button_type,
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state[state_key] = option
     else:
@@ -353,7 +353,7 @@ def render_horizontal_button_group(
                 button_label,
                 key=f"{state_key}_btn_{index}",
                 type=button_type,
-                use_container_width=True,
+                width="stretch",
             ):
                 st.session_state[state_key] = option
 
@@ -842,7 +842,7 @@ def render_auth_shell(content_renderer) -> None:
 
 def _render_google_button(role: str) -> None:
     st.markdown('<div class="divider">or continue with Google</div>', unsafe_allow_html=True)
-    if st.button("Continue with Google", key=f"google_{role}", use_container_width=True):
+    if st.button("Continue with Google", key=f"google_{role}", width="stretch"):
         st.session_state["selected_role"] = role
         st.login("google")
 
@@ -948,9 +948,9 @@ def _render_database_connection_tester() -> None:
     with st.form("db_tools_form"):
         action_cols = st.columns(2)
         with action_cols[0]:
-            quick_connect = st.form_submit_button("Quick connect check", use_container_width=True)
+            quick_connect = st.form_submit_button("Quick connect check", width="stretch")
         with action_cols[1]:
-            run_db_test = st.form_submit_button("Run database test", use_container_width=True)
+            run_db_test = st.form_submit_button("Run database test", width="stretch")
 
     if quick_connect:
         with st.spinner("Checking direct database connectivity..."):
@@ -1023,7 +1023,7 @@ def render_login_view() -> None:
         with action_a:
             st.button(
                 "Send to database: Create account",
-                use_container_width=True,
+                width="stretch",
                 key="pending_google_create",
                 on_click=_set_ui_event,
                 args=("pending_google_create",),
@@ -1031,7 +1031,7 @@ def render_login_view() -> None:
         with action_b:
             st.button(
                 "Back to sign in",
-                use_container_width=True,
+                width="stretch",
                 key="pending_google_back",
                 on_click=_set_ui_event,
                 args=("pending_google_back",),
@@ -1042,7 +1042,7 @@ def render_login_view() -> None:
     with learner_tab:
         with st.form("local_login_learner", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="learner_identifier")
-            submitted = st.form_submit_button("Sign in as Learner", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("Sign in as Learner", width="stretch", type="primary")
             if submitted:
                 app_logger.info("User submitted login form.", role="learner")
                 ok, message, user = validate_dev_login(identifier, expected_role="learner")
@@ -1057,7 +1057,7 @@ def render_login_view() -> None:
         st.button(
             "Create account",
             key="create_link_learner",
-            use_container_width=True,
+            width="stretch",
             on_click=_set_ui_event,
             args=("create_link_learner",),
         )
@@ -1065,7 +1065,7 @@ def render_login_view() -> None:
     with admin_tab:
         with st.form("local_login_admin", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="admin_identifier")
-            submitted = st.form_submit_button("Sign in as Admin", use_container_width=True, type="primary")
+            submitted = st.form_submit_button("Sign in as Admin", width="stretch", type="primary")
             if submitted:
                 app_logger.info("User submitted login form.", role="admin")
                 ok, message, user = validate_dev_login(identifier, expected_role="admin")
@@ -1080,7 +1080,7 @@ def render_login_view() -> None:
         st.button(
             "Create account",
             key="create_link_admin",
-            use_container_width=True,
+            width="stretch",
             on_click=_set_ui_event,
             args=("create_link_admin",),
         )
@@ -1140,7 +1140,7 @@ def render_create_account_view() -> None:
         password = st.text_input("Password *", type="password")
         confirm_password = st.text_input("Confirm password *", type="password")
 
-        create_clicked = st.form_submit_button("Send to database: Create account", use_container_width=True, type="primary")
+        create_clicked = st.form_submit_button("Send to database: Create account", width="stretch", type="primary")
 
         if create_clicked:
             app_logger.info("Create account form submitted.", role=role)
@@ -1153,7 +1153,7 @@ def render_create_account_view() -> None:
                 return
             st.error(message)
 
-    if st.button("Back to sign in", use_container_width=True):
+    if st.button("Back to sign in", width="stretch"):
         st.session_state["auth_view"] = "login"
         st.session_state["auth_error"] = None
         st.session_state["pending_google"] = None
@@ -1298,9 +1298,9 @@ def render_sidebar_profile_section(user: dict[str, Any]) -> None:
             """,
             unsafe_allow_html=True,
         )
-        if st.button("Settings", key="sidebar_profile_settings_btn", type="secondary", use_container_width=True):
+        if st.button("Settings", key="sidebar_profile_settings_btn", type="secondary", width="stretch"):
             _navigate_to_account_page("settings")
-        if st.button("Logout", key="sidebar_profile_logout_btn", type="secondary", use_container_width=True):
+        if st.button("Logout", key="sidebar_profile_logout_btn", type="secondary", width="stretch"):
             logout_user()
             st.rerun()
 
@@ -1322,7 +1322,7 @@ def render_profile_page() -> None:
     profile = load_current_user_profile()
     back_col, _ = st.columns([1.2, 5], vertical_alignment="center")
     with back_col:
-        if st.button("← Back to Dashboard", key="profile_back_btn", use_container_width=True):
+        if st.button("← Back to Dashboard", key="profile_back_btn", width="stretch"):
             _navigate_back_to_main_app()
     st.caption("Dashboard / Profile")
     render_page_header("Profile", "Update your account information and security settings.")
@@ -1358,9 +1358,9 @@ def render_profile_page() -> None:
 
             save_col, reset_col = st.columns(2)
             with save_col:
-                save_clicked = st.form_submit_button("Save changes", use_container_width=True, type="primary")
+                save_clicked = st.form_submit_button("Save changes", width="stretch", type="primary")
             with reset_col:
-                reset_clicked = st.form_submit_button("Reset", use_container_width=True)
+                reset_clicked = st.form_submit_button("Reset", width="stretch")
 
             if save_clicked:
                 ok, message = save_user_profile_updates(
@@ -1387,7 +1387,7 @@ def render_profile_page() -> None:
 def render_settings_page() -> None:
     back_col, _ = st.columns([1.2, 5], vertical_alignment="center")
     with back_col:
-        if st.button("← Back to Dashboard", key="settings_back_btn", use_container_width=True):
+        if st.button("← Back to Dashboard", key="settings_back_btn", width="stretch"):
             _navigate_back_to_main_app()
     st.caption("Dashboard / Settings")
     render_page_header("Settings", "Personalization and account preferences.")
@@ -1503,7 +1503,7 @@ def render_main_app() -> None:
                 option,
                 key=f"admin_sidebar_nav_btn_{index}",
                 type=button_type,
-                use_container_width=True,
+                width="stretch",
             ):
                 if option_slug != current_slug:
                     st.session_state["admin_page"] = option
@@ -1602,7 +1602,7 @@ def render_main_app() -> None:
                 LEARNER_NAV_CONFIG.get(option, str(option)),
                 key=f"learner_sidebar_nav_btn_{index}",
                 type=button_type,
-                use_container_width=True,
+                width="stretch",
             ):
                 if option_slug != current_slug:
                     st.session_state["learner_page"] = option
