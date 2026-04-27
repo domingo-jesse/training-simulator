@@ -1246,10 +1246,24 @@ def render_current_assignments(current_user: dict) -> None:
             "last_attempt_at": "Last Attempt",
         }
     )
+    if "Module" in assignment_display_df.columns:
+        module_series = assignment_display_df["Module"].fillna("").astype(str)
+        assignment_display_df["Module"] = module_series.apply(
+            lambda value: f"{value[:40]}..." if len(value) > 40 else value
+        )
     if "Due Date" in assignment_display_df.columns:
         assignment_display_df["Due Date"] = assignment_display_df["Due Date"].apply(_format_datetime_for_admin_grid)
     if "Last Attempt" in assignment_display_df.columns:
         assignment_display_df["Last Attempt"] = assignment_display_df["Last Attempt"].apply(_format_datetime_for_admin_grid)
+    assignment_column_config = {
+        "Module": st.column_config.TextColumn("Module Title", width="medium"),
+        "Learner": st.column_config.TextColumn(width="small"),
+        "Team": st.column_config.TextColumn(width="small"),
+        "Organization": st.column_config.TextColumn(width="small"),
+        "Status": st.column_config.TextColumn(width="small"),
+        "Due Date": st.column_config.DatetimeColumn(width="medium"),
+        "Last Attempt": st.column_config.DatetimeColumn(width="small"),
+    }
     selection_state_key = "assignment_management_selected_ids"
     assignment_table_key = "assignment_management_data_editor"
     interactive_df = assignment_display_df.copy()
@@ -1263,6 +1277,7 @@ def render_current_assignments(current_user: dict) -> None:
         single_select=False,
         height=520,
         show_selection_caption=False,
+        column_config=assignment_column_config,
     )
     selected_ids_key = f"{assignment_table_key}_selected_ids"
     filtered_assignment_ids = set(assignment_table_df["assignment_id"].tolist())
@@ -2431,6 +2446,11 @@ def render_progress_tracking(current_user: dict) -> None:
             "last_attempt_at": "Completed At",
         }
     )
+    if "Module Title" in progress_display_df.columns:
+        module_series = progress_display_df["Module Title"].fillna("").astype(str)
+        progress_display_df["Module Title"] = module_series.apply(
+            lambda value: f"{value[:40]}..." if len(value) > 40 else value
+        )
     for datetime_col in ["Due Date", "Assigned At", "Completed At"]:
         progress_display_df[datetime_col] = progress_display_df[datetime_col].apply(_format_datetime_for_admin_grid)
     progress_table_height = max(360, min(760, 36 * (len(progress_display_df) + 1)))
@@ -2439,6 +2459,14 @@ def render_progress_tracking(current_user: dict) -> None:
         hide_index=True,
         width="stretch",
         height=progress_table_height,
+        column_config={
+            "Learner Name": st.column_config.TextColumn(width="small"),
+            "Module Title": st.column_config.TextColumn(width="medium"),
+            "Status": st.column_config.TextColumn(width="small"),
+            "Due Date": st.column_config.DatetimeColumn(width="medium"),
+            "Assigned At": st.column_config.DatetimeColumn(width="small"),
+            "Completed At": st.column_config.DatetimeColumn(width="small"),
+        },
     )
 
 
