@@ -1481,7 +1481,7 @@ def render_main_app() -> None:
         [data-testid="stMainBlockContainer"] { padding-top: 78px !important; }
         [data-testid="stVerticalBlock"]:has(.sticky-user-header-marker) {
             position: fixed !important;
-            top: 3.25rem;
+            top: 0.75rem;
             right: 1rem;
             left: auto !important;
             z-index: 1000;
