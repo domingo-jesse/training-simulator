@@ -1230,6 +1230,22 @@ def _avatar_initials(full_name: str) -> str:
     return f"{tokens[0][0]}{tokens[-1][0]}".upper()
 
 
+def _render_sticky_user_header() -> None:
+    current_user = st.session_state.get("current_user") or {}
+    display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
+    st.markdown(
+        f"""
+        <div class="app-sticky-header">
+            <div class="app-sticky-header-row">
+                <div class="app-sticky-header-username">{display_name}</div>
+                <a class="app-sticky-header-settings" href="?nav=settings">Settings</a>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 def _is_valid_email(email: str) -> bool:
     return bool(re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", (email or "").strip()))
 
@@ -1444,6 +1460,7 @@ def render_main_app() -> None:
     is_dev_user = is_dev_account(user)
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
+    _render_sticky_user_header()
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
