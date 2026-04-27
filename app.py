@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import re
 import sys
-from html import escape
 from typing import Any
 
 import streamlit as st
@@ -1341,52 +1340,6 @@ def save_user_profile_updates(
     return True, "Profile updated successfully."
 
 
-def render_top_header(user: dict[str, Any], title: str) -> None:
-    display_name = user.get("full_name") or "User"
-    role = str(user.get("role", "learner")).title()
-    email = (user.get("email") or "").strip()
-    safe_title = escape(title)
-    safe_display_name = escape(display_name)
-    safe_role = escape(role)
-    safe_email = escape(email)
-
-    _ = safe_title  # Title is rendered by each page body to avoid duplicate headers.
-    with st.container():
-        st.markdown('<div class="app-top-header-anchor"></div>', unsafe_allow_html=True)
-        _, header_user, header_icon = st.columns([8.8, 1.6, 0.6], vertical_alignment="center")
-        with header_user:
-            st.markdown(
-                f"""
-                <div class="app-top-header-user">
-                    <span class="app-top-header-name">{safe_display_name}</span>
-                    <span class="app-top-header-separator">·</span>
-                    <span class="app-top-header-role">{safe_role}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with header_icon:
-            with st.popover("⚙️", use_container_width=False):
-                st.markdown(f"**{safe_display_name}**")
-                if safe_email:
-                    st.caption(safe_email)
-                st.divider()
-                if st.button("Settings", key="header_profile_settings_btn", type="secondary", width="stretch"):
-                    _navigate_to_account_page("settings")
-                if st.button("Logout", key="header_profile_logout_btn", type="secondary", width="stretch"):
-                    logout_user()
-                    st.rerun()
-
-
-def _current_header_title(user: dict[str, Any], nav_page: str) -> str:
-    if user.get("role") == "admin":
-        return NAV_TO_ADMIN_PAGE.get(nav_page, "Dashboard")
-    learner_page = NAV_TO_LEARNER_PAGE.get(nav_page, "home")
-    if learner_page in {"profile", "settings"}:
-        return learner_page.title()
-    return LEARNER_NAV_CONFIG.get(learner_page, "Home")
-
-
 def _initialize_profile_form(profile: dict[str, Any]) -> None:
     profile_user_id = profile.get("user_id")
     if st.session_state.get("profile_form_initialized_for") == profile_user_id:
@@ -1491,7 +1444,6 @@ def render_main_app() -> None:
     is_dev_user = is_dev_account(user)
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
-    render_top_header(user, _current_header_title(user, nav_page))
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
