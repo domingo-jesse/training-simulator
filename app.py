@@ -1246,32 +1246,30 @@ def _render_sticky_user_header() -> None:
     current_user = st.session_state.get("current_user") or {}
     display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
     email = (current_user.get("email") or "").strip()
-    with st.container():
-        st.markdown('<div class="floating-user-menu-marker"></div>', unsafe_allow_html=True)
-        st.markdown('<div class="floating-user-menu">', unsafe_allow_html=True)
-        user_text_col, menu_col = st.columns([3.6, 1], vertical_alignment="center")
-        with user_text_col:
-            st.markdown(
-                f"""
-                <div class="floating-user-menu__identity">
-                    <strong>{display_name}</strong>
-                    <span>{email}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with menu_col:
-            st.markdown('<div class="floating-user-menu__actions">', unsafe_allow_html=True)
-            with st.popover("⚙️", use_container_width=False):
-                if st.button("Settings", key="header_settings_btn", use_container_width=True):
-                    st.session_state["current_page"] = "settings"
-                    _set_nav("settings")
-                    st.rerun()
-                if st.button("Logout", key="header_logout_btn", use_container_width=True):
-                    logout_user()
-                    st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown('<div class="floating-user-menu">', unsafe_allow_html=True)
+    user_text_col, menu_col = st.columns([3.6, 1], vertical_alignment="center")
+    with user_text_col:
+        st.markdown(
+            f"""
+            <div class="floating-user-menu__identity">
+                <strong>{display_name}</strong>
+                <span>{email}</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with menu_col:
+        st.markdown('<div class="floating-user-menu__actions">', unsafe_allow_html=True)
+        with st.popover("⚙️", use_container_width=False):
+            if st.button("Settings", key="header_settings_btn", use_container_width=True):
+                st.session_state["current_page"] = "settings"
+                _set_nav("settings")
+                st.rerun()
+            if st.button("Logout", key="header_logout_btn", use_container_width=True):
+                logout_user()
+                st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _is_valid_email(email: str) -> bool:
@@ -1491,23 +1489,12 @@ def render_main_app() -> None:
     st.markdown(
         """
         <style>
-        [data-testid="stMainBlockContainer"] {
-            padding-top: 8px !important;
-            padding-right: 21rem !important;
-        }
-        [data-testid="stVerticalBlock"]:has(.floating-user-menu-marker) {
-            position: fixed !important;
+        .floating-user-menu {
+            position: fixed;
             top: 3.8rem;
             right: 1rem;
             width: min(19rem, calc(100vw - 2rem));
             z-index: 100;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: transparent !important;
-            border: 0 !important;
-            box-shadow: none !important;
-        }
-        .floating-user-menu {
             min-height: 44px;
             display: flex;
             align-items: center;
