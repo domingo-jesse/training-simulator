@@ -968,17 +968,25 @@ def _render_assignment_tool(current_user: dict) -> None:
                 box-shadow: none;
                 background: #ffffff;
                 color: #1f2937;
-                padding: 9px 10px;
+                padding: 12px 16px;
                 margin: 0;
                 min-height: 0;
                 line-height: 1.25;
                 cursor: pointer;
                 white-space: pre-line;
-                font-size: 1rem;
+                font-size: 18px;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button:hover {
                 background: #f5f5f5;
                 border-color: #e5e7eb;
+            }
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button [data-testid="stMarkdownContainer"] {
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                justify-content: flex-start;
+                text-align: left;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button div,
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p {
@@ -988,14 +996,17 @@ def _render_assignment_tool(current_user: dict) -> None:
                 justify-content: flex-start;
                 align-items: flex-start;
             }
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p {
+                line-height: 1.2;
+            }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:first-child {
                 font-weight: 600;
-                font-size: 17px;
+                font-size: 18px;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:last-child {
-                color: #555;
-                font-size: 14px;
-                margin-top: 0.1rem;
+                color: #4b5563;
+                font-size: 15px;
+                margin-top: 0.2rem;
             }
             </style>
             """,
@@ -1014,19 +1025,25 @@ def _render_assignment_tool(current_user: dict) -> None:
                     <style>
                     .st-key-{escaped_css_key} button {{
                         border: {'1px solid #34a853' if is_selected else '1px solid #e5e7eb'} !important;
-                        background: {'#e6f4ea' if is_selected else '#ffffff'} !important;
-                        color: #1f2937 !important;
+                        background: {'#34a853' if is_selected else '#ffffff'} !important;
+                        color: {'#ffffff' if is_selected else '#1f2937'} !important;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
                         border-color: {'#34a853' if is_selected else '#e5e7eb'} !important;
-                        background: {'#e6f4ea' if is_selected else '#f5f5f5'} !important;
+                        background: {'#34a853' if is_selected else '#f5f5f5'} !important;
+                    }}
+                    .st-key-{escaped_css_key} button p:first-child {{
+                        color: {'#ffffff' if is_selected else '#1f2937'} !important;
+                    }}
+                    .st-key-{escaped_css_key} button p:last-child {{
+                        color: {'#e8f5e9' if is_selected else '#4b5563'} !important;
                     }}
                     </style>
                     """,
                     unsafe_allow_html=True,
                 )
                 card_label = (
-                    f"{'✓ ' if is_selected else ''}{learner_row['Name']}\n"
+                    f"{learner_row['Name']}\n"
                     f"{learner_row['Team/Department'] or '—'} • {learner_row['Organization'] or 'Unassigned'}"
                 )
                 if st.button(
