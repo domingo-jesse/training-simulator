@@ -1233,17 +1233,32 @@ def _avatar_initials(full_name: str) -> str:
 def _render_sticky_user_header() -> None:
     current_user = st.session_state.get("current_user") or {}
     display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
-    st.markdown(
-        f"""
-        <div class="app-sticky-header">
-            <div class="app-sticky-header-row">
-                <div class="app-sticky-header-username">{display_name}</div>
-                <a class="app-sticky-header-settings" href="?nav=settings">Settings</a>
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    email = (current_user.get("email") or "").strip()
+
+    st.markdown('<div class="app-sticky-header">', unsafe_allow_html=True)
+    _, right_col = st.columns([6.2, 3.8], vertical_alignment="center")
+    with right_col:
+        user_col, menu_col = st.columns([5.0, 1.0], vertical_alignment="center")
+        with user_col:
+            st.markdown(
+                f"""
+                <div class="app-sticky-header-user-meta">
+                    <div class="app-sticky-header-username">{display_name}</div>
+                    <div class="app-sticky-header-email">{email}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with menu_col:
+            with st.popover("⚙️", use_container_width=True):
+                if st.button("Settings", key="header_settings_btn", use_container_width=True):
+                    st.session_state["current_page"] = "settings"
+                    _set_nav("settings")
+                    st.rerun()
+                if st.button("Logout", key="header_logout_btn", use_container_width=True):
+                    logout_user()
+                    st.rerun()
+    st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _is_valid_email(email: str) -> bool:
