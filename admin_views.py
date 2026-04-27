@@ -862,12 +862,15 @@ def _render_assignment_tool(current_user: dict) -> None:
             fit_columns_on_grid_load=False,
             theme="streamlit",
         )
-        selected_rows = grid_response.get("selected_rows", [])
+        selected_rows = grid_response.get("selected_rows") or []
         if isinstance(selected_rows, pd.DataFrame):
             selected_rows = selected_rows.to_dict("records")
-        selected_visible_ids = {
-            int(row["learner_id"]) for row in selected_rows if isinstance(row, dict) and row.get("learner_id") is not None
-        }
+        selected_learner_ids = [
+            int(row["learner_id"])
+            for row in selected_rows
+            if isinstance(row, dict) and row.get("learner_id") is not None
+        ]
+        selected_visible_ids = set(selected_learner_ids)
         updated_selected_ids = (prior_selected_ids - visible_ids) | selected_visible_ids
         st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
         selected_count = len(st.session_state[selected_learner_ids_key])
@@ -956,8 +959,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             selected_ids = [int(v) for v in st.session_state.get(selected_learner_ids_key, [])]
             module_id = module_map.get(selected_module)
             due_date_value = due_date.isoformat() if st.session_state[due_date_enabled_key] and due_date else None
-            if not selected_ids:
-                raise ValueError("Select at least one learner.")
             if module_id is None:
                 raise ValueError("Select a module before continuing.")
             if require_due_date and not due_date_value:
@@ -973,6 +974,10 @@ def _render_assignment_tool(current_user: dict) -> None:
             action_name = "update_due_date"
 
         if action_name and not st.session_state.get(assign_in_progress_key, False):
+            selected_learner_ids = st.session_state.get("assignment_selected_learner_ids", [])
+            if not selected_learner_ids:
+                st.warning("Please select at least one learner.")
+                st.stop()
             st.session_state[assign_in_progress_key] = True
             st.session_state[assign_status_key] = None
             st.session_state[assign_status_expiry_key] = None
