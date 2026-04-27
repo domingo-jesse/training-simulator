@@ -82,7 +82,7 @@ st.markdown(
 
 /* MAIN PAGE CONTAINER */
 section.main > div {
-    padding-top: 1rem;
+    padding-top: 0.25rem;
     padding-bottom: 0rem;
     padding-left: 2rem;
     padding-right: 2rem;
@@ -90,13 +90,13 @@ section.main > div {
 
 /* NEW STREAMLIT CLASS (important) */
 .stAppViewBlockContainer {
-    padding-top: 1rem;
+    padding-top: 0.25rem;
     padding-bottom: 0rem;
 }
 
 /* REMOVE EXTRA TOP SPACE */
 .block-container {
-    padding-top: 1rem;
+    padding-top: 0.25rem;
     padding-bottom: 0rem;
     margin-top: 0rem;
 }
@@ -118,7 +118,7 @@ h1, h2, h3 {
 
 /* SIDEBAR CLEANUP */
 section[data-testid="stSidebar"] .block-container {
-    padding-top: 1rem;
+    padding-top: 0.5rem;
 }
 
 /* TABLE SPACING */

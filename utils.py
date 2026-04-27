@@ -63,7 +63,7 @@ def inject_styles() -> None:
         .main .block-container,
         [data-testid="stAppViewBlockContainer"],
         [data-testid="stMainBlockContainer"] {
-            padding-top: 0.35rem !important;
+            padding-top: 0.25rem !important;
         }
         .main .block-container {
             padding-bottom: 2rem;
@@ -84,7 +84,7 @@ def inject_styles() -> None:
         .app-page-container {
             margin-left: auto;
             margin-right: auto;
-            padding: 0 20px 32px 20px;
+            padding: 12px 20px 32px 20px;
             width: 100%;
             box-sizing: border-box;
         }
@@ -234,21 +234,38 @@ def inject_styles() -> None:
         }
         .subtle {color: var(--muted); font-size: 0.92rem;}
         .title-chip {display:inline-block;padding:0.25rem 0.6rem;border-radius:999px;background:var(--brand-soft);color:var(--brand);font-size:0.78rem;}
-        .page-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 0;
-            margin-bottom: 0.1rem;
-        }
+        .admin-header,
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) {
             position: sticky;
             top: 0;
             z-index: 1000;
             background: var(--bg);
             border-bottom: 1px solid var(--line);
-            padding: 0.1rem 0 0.2rem 0;
-            margin: 0 0 0.25rem 0 !important;
+            height: 52px;
+            min-height: 52px;
+            padding: 0 24px !important;
+            margin-bottom: 0 !important;
+            box-sizing: border-box;
+            display: flex;
+            align-items: center;
+        }
+        .page-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+        .admin-content {
+            padding-top: 64px;
+        }
+        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) + div {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
+        }
+        .admin-content > *:first-child {
+            margin-top: 0 !important;
+            padding-top: 0 !important;
         }
         .app-top-header-anchor {
             height: 0;
@@ -277,14 +294,29 @@ def inject_styles() -> None:
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover > button {
             min-height: 2rem;
-            padding-top: 0.1rem;
-            padding-bottom: 0.1rem;
+            padding-top: 0;
+            padding-bottom: 0;
+        }
+        h1, .page-title, .page-header-title {
+            margin-top: 0 !important;
+            margin-bottom: 4px !important;
+            line-height: 1.2;
+        }
+        p, .page-subtitle, .page-header-subtitle {
+            margin-top: 0 !important;
+            margin-bottom: 16px !important;
         }
         .page-header-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
-        .page-header-subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 0.02rem; }
+        .page-header-subtitle { color: var(--muted); font-size: 0.92rem; }
         [data-testid="stElementContainer"]:has(.page-header) {
             margin-top: 0 !important;
-            margin-bottom: 0.2rem !important;
+            margin-bottom: 0 !important;
+        }
+        .header-spacer,
+        .page-hero,
+        .top-spacing,
+        .stSpacer {
+            display: none !important;
         }
         .kpi-card {
             background: var(--surface);
@@ -509,7 +541,7 @@ def _normalize_container_variant(variant: str) -> str:
 def page_container(variant: str = "wide"):
     normalized = _normalize_container_variant(variant)
     st.markdown(
-        f"<div class='app-page-shell'><div class='app-page-container app-page-container-{normalized}'>",
+        f"<div class='app-page-shell'><div class='app-page-container admin-content app-page-container-{normalized}'>",
         unsafe_allow_html=True,
     )
     try:
