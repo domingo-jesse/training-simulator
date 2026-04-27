@@ -1353,13 +1353,14 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
     _ = safe_title  # Title is rendered by each page body to avoid duplicate headers.
     with st.container():
         st.markdown('<div class="app-top-header-anchor"></div>', unsafe_allow_html=True)
-        _, header_user, header_icon = st.columns([8, 2.2, 0.8], vertical_alignment="center")
+        _, header_user, header_icon = st.columns([8.8, 1.6, 0.6], vertical_alignment="center")
         with header_user:
             st.markdown(
                 f"""
                 <div class="app-top-header-user">
-                    <div class="app-top-header-name">{safe_display_name}</div>
-                    <div class="app-top-header-role">{safe_role}</div>
+                    <span class="app-top-header-name">{safe_display_name}</span>
+                    <span class="app-top-header-separator">·</span>
+                    <span class="app-top-header-role">{safe_role}</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
