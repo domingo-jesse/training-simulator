@@ -252,33 +252,51 @@ def inject_styles() -> None:
             margin-top: 0;
             margin-bottom: 0;
         }
-        .app-sticky-header {
-            margin: -0.2rem 0 0.35rem;
-            padding: 0.18rem 0.15rem 0.25rem;
-            position: sticky;
+        .admin-header {
+            position: fixed;
             top: 0;
-            z-index: 100;
-            background: var(--surface);
-            border-bottom: 1px solid var(--line);
+            left: 280px;
+            right: 0;
+            height: 56px;
+            z-index: 9999;
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 24px;
+            box-sizing: border-box;
         }
-        .app-sticky-header-user-meta { text-align: right; }
-        .app-sticky-header-username {
-            color: #475467;
-            font-size: 0.72rem;
-            line-height: 1;
-            font-weight: 600;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        .admin-user-menu {
+            display: flex;
+            align-items: center;
+            gap: 12px;
         }
-        .app-sticky-header-email {
-            color: #667085;
-            font-size: 0.66rem;
+        .admin-user-text {
+            text-align: right;
             line-height: 1.1;
-            margin-top: 0.12rem;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
+        }
+        .admin-user-text strong {
+            display: block;
+            font-size: 14px;
+            color: var(--text);
+        }
+        .admin-user-text span {
+            display: block;
+            font-size: 12px;
+            color: #667085;
+        }
+        .settings-button-wrap [data-testid="stPopover"] > button {
+            width: 32px;
+            min-width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            border: 1px solid #d0d5dd;
+            background: #ffffff;
+            padding: 0;
+        }
+        .settings-button-wrap [data-testid="stPopover"] > button:hover {
+            background: #f9fafb;
         }
         h1, .page-title, .page-header-title {
             margin-top: 0 !important;
