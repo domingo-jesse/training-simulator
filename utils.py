@@ -260,15 +260,9 @@ def inject_styles() -> None:
             backdrop-filter: blur(6px);
             border-bottom: 1px solid var(--line);
             margin: -0.2rem 0 0.35rem;
-            padding: 0.2rem 0.15rem;
+            padding: 0.18rem 0.15rem 0.25rem;
         }
-        .app-sticky-header-row {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 0.4rem;
-            min-height: 1.05rem;
-        }
+        .app-sticky-header-user-meta { text-align: right; }
         .app-sticky-header-username {
             color: #475467;
             font-size: 0.72rem;
@@ -278,18 +272,14 @@ def inject_styles() -> None:
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .app-sticky-header-settings {
-            color: var(--brand);
-            font-size: 0.7rem;
-            line-height: 1;
-            font-weight: 700;
-            text-decoration: none;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .app-sticky-header-settings:hover {
-            color: #4338ca;
-            text-decoration: underline;
+        .app-sticky-header-email {
+            color: #667085;
+            font-size: 0.66rem;
+            line-height: 1.1;
+            margin-top: 0.12rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         h1, .page-title, .page-header-title {
             margin-top: 0 !important;
