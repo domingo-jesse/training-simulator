@@ -241,6 +241,45 @@ def inject_styles() -> None:
             margin-top: 0;
             margin-bottom: 0.1rem;
         }
+        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: var(--bg);
+            border-bottom: 1px solid var(--line);
+            padding: 0.1rem 0 0.2rem 0;
+            margin: 0 0 0.25rem 0 !important;
+        }
+        .app-top-header-anchor {
+            height: 0;
+            margin: 0;
+            padding: 0;
+        }
+        .app-top-header-user {
+            text-align: right;
+            line-height: 1.05;
+            margin: 0;
+            padding: 0;
+        }
+        .app-top-header-name {
+            font-weight: 600;
+            font-size: 0.93rem;
+            margin: 0;
+        }
+        .app-top-header-role {
+            font-size: 0.74rem;
+            color: #6b7280;
+            margin: 0.06rem 0 0;
+        }
+        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) [data-testid="column"] {
+            padding-top: 0 !important;
+            padding-bottom: 0 !important;
+        }
+        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover > button {
+            min-height: 2rem;
+            padding-top: 0.1rem;
+            padding-bottom: 0.1rem;
+        }
         .page-header-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
         .page-header-subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 0.02rem; }
         [data-testid="stElementContainer"]:has(.page-header) {
