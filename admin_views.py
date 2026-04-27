@@ -967,10 +967,13 @@ def _render_assignment_tool(current_user: dict) -> None:
                         background: {'#e6f4ea' if is_selected else '#ffffff'};
                         color: #0f172a;
                         padding: 0.75rem 0.9rem;
-                        margin-bottom: 0.5rem;
+                        margin-bottom: 0;
                         white-space: pre-line;
                         line-height: 1.2rem;
                         cursor: pointer;
+                    }}
+                    .st-key-{escaped_css_key} {{
+                        margin-bottom: 0.12rem;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
                         border-color: {'#34a853' if is_selected else '#d1d5db'};
