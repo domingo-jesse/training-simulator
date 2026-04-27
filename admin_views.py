@@ -81,6 +81,65 @@ def _format_datetime_for_admin_grid(value) -> str:
         return str(value)
 
 
+def render_aggrid_test_page() -> None:
+    render_page_header("AgGrid Test", "Basic AgGrid rendering test with hardcoded data.")
+
+    test_df = pd.DataFrame(
+        [
+            {"learner_id": 1, "name": "Alex Rivera", "email": "alex@example.com", "team": "Support", "status": "Active"},
+            {"learner_id": 2, "name": "Jordan Lee", "email": "jordan@example.com", "team": "QA", "status": "Active"},
+            {"learner_id": 3, "name": "Taylor Kim", "email": "taylor@example.com", "team": "Customer Success", "status": "Inactive"},
+        ]
+    )
+
+    st.write("AgGrid test dataframe shape:", test_df.shape)
+    st.write("AgGrid test dataframe columns:", list(test_df.columns))
+
+    gb = GridOptionsBuilder.from_dataframe(test_df)
+    gb.configure_selection(
+        selection_mode="multiple",
+        use_checkbox=True,
+    )
+    gb.configure_column("learner_id", hide=True)
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
+        test_df,
+        gridOptions=grid_options,
+        height=300,
+        width="100%",
+        theme="streamlit",
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+        fit_columns_on_grid_load=True,
+        key="aggrid_test_basic",
+    )
+
+    selected_rows = grid_response.get("selected_rows") or []
+
+    st.write("Selected rows:")
+    st.json(selected_rows)
+
+    st.write("AgGrid alpine theme test:")
+    grid_response_alpine = AgGrid(
+        test_df,
+        gridOptions=grid_options,
+        height=300,
+        width="100%",
+        theme="alpine",
+        update_mode=GridUpdateMode.SELECTION_CHANGED,
+        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+        fit_columns_on_grid_load=True,
+        key="aggrid_test_alpine",
+    )
+
+    st.write("Selected rows (alpine):")
+    st.json(grid_response_alpine.get("selected_rows") or [])
+
+    st.write("Fallback dataframe:")
+    st.dataframe(test_df, width="stretch")
+
+
 def _select_all_filtered(multiselect_key: str, option_labels: list[str]) -> None:
     st.session_state[multiselect_key] = list(option_labels)
 
