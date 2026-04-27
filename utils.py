@@ -259,7 +259,7 @@ def inject_styles() -> None:
             margin-bottom: 0;
         }
         .admin-content {
-            padding-top: 0;
+            padding-top: 57px; /* 56px header + ~1px gap */
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) + div {
             margin-top: 0 !important;
