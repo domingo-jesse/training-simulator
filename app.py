@@ -1350,19 +1350,20 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
     safe_role = escape(role)
     safe_email = escape(email)
 
-    header_left, header_right = st.columns([8, 2], vertical_alignment="center")
+    header_left, header_user, header_icon = st.columns([7, 2, 1], vertical_alignment="center")
     with header_left:
         st.markdown(f"### {safe_title}")
-    with header_right:
+    with header_user:
         st.markdown(
             f"""
-            <div style="text-align: right; line-height: 1.2;">
+            <div style="text-align: right; line-height: 1.2; margin: 0; padding: 0;">
                 <div style="font-weight: 600;">{safe_display_name}</div>
                 <div style="font-size: 12px; color: #6b7280;">{safe_role}</div>
             </div>
             """,
             unsafe_allow_html=True,
         )
+    with header_icon:
         with st.popover("⚙️", use_container_width=False):
             st.markdown(f"**{safe_display_name}**")
             if safe_email:
