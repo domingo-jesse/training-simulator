@@ -1351,29 +1351,30 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
     safe_email = escape(email)
 
     _ = safe_title  # Title is rendered by each page body to avoid duplicate headers.
-    _, header_user, header_icon = st.columns([7, 2, 1], vertical_alignment="center")
-    with header_user:
-        st.markdown(
-            f"""
-            <div style="text-align: right; line-height: 1.2; margin: 0; padding: 0;">
-                <div style="font-weight: 600;">{safe_display_name}</div>
-                <div style="font-size: 12px; color: #6b7280;">{safe_role}</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with header_icon:
-        with st.popover("⚙️", use_container_width=False):
-            st.markdown(f"**{safe_display_name}**")
-            if safe_email:
-                st.caption(safe_email)
-            st.divider()
-            if st.button("Settings", key="header_profile_settings_btn", type="secondary", width="stretch"):
-                _navigate_to_account_page("settings")
-            if st.button("Logout", key="header_profile_logout_btn", type="secondary", width="stretch"):
-                logout_user()
-                st.rerun()
-    st.markdown("<hr style='margin: 0.2rem 0 0.25rem 0; border: 0; border-top: 1px solid #e5e7eb;'>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown('<div class="app-top-header-anchor"></div>', unsafe_allow_html=True)
+        _, header_user, header_icon = st.columns([8, 2.2, 0.8], vertical_alignment="center")
+        with header_user:
+            st.markdown(
+                f"""
+                <div class="app-top-header-user">
+                    <div class="app-top-header-name">{safe_display_name}</div>
+                    <div class="app-top-header-role">{safe_role}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with header_icon:
+            with st.popover("⚙️", use_container_width=False):
+                st.markdown(f"**{safe_display_name}**")
+                if safe_email:
+                    st.caption(safe_email)
+                st.divider()
+                if st.button("Settings", key="header_profile_settings_btn", type="secondary", width="stretch"):
+                    _navigate_to_account_page("settings")
+                if st.button("Logout", key="header_profile_logout_btn", type="secondary", width="stretch"):
+                    logout_user()
+                    st.rerun()
 
 
 def _current_header_title(user: dict[str, Any], nav_page: str) -> str:
