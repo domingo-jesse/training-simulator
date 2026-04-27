@@ -241,8 +241,8 @@ def inject_styles() -> None:
             z-index: 1000;
             background: var(--bg);
             border-bottom: 1px solid var(--line);
-            height: 52px;
-            min-height: 52px;
+            height: 46px;
+            min-height: 46px;
             padding: 0 24px !important;
             margin-bottom: 0 !important;
             box-sizing: border-box;
@@ -274,22 +274,29 @@ def inject_styles() -> None:
         }
         .app-top-header-user {
             text-align: right;
-            line-height: 1.05;
+            line-height: 1;
             margin: 0;
             padding: 0;
-            position: sticky;
-            top: 7px;
-            z-index: 1001;
+            position: static;
+            white-space: nowrap;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.28rem;
         }
         .app-top-header-name {
             font-weight: 600;
-            font-size: 0.93rem;
+            font-size: 0.82rem;
             margin: 0;
         }
+        .app-top-header-separator {
+            color: #9ca3af;
+            font-size: 0.76rem;
+            line-height: 1;
+        }
         .app-top-header-role {
-            font-size: 0.74rem;
+            font-size: 0.72rem;
             color: #6b7280;
-            margin: 0.06rem 0 0;
+            margin: 0;
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) [data-testid="column"] {
             padding-top: 0 !important;
@@ -301,8 +308,7 @@ def inject_styles() -> None:
             padding-bottom: 0;
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover {
-            position: sticky;
-            top: 7px;
+            position: static;
             z-index: 1001;
         }
         h1, .page-title, .page-header-title {
