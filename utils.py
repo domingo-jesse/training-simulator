@@ -826,7 +826,6 @@ def render_admin_selection_table(
     empty_message: str | None = None,
     show_selection_caption: bool = True,
 ) -> tuple[pd.DataFrame, list]:
-    _inject_admin_selection_table_styles()
     table_selection_key = f"{table_key}_selected_ids"
 
     if df is None or df.empty:
@@ -842,67 +841,29 @@ def render_admin_selection_table(
         raise ValueError(f"row_id_col '{row_id_col}' must exist in table data.")
 
     display_df = df.reset_index(drop=True).copy()
-    selection_col = "__selected__"
-    preserved_ids = st.session_state.get(table_selection_key, [])
-    preserved_ids = [safe_int(v, -1) for v in preserved_ids]
-    display_df.insert(0, selection_col, display_df[row_id_col].apply(lambda value: safe_int(value, -1) in preserved_ids))
-
-    edited_df = st.data_editor(
+    st.caption("Click rows to select.")
+    event = st.dataframe(
         display_df,
         key=table_key,
         hide_index=hide_index,
         width="stretch" if use_container_width else "content",
         height=height or 420,
+        on_select="rerun",
+        selection_mode="single-row" if single_select else "multi-row",
         column_config={
-            selection_col: st.column_config.CheckboxColumn(
-                selection_label,
-                help=selection_help,
-                default=False,
-            ),
+            row_id_col: None,
         },
-        disabled=[column for column in display_df.columns if column != selection_col],
     )
-    selected_ids: list[int] = []
-    selected_df = display_df.iloc[0:0]
-    if edited_df is not None and not edited_df.empty:
-        selected_rows_df = edited_df[edited_df[selection_col]].copy()
-        selected_ids = [safe_int(v) for v in selected_rows_df[row_id_col].tolist()]
-        selected_df = selected_rows_df.drop(columns=[selection_col], errors="ignore")
-    else:
-        widget_state = st.session_state.get(table_key)
-        edited_rows = widget_state.get("edited_rows") if isinstance(widget_state, dict) else None
-        if isinstance(edited_rows, dict):
-            row_ids_by_index = [safe_int(value, -1) for value in display_df[row_id_col].tolist()]
-            selected_id_set = {
-                safe_int(row[row_id_col], -1)
-                for _, row in display_df[display_df[selection_col]].iterrows()
-            }
-            for row_index_raw, change_map in edited_rows.items():
-                try:
-                    row_index = int(row_index_raw)
-                except (TypeError, ValueError):
-                    continue
-                if row_index < 0 or row_index >= len(row_ids_by_index):
-                    continue
-                if not isinstance(change_map, dict) or selection_col not in change_map:
-                    continue
-                row_id = row_ids_by_index[row_index]
-                if bool(change_map.get(selection_col)):
-                    selected_id_set.add(row_id)
-                else:
-                    selected_id_set.discard(row_id)
-            selected_ids = [row_id for row_id in row_ids_by_index if row_id in selected_id_set]
-            selected_df = display_df[
-                display_df[row_id_col].apply(lambda value: safe_int(value, -1) in selected_id_set)
-            ].copy()
-            selected_df = selected_df.drop(columns=[selection_col], errors="ignore")
-
-    if single_select and len(selected_ids) > 1:
-        previously_selected = [safe_int(v, -1) for v in st.session_state.get(table_selection_key, [])]
-        newly_selected = [row_id for row_id in selected_ids if row_id not in previously_selected]
-        keep_id = newly_selected[-1] if newly_selected else selected_ids[-1]
-        selected_ids = [keep_id]
-        selected_df = selected_df[selected_df[row_id_col].apply(lambda value: safe_int(value, -1) == keep_id)]
+    selected_rows = event.selection.rows if event and event.selection else []
+    selected_ids = [
+        safe_int(display_df.iloc[row_idx][row_id_col], -1)
+        for row_idx in selected_rows
+        if 0 <= row_idx < len(display_df)
+    ]
+    selected_ids = [row_id for row_id in selected_ids if row_id >= 0]
+    selected_df = display_df[
+        display_df[row_id_col].apply(lambda value: safe_int(value, -1) in set(selected_ids))
+    ].copy()
 
     st.session_state["selected_row_ids"] = selected_ids
     if single_select:
@@ -912,12 +873,7 @@ def render_admin_selection_table(
     st.session_state[table_selection_key] = selected_ids
 
     if show_selection_caption:
-        if selected_ids and single_select:
-            st.caption(f"Selected: {selected_ids[0]}")
-        elif selected_ids:
-            st.caption(f"Selected: {len(selected_ids)}")
-        else:
-            st.caption("Selected: None")
+        st.caption(f"{len(selected_ids)} item(s) selected.")
 
     return selected_df, selected_ids
 
