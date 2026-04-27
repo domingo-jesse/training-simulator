@@ -63,15 +63,17 @@ def inject_styles() -> None:
         .main .block-container,
         [data-testid="stAppViewBlockContainer"],
         [data-testid="stMainBlockContainer"] {
-            padding-top: 1px !important;
+            padding-top: 0 !important;
+            margin-top: 0 !important;
         }
         [data-testid="stAppViewContainer"] > .main {
-            padding-top: 1px !important;
+            padding-top: 0 !important;
         }
         .main .block-container {
             padding-bottom: 2rem;
             padding-left: 20px !important;
             padding-right: 20px !important;
+            padding-top: 0 !important;
             max-width: 1120px !important;
             margin-left: auto !important;
             margin-right: auto !important;
@@ -251,7 +253,7 @@ def inject_styles() -> None:
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-top: 0;
+            margin-top: -0.35rem;
             margin-bottom: 0;
         }
         .admin-header {
