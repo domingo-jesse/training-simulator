@@ -583,7 +583,7 @@ def render_learner_home(user: Dict) -> None:
     for col, (label, value, target_page, target_slug) in zip(card_columns, summary_cards):
         with col:
             card_label = f"**{value}**  \n{label}"
-            if st.button(card_label, key=f"home_summary_{target_page}_{label}", use_container_width=True):
+            if st.button(card_label, key=f"home_summary_{target_page}_{label}", width="stretch"):
                 navigate_learner(target_page, target_slug)
 
     completion_ratio = (stats["completed_count"] / stats["assigned_count"]) if stats["assigned_count"] else 0
@@ -636,7 +636,7 @@ def render_module_library(user: Dict) -> None:
             st.caption("You're in your personal module workspace for the selected assignment.")
             c1, c2 = st.columns([3, 1])
             with c2:
-                if st.button("Exit workspace", use_container_width=True):
+                if st.button("Exit workspace", width="stretch"):
                     st.session_state.active_assignment_id = None
                     st.session_state.learner_page = "assigned_modules"
                     st.query_params["page"] = "assigned-modules"
