@@ -914,25 +914,17 @@ def _render_assignment_tool(current_user: dict) -> None:
         }
         st.session_state[selected_learner_ids_key] = sorted(current_selected_ids)
 
-        control_col1, control_col2 = st.columns([1, 1])
-        with control_col1:
-            if st.button("Select all filtered learners", key="assignment_tool_select_all_filtered", width="stretch"):
-                st.session_state[selected_learner_ids_key] = sorted(
-                    set(st.session_state.get(selected_learner_ids_key, [])) | visible_ids
-                )
-                st.rerun()
-        with control_col2:
-            if st.button("Clear selection", key="assignment_tool_clear_selection", width="stretch"):
-                st.session_state[selected_learner_ids_key] = []
-                st.rerun()
-
+        learner_id_to_full_name: dict[int, str] = {
+            int(row["user_id"]): str(row.get("name") or "Unknown learner").strip() or "Unknown learner"
+            for _, row in all_active_learners.iterrows()
+        }
         label_to_learner_id: dict[str, int] = {}
         for _, learner_row in filtered_active_learners.iterrows():
             learner_id = int(learner_row["user_id"])
             full_name = str(learner_row.get("name") or "Unknown learner").strip() or "Unknown learner"
             team_department = str(learner_row.get("team") or "—").strip() or "—"
             organization = str(learner_row.get("organization_name") or "Unassigned").strip() or "Unassigned"
-            label = f"{full_name} • {team_department} • {organization}"
+            label = f"{full_name} — {team_department} • {organization}"
             label_to_learner_id[label] = learner_id
 
         selected_id_set = {
@@ -945,16 +937,51 @@ def _render_assignment_tool(current_user: dict) -> None:
             for option_label, learner_id in label_to_learner_id.items()
             if learner_id in selected_id_set
         ]
+        multiselect_key = "assignment_tool_filtered_multiselect"
+        if multiselect_key not in st.session_state:
+            st.session_state[multiselect_key] = default_selected_labels
+
         selected_labels = st.multiselect(
-            "Select learners from filtered results",
+            "Select learners",
             options=list(label_to_learner_id.keys()),
             default=default_selected_labels,
-            key="assignment_tool_filtered_multiselect",
+            key=multiselect_key,
+            max_selections=None,
+            help="Use search and filters to narrow results, then select learners.",
         )
+        st.caption("Use search and filters to narrow results, then select learners.")
         selected_visible_ids = {label_to_learner_id[label] for label in selected_labels}
         selected_hidden_ids = selected_id_set - visible_ids
         st.session_state[selected_learner_ids_key] = sorted(selected_hidden_ids | selected_visible_ids)
-        st.info(f"{len(st.session_state[selected_learner_ids_key])} learner(s) selected.")
+        selected_count = len(st.session_state[selected_learner_ids_key])
+        st.markdown(f"**{selected_count} learners selected**")
+
+        st.markdown("**Selected learners:**")
+        selected_chip_labels = [
+            learner_id_to_full_name.get(learner_id, "Unknown learner")
+            for learner_id in st.session_state[selected_learner_ids_key]
+            if learner_id in learner_id_to_full_name
+        ]
+        if selected_chip_labels:
+            chips_line = " ".join(f"`{name} ✕`" for name in selected_chip_labels)
+            st.markdown(chips_line)
+        else:
+            st.caption("No learners selected.")
+
+        control_col1, control_col2 = st.columns([2, 1])
+        with control_col1:
+            if st.button("Select all filtered learners", key="assignment_tool_select_all_filtered", width="stretch"):
+                all_filtered_labels = list(label_to_learner_id.keys())
+                st.session_state[multiselect_key] = all_filtered_labels
+                st.session_state[selected_learner_ids_key] = sorted(
+                    set(st.session_state.get(selected_learner_ids_key, [])) | visible_ids
+                )
+                st.rerun()
+        with control_col2:
+            if st.button("Clear selection", key="assignment_tool_clear_selection", width="stretch"):
+                st.session_state[multiselect_key] = []
+                st.session_state[selected_learner_ids_key] = []
+                st.rerun()
 
         logger.info(
             "Assignment learner selection updated via multiselect.",
