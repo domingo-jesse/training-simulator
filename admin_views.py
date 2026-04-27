@@ -929,6 +929,48 @@ def _render_assignment_tool(current_user: dict) -> None:
                 st.session_state[selected_learner_ids_key] = []
                 st.rerun()
 
+        st.markdown(
+            """
+            <style>
+            .assignment-learner-selector button {
+                text-align: left !important;
+                justify-content: flex-start !important;
+            }
+            .assignment-learner-selector button[kind="secondary"] {
+                width: 100% !important;
+                padding: 10px 14px !important;
+                border-radius: 6px !important;
+                border: 1px solid #e5e7eb !important;
+                background-color: white !important;
+            }
+            .assignment-learner-selector button[kind="secondary"]:hover {
+                background-color: #f8fafc !important;
+                cursor: pointer;
+            }
+            .assignment-learner-selector button [data-testid="stMarkdownContainer"] p {
+                margin: 0 !important;
+                line-height: 1.35 !important;
+                font-size: 13px !important;
+                color: #6b7280 !important;
+                text-align: left !important;
+            }
+            .assignment-learner-selector button [data-testid="stMarkdownContainer"] p::first-line {
+                font-size: 16px !important;
+                font-weight: 600 !important;
+                color: #111827 !important;
+            }
+            .assignment-learner-selector [data-testid="stButton"] {
+                margin: 0.1rem 0 !important;
+            }
+            .assignment-learner-selector .selected-row button {
+                background-color: #e6f4ea !important;
+                border: 1px solid #34a853 !important;
+            }
+            </style>
+            <div class="assignment-learner-selector">
+            """,
+            unsafe_allow_html=True,
+        )
         selected_ids = st.session_state.setdefault(selected_learner_ids_key, [])
         card_list_container = st.container(key="assignment_learner_rows", height=300, border=False)
         with card_list_container:
@@ -941,21 +983,28 @@ def _render_assignment_tool(current_user: dict) -> None:
 
                 col_info, col_check = st.columns([10, 1])
                 with col_info:
+                    if is_selected:
+                        st.markdown('<div class="selected-row">', unsafe_allow_html=True)
                     if st.button(
                         f"{learner_name}\n{learner_team_department} • {learner_organization}",
                         key=f"toggle_learner_{learner_id}",
                         width="stretch",
+                        type="secondary",
                     ):
                         if learner_id in st.session_state[selected_learner_ids_key]:
                             st.session_state[selected_learner_ids_key].remove(learner_id)
                         else:
                             st.session_state[selected_learner_ids_key].append(learner_id)
                         st.rerun()
+                    if is_selected:
+                        st.markdown("</div>", unsafe_allow_html=True)
                 with col_check:
                     if is_selected:
                         st.markdown("✅")
                     else:
                         st.markdown("&nbsp;", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.caption(f"Selected IDs: {st.session_state[selected_learner_ids_key]}")
 
