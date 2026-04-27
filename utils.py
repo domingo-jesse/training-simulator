@@ -257,7 +257,7 @@ def inject_styles() -> None:
             margin-bottom: 0;
         }
         .admin-content {
-            padding-top: 64px;
+            padding-top: 8px;
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) + div {
             margin-top: 0 !important;
@@ -277,6 +277,9 @@ def inject_styles() -> None:
             line-height: 1.05;
             margin: 0;
             padding: 0;
+            position: sticky;
+            top: 7px;
+            z-index: 1001;
         }
         .app-top-header-name {
             font-weight: 600;
@@ -296,6 +299,11 @@ def inject_styles() -> None:
             min-height: 2rem;
             padding-top: 0;
             padding-bottom: 0;
+        }
+        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover {
+            position: sticky;
+            top: 7px;
+            z-index: 1001;
         }
         h1, .page-title, .page-header-title {
             margin-top: 0 !important;
