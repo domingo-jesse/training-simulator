@@ -876,118 +876,69 @@ def _render_assignment_tool(current_user: dict) -> None:
             org_filter=org_filter,
         )
         logger.info(
-            "Assignment learners dataframe ready for grid.",
+            "Assignment learners dataframe ready for table selection.",
             action="assignment_tool_learners_df",
             shape=filtered_active_learners.shape,
             columns=list(filtered_active_learners.columns),
         )
-        visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
-        all_active_ids = {int(v) for v in all_active_learners["user_id"].tolist()}
-        existing_ids = {int(v) for v in st.session_state.get(selected_learner_ids_key, []) if int(v) in all_active_ids}
-        st.session_state[selected_learner_ids_key] = sorted(existing_ids)
-
-        st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        assignment_learner_table = filtered_active_learners[
-            ["user_id", "name", "team", "organization_name"]
-        ].reset_index(drop=True).rename(
+        filtered_learners_df = filtered_active_learners.rename(
             columns={
                 "user_id": "learner_id",
-                "name": "Name",
-                "team": "Team/Department",
-                "organization_name": "Organization",
+                "name": "full_name",
+                "team": "team_department",
+                "organization_name": "organization",
             }
-        )
-        logger.info(
-            "Rendering learner selection table data.",
-            action="assignment_tool_selection_dataset",
-            shape=assignment_learner_table.shape,
-            columns=list(assignment_learner_table.columns),
-        )
-        if assignment_learner_table.empty:
+        ).copy()
+        st.caption(f"{len(filtered_learners_df)} active learners match current filters")
+        if filtered_learners_df.empty:
+            st.session_state[selected_learner_ids_key] = []
             st.info("No active learners match the current filters.")
             return
 
-        current_selected_ids = {
-            int(v)
-            for v in st.session_state.get(selected_learner_ids_key, [])
-            if int(v) in all_active_ids
-        }
-        st.session_state[selected_learner_ids_key] = sorted(current_selected_ids)
-
-        learner_id_to_full_name: dict[int, str] = {
-            int(row["user_id"]): str(row.get("name") or "Unknown learner").strip() or "Unknown learner"
-            for _, row in all_active_learners.iterrows()
-        }
-        label_to_learner_id: dict[str, int] = {}
-        for _, learner_row in filtered_active_learners.iterrows():
-            learner_id = int(learner_row["user_id"])
-            full_name = str(learner_row.get("name") or "Unknown learner").strip() or "Unknown learner"
-            team_department = str(learner_row.get("team") or "—").strip() or "—"
-            organization = str(learner_row.get("organization_name") or "Unassigned").strip() or "Unassigned"
-            label = f"{full_name} — {team_department} • {organization}"
-            label_to_learner_id[label] = learner_id
-
-        selected_id_set = {
-            int(v)
-            for v in st.session_state.get(selected_learner_ids_key, [])
-            if int(v) in all_active_ids
-        }
-        default_selected_labels = [
-            option_label
-            for option_label, learner_id in label_to_learner_id.items()
-            if learner_id in selected_id_set
+        display_df = filtered_learners_df.copy()
+        display_df = display_df[
+            [
+                "learner_id",
+                "full_name",
+                "email",
+                "team_department",
+                "organization",
+                "status",
+            ]
         ]
-        multiselect_key = "assignment_tool_filtered_multiselect"
-        if multiselect_key not in st.session_state:
-            st.session_state[multiselect_key] = default_selected_labels
-
-        selected_labels = st.multiselect(
-            "Select learners",
-            options=list(label_to_learner_id.keys()),
-            default=default_selected_labels,
-            key=multiselect_key,
-            max_selections=None,
-            help="Use search and filters to narrow results, then select learners.",
+        display_df = display_df.rename(
+            columns={
+                "full_name": "Name",
+                "email": "Email",
+                "team_department": "Team/Department",
+                "organization": "Organization",
+                "status": "Status",
+            }
         )
-        st.caption("Use search and filters to narrow results, then select learners.")
-        selected_visible_ids = {label_to_learner_id[label] for label in selected_labels}
-        selected_hidden_ids = selected_id_set - visible_ids
-        st.session_state[selected_learner_ids_key] = sorted(selected_hidden_ids | selected_visible_ids)
-        selected_count = len(st.session_state[selected_learner_ids_key])
-        st.markdown(f"**{selected_count} learners selected**")
-
-        st.markdown("**Selected learners:**")
-        selected_chip_labels = [
-            learner_id_to_full_name.get(learner_id, "Unknown learner")
-            for learner_id in st.session_state[selected_learner_ids_key]
-            if learner_id in learner_id_to_full_name
+        event = st.dataframe(
+            display_df,
+            hide_index=True,
+            width="stretch",
+            height=360,
+            key="assignment_learner_table",
+            on_select="rerun",
+            selection_mode="multi-row",
+            column_config={
+                "learner_id": None,
+            },
+        )
+        selected_rows = event.selection.rows if event and event.selection else []
+        selected_learner_ids = [
+            int(display_df.iloc[row]["learner_id"])
+            for row in selected_rows
         ]
-        if selected_chip_labels:
-            chips_line = " ".join(f"`{name} ✕`" for name in selected_chip_labels)
-            st.markdown(chips_line)
-        else:
-            st.caption("No learners selected.")
-
-        control_col1, control_col2 = st.columns([2, 1])
-        with control_col1:
-            if st.button("Select all filtered learners", key="assignment_tool_select_all_filtered", width="stretch"):
-                all_filtered_labels = list(label_to_learner_id.keys())
-                st.session_state[multiselect_key] = all_filtered_labels
-                st.session_state[selected_learner_ids_key] = sorted(
-                    set(st.session_state.get(selected_learner_ids_key, [])) | visible_ids
-                )
-                st.rerun()
-        with control_col2:
-            if st.button("Clear selection", key="assignment_tool_clear_selection", width="stretch"):
-                st.session_state[multiselect_key] = []
-                st.session_state[selected_learner_ids_key] = []
-                st.rerun()
+        st.session_state.assignment_selected_learner_ids = selected_learner_ids
+        st.info(f"{len(selected_learner_ids)} learner(s) selected.")
 
         logger.info(
-            "Assignment learner selection updated via multiselect.",
+            "Assignment learner selection updated via dataframe row selection.",
             action="assignment_tool_selection",
-            selected_count=len(st.session_state.get(selected_learner_ids_key, [])),
-            visible_count=len(visible_ids),
+            selected_count=len(selected_learner_ids),
         )
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
