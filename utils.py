@@ -63,7 +63,7 @@ def inject_styles() -> None:
         .main .block-container,
         [data-testid="stAppViewBlockContainer"],
         [data-testid="stMainBlockContainer"] {
-            padding-top: 0.25rem !important;
+            padding-top: 0rem !important;
         }
         .main .block-container {
             padding-bottom: 2rem;
@@ -257,7 +257,7 @@ def inject_styles() -> None:
             margin-bottom: 0;
         }
         .admin-content {
-            padding-top: 8px;
+            padding-top: 0;
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) + div {
             margin-top: 0 !important;
