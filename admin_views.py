@@ -958,26 +958,38 @@ def _render_assignment_tool(current_user: dict) -> None:
                         width: 100%;
                         text-align: left;
                         justify-content: flex-start;
-                        min-height: 4.75rem;
+                        min-height: 4.4rem;
                         border-radius: 0.6rem;
-                        border: 1px solid {'#16a34a' if is_selected else '#d1d5db'};
-                        background: {'#ecfdf3' if is_selected else '#ffffff'};
+                        border: {'2px solid #34a853' if is_selected else '1px solid #dddddd'};
+                        background: {'#e6f4ea' if is_selected else '#ffffff'};
                         color: #0f172a;
-                        padding: 0.55rem 0.75rem;
-                        margin-bottom: 0.4rem;
+                        padding: 0.5rem 0.7rem;
+                        margin-bottom: 0.5rem;
                         white-space: pre-line;
-                        line-height: 1.25rem;
+                        line-height: 1.2rem;
+                        cursor: pointer;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
-                        border-color: {'#16a34a' if is_selected else '#94a3b8'};
-                        background: {'#dcfce7' if is_selected else '#f8fafc'};
+                        border-color: {'#34a853' if is_selected else '#d1d5db'};
+                        background: {'#dceedd' if is_selected else '#f5f5f5'};
+                    }}
+                    .st-key-{escaped_css_key} button p {{
+                        margin: 0;
+                    }}
+                    .st-key-{escaped_css_key} button p:first-child {{
+                        font-weight: 600;
+                    }}
+                    .st-key-{escaped_css_key} button p:last-child {{
+                        font-size: 0.82rem;
+                        color: #475569;
+                        margin-top: 0.15rem;
                     }}
                     </style>
                     """,
                     unsafe_allow_html=True,
                 )
                 card_label = (
-                    f"{'✅ Selected   ' if is_selected else ''}{learner_row['Name']}\n"
+                    f"**{learner_row['Name']}**\n"
                     f"Team/Department: {learner_row['Team/Department'] or '—'}   •   "
                     f"Organization: {learner_row['Organization'] or 'Unassigned'}"
                 )
