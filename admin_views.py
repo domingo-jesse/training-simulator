@@ -908,6 +908,39 @@ def _render_assignment_tool(current_user: dict) -> None:
         if assignment_learner_table.empty:
             st.info("No active learners match the current filters.")
             return
+
+        learner_selection_df = filtered_active_learners[
+            ["user_id", "name", "email"]
+        ].rename(columns={"user_id": "learner_id", "name": "full_name"})
+        learner_options = {
+            f"{row['full_name']} ({row['email']})": int(row["learner_id"])
+            for _, row in learner_selection_df.iterrows()
+        }
+        current_selected_ids = {
+            int(v)
+            for v in st.session_state.get(selected_learner_ids_key, [])
+            if int(v) in visible_ids
+        }
+        preselected_labels = [
+            label for label, learner_id in learner_options.items() if learner_id in current_selected_ids
+        ]
+        st.caption("Use the dropdown to select one or more learners from the filtered results below.")
+        selected_labels = st.multiselect(
+            "Select learners from the filtered list",
+            options=list(learner_options.keys()),
+            default=preselected_labels,
+            key="assignment_selected_learner_labels",
+        )
+        selected_learner_ids = [learner_options[label] for label in selected_labels]
+        st.session_state.assignment_selected_learner_ids = selected_learner_ids
+        selected_count = len(st.session_state[selected_learner_ids_key])
+        st.info(f"{selected_count} learner(s) selected.")
+        logger.info(
+            "Assignment learner selection updated.",
+            action="assignment_tool_selection",
+            selected_count=selected_count,
+        )
+
         table_records = assignment_learner_table.to_dict(orient="records")
         table_data_json = json.dumps(table_records)
         html_table = f"""
@@ -979,40 +1012,7 @@ def _render_assignment_tool(current_user: dict) -> None:
             html_table,
             height=410,
         )
-        st.caption("Prototype row-click table is display-only until a custom Streamlit component is added.")
-
-        learner_selection_df = filtered_active_learners[
-            ["user_id", "name", "email"]
-        ].rename(columns={"user_id": "learner_id", "name": "full_name"})
-        learner_options = {
-            f"{row['full_name']} ({row['email']})": int(row["learner_id"])
-            for _, row in learner_selection_df.iterrows()
-        }
-        current_selected_ids = {
-            int(v)
-            for v in st.session_state.get(selected_learner_ids_key, [])
-            if int(v) in visible_ids
-        }
-        preselected_labels = [
-            label for label, learner_id in learner_options.items() if learner_id in current_selected_ids
-        ]
-        selected_labels = st.multiselect(
-            "Select learners for assignment",
-            options=list(learner_options.keys()),
-            default=preselected_labels,
-            key="assignment_selected_learner_labels",
-        )
-        selected_learner_ids = [
-            learner_options[label]
-            for label in selected_labels
-        ]
-        st.session_state.assignment_selected_learner_ids = selected_learner_ids
-        selected_count = len(st.session_state[selected_learner_ids_key])
-        logger.info(
-            "Assignment learner selection updated.",
-            action="assignment_tool_selection",
-            selected_count=selected_count,
-        )
+        st.caption("Filtered learners preview (read-only).")
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
