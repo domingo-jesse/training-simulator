@@ -63,7 +63,7 @@ def inject_styles() -> None:
         .main .block-container,
         [data-testid="stAppViewBlockContainer"],
         [data-testid="stMainBlockContainer"] {
-            padding-top: 3.2rem !important;
+            padding-top: 0rem !important;
         }
         [data-testid="stAppViewContainer"] > .main {
             padding-top: 0 !important;
@@ -106,77 +106,6 @@ def inject_styles() -> None:
         [data-testid="stAppViewContainer"] {
             background: var(--bg);
             color: var(--text);
-        }
-        #MainMenu,
-        [data-testid="stToolbar"],
-        [data-testid="stAppToolbar"] {
-            display: none !important;
-            visibility: hidden !important;
-        }
-        .app-fixed-user-header {
-            position: fixed;
-            top: 0;
-            right: 0;
-            height: 46px;
-            min-height: 46px;
-            z-index: 1000;
-            background: #ffffff;
-            border-bottom: 1px solid #e6eaf2;
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            padding: 0 58px 0 14px;
-            box-sizing: border-box;
-            min-width: 320px;
-            max-width: calc(100vw - 220px);
-        }
-        .app-fixed-user-identity {
-            text-align: right;
-            line-height: 1.1;
-        }
-        .app-fixed-user-identity strong {
-            display: block;
-            font-size: 0.86rem;
-            color: var(--text);
-            font-weight: 700;
-            margin: 0;
-        }
-        .app-fixed-user-identity span {
-            display: block;
-            font-size: 0.72rem;
-            color: #667085;
-            margin-top: 1px;
-        }
-        [data-testid="stVerticalBlock"]:has(.app-fixed-user-menu-anchor) {
-            position: fixed !important;
-            top: 7px;
-            right: 14px;
-            z-index: 1001;
-            margin: 0 !important;
-            padding: 0 !important;
-            width: auto !important;
-            min-width: 0 !important;
-            background: transparent !important;
-            border: 0 !important;
-            box-shadow: none !important;
-        }
-        [data-testid="stVerticalBlock"]:has(.app-fixed-user-menu-anchor) [data-testid="stVerticalBlockBorderWrapper"] {
-            border: 0 !important;
-            padding: 0 !important;
-            background: transparent !important;
-            box-shadow: none !important;
-        }
-        .app-fixed-user-menu [data-testid="stPopover"] > button {
-            width: 32px;
-            min-width: 32px;
-            height: 32px;
-            border-radius: 8px;
-            border: 1px solid #d0d5dd;
-            background: #ffffff;
-            padding: 0;
-        }
-        .app-fixed-user-menu [data-testid="stPopover"] > button:hover {
-            background: #f9fafb;
         }
         html, body, [data-testid="stAppViewContainer"], .stApp, .main {
             overflow-y: auto !important;
