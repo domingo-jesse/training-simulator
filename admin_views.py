@@ -909,110 +909,64 @@ def _render_assignment_tool(current_user: dict) -> None:
             st.info("No active learners match the current filters.")
             return
 
-        learner_selection_df = filtered_active_learners[
-            ["user_id", "name", "email"]
-        ].rename(columns={"user_id": "learner_id", "name": "full_name"})
-        learner_options = {
-            f"{row['full_name']} ({row['email']})": int(row["learner_id"])
-            for _, row in learner_selection_df.iterrows()
-        }
         current_selected_ids = {
             int(v)
             for v in st.session_state.get(selected_learner_ids_key, [])
             if int(v) in visible_ids
         }
-        preselected_labels = [
-            label for label, learner_id in learner_options.items() if learner_id in current_selected_ids
+        preselected_row_indices = [
+            row_index
+            for row_index, learner_id in enumerate(assignment_learner_table["learner_id"].tolist())
+            if int(learner_id) in current_selected_ids
         ]
-        st.caption("Use the dropdown to select one or more learners from the filtered results below.")
-        selected_labels = st.multiselect(
-            "Select learners from the filtered list",
-            options=list(learner_options.keys()),
-            default=preselected_labels,
-            key="assignment_selected_learner_labels",
+        selection_table_df = assignment_learner_table[
+            ["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"]
+        ].copy()
+        gb = GridOptionsBuilder.from_dataframe(selection_table_df)
+        gb.configure_default_column(sortable=True, filter=False, resizable=True)
+        gb.configure_selection(
+            selection_mode="multiple",
+            use_checkbox=False,
+            pre_selected_rows=preselected_row_indices,
         )
-        selected_learner_ids = [learner_options[label] for label in selected_labels]
-        st.session_state.assignment_selected_learner_ids = selected_learner_ids
-        selected_count = len(st.session_state[selected_learner_ids_key])
+        gb.configure_column("learner_id", hide=True)
+        grid_options = gb.build()
+        grid_options["rowMultiSelectWithClick"] = True
+        grid_options["suppressRowClickSelection"] = False
+
+        grid_response = AgGrid(
+            selection_table_df,
+            gridOptions=grid_options,
+            height=380,
+            width="100%",
+            theme="streamlit",
+            update_mode=GridUpdateMode.SELECTION_CHANGED,
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            fit_columns_on_grid_load=True,
+            key="assignment_learner_selection_grid",
+        )
+
+        selected_rows = grid_response.get("selected_rows") or []
+        selected_visible_ids = {
+            int(row.get("learner_id"))
+            for row in selected_rows
+            if row.get("learner_id") is not None
+        }
+        preserved_non_visible_ids = {
+            int(v)
+            for v in st.session_state.get(selected_learner_ids_key, [])
+            if int(v) not in visible_ids and int(v) in all_active_ids
+        }
+        merged_selected_ids = sorted(selected_visible_ids | preserved_non_visible_ids)
+        st.session_state[selected_learner_ids_key] = merged_selected_ids
+
+        selected_count = len(merged_selected_ids)
         st.info(f"{selected_count} learner(s) selected.")
         logger.info(
-            "Assignment learner selection updated.",
+            "Assignment learner selection updated via row selection grid.",
             action="assignment_tool_selection",
             selected_count=selected_count,
         )
-
-        table_records = assignment_learner_table.to_dict(orient="records")
-        table_data_json = json.dumps(table_records)
-        html_table = f"""
-            <style>
-                .assignment-table-wrap {{
-                    border: 1px solid rgba(49, 51, 63, 0.2);
-                    border-radius: 0.5rem;
-                    overflow: auto;
-                    max-height: 360px;
-                    background: white;
-                }}
-                table.assignment-table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-                    font-size: 14px;
-                }}
-                .assignment-table th, .assignment-table td {{
-                    padding: 0.55rem 0.65rem;
-                    border-bottom: 1px solid rgba(49, 51, 63, 0.1);
-                    text-align: left;
-                    vertical-align: top;
-                }}
-                .assignment-table th {{
-                    position: sticky;
-                    top: 0;
-                    background: #f8f9fb;
-                    z-index: 1;
-                }}
-            </style>
-            <div class="assignment-table-wrap">
-                <table class="assignment-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Team/Department</th>
-                            <th>Organization</th>
-                            <th>Status</th>
-                        </tr>
-                    </thead>
-                    <tbody id="assignment-table-body"></tbody>
-                </table>
-            </div>
-            <script>
-                const tableData = {table_data_json};
-                const tbody = document.getElementById("assignment-table-body");
-
-                tableData.forEach((record) => {{
-                    const tr = document.createElement("tr");
-
-                    ["Name", "Email", "Team/Department", "Organization", "Status"].forEach((column) => {{
-                        const td = document.createElement("td");
-                        td.textContent = record[column] ?? "";
-                        tr.appendChild(td);
-                    }});
-
-                    tbody.appendChild(tr);
-                }});
-
-                window.parent.postMessage({{
-                    isStreamlitMessage: true,
-                    type: "streamlit:setFrameHeight",
-                    height: 410
-                }}, "*");
-            </script>
-        """
-        st.components.v1.html(
-            html_table,
-            height=410,
-        )
-        st.caption("Filtered learners preview (read-only).")
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
