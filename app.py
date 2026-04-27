@@ -1247,7 +1247,7 @@ def _render_sticky_user_header() -> None:
     display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
     email = (current_user.get("email") or "").strip()
     with st.container(key="floating_user_menu"):
-        user_text_col, menu_col = st.columns([3.6, 1], vertical_alignment="center")
+        user_text_col, menu_col = st.columns([8, 1], vertical_alignment="center")
         with user_text_col:
             st.markdown(
                 f"""
@@ -1488,22 +1488,25 @@ def render_main_app() -> None:
         <style>
         .st-key-floating_user_menu {
             position: fixed;
-            top: 3.8rem;
+            top: 0.75rem;
+            left: 1rem;
             right: 1rem;
-            width: min(19rem, calc(100vw - 2rem));
+            width: auto;
             z-index: 100;
-            min-height: 44px;
+            min-height: 34px;
             display: flex;
             align-items: center;
+            justify-content: flex-end;
             background: #ffffff;
             border: 1px solid #e5e7eb;
             border-radius: 10px;
             box-shadow: 0 2px 10px rgba(16, 24, 40, 0.08);
-            padding: 0.2rem 0.4rem 0.2rem 0.6rem;
+            padding: 0.12rem 0.35rem 0.12rem 0.5rem;
         }
         .floating-user-menu__identity {
             line-height: 1.1;
             overflow: hidden;
+            text-align: right;
         }
         .floating-user-menu__identity strong,
         .floating-user-menu__identity span {
