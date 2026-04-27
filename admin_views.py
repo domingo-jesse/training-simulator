@@ -1501,34 +1501,47 @@ def render_grading_center(current_user: dict) -> None:
 
     display_filtered = filtered.copy()
     display_filtered["review_status"] = display_filtered["review_status"].apply(format_status_display)
-
-    table_col, review_col = st.columns([5.4, 1.3], gap="small")
-    with table_col:
-        render_app_table(
-            display_filtered[
-                [
-                    "created_at",
-                    "learner_name",
-                    "module_title",
-                    "review_status",
-                    "total_score",
-                    "understanding_score",
-                    "investigation_score",
-                    "solution_score",
-                    "communication_score",
-                ]
-            ],
-            datetime_columns=["created_at"],
-            numeric_formats={
-                "total_score": 1,
-                "understanding_score": 1,
-                "investigation_score": 1,
-                "solution_score": 1,
-                "communication_score": 1,
-            },
-            badge_columns={"total_score": "score", "result_status": "status"},
-            numeric_align={k: "right" for k in ["total_score", "understanding_score", "investigation_score", "solution_score", "communication_score"]},
-        )
+    grading_display_df = display_filtered[
+        [
+            "created_at",
+            "learner_name",
+            "module_title",
+            "review_status",
+            "total_score",
+            "understanding_score",
+            "investigation_score",
+            "solution_score",
+            "communication_score",
+        ]
+    ].rename(
+        columns={
+            "created_at": "Created At",
+            "learner_name": "Learner Name",
+            "module_title": "Module Title",
+            "review_status": "Review Status",
+            "total_score": "Total Score",
+            "understanding_score": "Understanding Score",
+            "investigation_score": "Investigation Score",
+            "solution_score": "Solution Score",
+            "communication_score": "Communication Score",
+        }
+    )
+    grading_display_df["Created At"] = grading_display_df["Created At"].apply(_format_datetime_for_admin_grid)
+    for score_col in [
+        "Total Score",
+        "Understanding Score",
+        "Investigation Score",
+        "Solution Score",
+        "Communication Score",
+    ]:
+        grading_display_df[score_col] = pd.to_numeric(grading_display_df[score_col], errors="coerce").round(1)
+    grading_table_height = max(360, min(760, 36 * (len(grading_display_df) + 1)))
+    st.dataframe(
+        grading_display_df,
+        hide_index=True,
+        width="stretch",
+        height=grading_table_height,
+    )
 
     if filtered.empty or "attempt_id" not in filtered.columns:
         st.info("No submissions match the current filters.")
@@ -1536,56 +1549,54 @@ def render_grading_center(current_user: dict) -> None:
 
     review_options = filtered["attempt_id"].tolist()
     selected_review_attempt_id = review_options[0]
-    with review_col:
-        st.markdown("##### Review")
-        selected_review_attempt_id = st.selectbox(
-            "Submission",
-            options=review_options,
-            key="grading_center_review_attempt_id",
-            label_visibility="collapsed",
-            format_func=lambda aid: (
-                f"#{aid} • {filtered.loc[filtered['attempt_id'] == aid, 'learner_name'].iloc[0]}"
-            ),
-        )
-        review_attempt = fetch_one(
-            """
-            SELECT
-                attempt_id,
-                diagnosis_answer,
-                next_steps_answer,
-                customer_response,
-                notes,
-                question_responses
-            FROM attempts
-            WHERE attempt_id = ? AND organization_id = ?
-            """,
-            (selected_review_attempt_id, org_id),
-        )
-        with st.popover("Review submission", width="stretch"):
-            if not review_attempt:
-                st.info("Submission details are unavailable for this attempt.")
-            else:
-                st.write("**Diagnosis**")
-                st.code(review_attempt.get("diagnosis_answer") or "No diagnosis answer submitted.")
-                st.write("**Next steps**")
-                st.code(review_attempt.get("next_steps_answer") or "No next-steps answer submitted.")
-                st.write("**Customer response**")
-                st.code(review_attempt.get("customer_response") or "No customer response submitted.")
-                st.write("**Learner notes**")
-                st.code(review_attempt.get("notes") or "No notes submitted.")
-                raw_questions = review_attempt.get("question_responses")
-                if raw_questions:
-                    st.write("**Question responses**")
+    st.markdown("##### Review")
+    selected_review_attempt_id = st.selectbox(
+        "Submission",
+        options=review_options,
+        key="grading_center_review_attempt_id",
+        format_func=lambda aid: (
+            f"#{aid} • {filtered.loc[filtered['attempt_id'] == aid, 'learner_name'].iloc[0]}"
+        ),
+    )
+    review_attempt = fetch_one(
+        """
+        SELECT
+            attempt_id,
+            diagnosis_answer,
+            next_steps_answer,
+            customer_response,
+            notes,
+            question_responses
+        FROM attempts
+        WHERE attempt_id = ? AND organization_id = ?
+        """,
+        (selected_review_attempt_id, org_id),
+    )
+    with st.popover("Review submission", width="stretch"):
+        if not review_attempt:
+            st.info("Submission details are unavailable for this attempt.")
+        else:
+            st.write("**Diagnosis**")
+            st.code(review_attempt.get("diagnosis_answer") or "No diagnosis answer submitted.")
+            st.write("**Next steps**")
+            st.code(review_attempt.get("next_steps_answer") or "No next-steps answer submitted.")
+            st.write("**Customer response**")
+            st.code(review_attempt.get("customer_response") or "No customer response submitted.")
+            st.write("**Learner notes**")
+            st.code(review_attempt.get("notes") or "No notes submitted.")
+            raw_questions = review_attempt.get("question_responses")
+            if raw_questions:
+                st.write("**Question responses**")
+                parsed_questions = {}
+                try:
+                    parsed_questions = json.loads(raw_questions) if isinstance(raw_questions, str) else raw_questions
+                except Exception:
                     parsed_questions = {}
-                    try:
-                        parsed_questions = json.loads(raw_questions) if isinstance(raw_questions, str) else raw_questions
-                    except Exception:
-                        parsed_questions = {}
-                    if isinstance(parsed_questions, dict) and parsed_questions:
-                        for question, answer in parsed_questions.items():
-                            st.write(f"- **{question}:** {answer or '—'}")
-                    else:
-                        st.code(str(raw_questions))
+                if isinstance(parsed_questions, dict) and parsed_questions:
+                    for question, answer in parsed_questions.items():
+                        st.write(f"- **{question}:** {answer or '—'}")
+                else:
+                    st.code(str(raw_questions))
 
     selected_attempt_id = st.selectbox(
         "Result approval controls",
@@ -2401,10 +2412,33 @@ def render_progress_tracking(current_user: dict) -> None:
         st.info("No progress records match the selected filters.")
         return
 
-    render_app_table(
-        filtered[["learner_name", "module_title", "status", "due_date", "last_attempt_at"]],
-        datetime_columns=["due_date", "last_attempt_at"],
-        badge_columns={"status": "status"},
+    progress_display_df = filtered[
+        [
+            "learner_name",
+            "module_title",
+            "status",
+            "due_date",
+            "assigned_at",
+            "last_attempt_at",
+        ]
+    ].rename(
+        columns={
+            "learner_name": "Learner Name",
+            "module_title": "Module Title",
+            "status": "Status",
+            "due_date": "Due Date",
+            "assigned_at": "Assigned At",
+            "last_attempt_at": "Completed At",
+        }
+    )
+    for datetime_col in ["Due Date", "Assigned At", "Completed At"]:
+        progress_display_df[datetime_col] = progress_display_df[datetime_col].apply(_format_datetime_for_admin_grid)
+    progress_table_height = max(360, min(760, 36 * (len(progress_display_df) + 1)))
+    st.dataframe(
+        progress_display_df,
+        hide_index=True,
+        width="stretch",
+        height=progress_table_height,
     )
 
 
