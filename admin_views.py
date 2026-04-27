@@ -907,19 +907,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             st.info("No active learners match the current filters.")
             return
 
-        st.markdown(
-            """
-            <style>
-            .assignment-learner-scroll-hint {
-                color: #64748b;
-                font-size: 0.85rem;
-                margin-bottom: 0.35rem;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
         current_selected_ids = {
             int(v)
             for v in st.session_state.get(selected_learner_ids_key, [])
@@ -942,143 +929,35 @@ def _render_assignment_tool(current_user: dict) -> None:
                 st.session_state[selected_learner_ids_key] = []
                 st.rerun()
 
-        st.markdown("<div class='assignment-learner-scroll-hint'>Scroll to view more learners.</div>", unsafe_allow_html=True)
-        st.markdown(
-            """
-            <style>
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] {
-                gap: 0;
-            }
-            .st-key-assignment_learner_rows [data-testid="stVerticalBlockBorderWrapper"] {
-                padding: 0;
-                border: 1px solid #e5e7eb;
-                border-radius: 10px;
-                overflow: hidden;
-                background: #ffffff;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] {
-                margin: 0;
-                width: 100%;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button {
-                width: 100%;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                text-align: left;
-                border-radius: 0;
-                border: none;
-                border-bottom: 1px solid #eef2f7;
-                box-shadow: none;
-                background: #ffffff;
-                color: #1f2937;
-                padding: 10px 14px;
-                margin: 0;
-                min-height: 56px;
-                cursor: pointer;
-                white-space: pre-line;
-                font-size: 16px;
-                position: relative;
-                line-height: 1.2;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button:hover {
-                background: #f8fafc;
-                border-color: #eef2f7;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button [data-testid="stMarkdownContainer"] {
-                width: 100%;
-                display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-                justify-content: center;
-                text-align: left;
-                gap: 2px;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button div,
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p {
-                margin: 0;
-                width: 100%;
-                text-align: left;
-                justify-content: flex-start;
-                align-items: flex-start;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p {
-                line-height: 1.2;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:first-child {
-                font-weight: 600;
-                font-size: 16px;
-                color: #111827;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:last-child {
-                color: #6b7280;
-                font-size: 13px;
-            }
-            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div:last-child[class*="st-key-learner\_row\_toggle\_"] button {
-                border-bottom: none;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-        selected_ids_set = set(st.session_state.get(selected_learner_ids_key, []))
+        selected_ids = st.session_state.setdefault(selected_learner_ids_key, [])
         card_list_container = st.container(key="assignment_learner_rows", height=300, border=False)
         with card_list_container:
-            for learner_row in assignment_learner_table.to_dict("records"):
-                learner_id = int(learner_row["learner_id"])
-                is_selected = learner_id in selected_ids_set
-                css_key = f"learner_row_toggle_{learner_id}"
-                escaped_css_key = css_key.replace("_", "\\_")
-                st.markdown(
-                    f"""
-                    <style>
-                    .st-key-{escaped_css_key} button {{
-                        background: {'#e6f4ea' if is_selected else '#ffffff'} !important;
-                        border-left: {'4px solid #34a853' if is_selected else '4px solid transparent'} !important;
-                        padding: 10px 14px 10px {'10px' if is_selected else '14px'} !important;
-                    }}
-                    .st-key-{escaped_css_key} button:hover {{
-                        background: {'#e6f4ea' if is_selected else '#f8fafc'} !important;
-                    }}
-                    .st-key-{escaped_css_key} button p:first-child {{
-                        color: #111827 !important;
-                    }}
-                    .st-key-{escaped_css_key} button p:last-child {{
-                        color: #6b7280 !important;
-                    }}
-                    .st-key-{escaped_css_key} button::after {{
-                        content: {'"✓"' if is_selected else '""'};
-                        position: absolute;
-                        right: 14px;
-                        top: 50%;
-                        transform: translateY(-50%);
-                        color: #34a853;
-                        background: transparent;
-                        border: none;
-                        font-size: 18px;
-                        font-weight: 600;
-                        line-height: 1;
-                    }}
-                    </style>
-                    """,
-                    unsafe_allow_html=True,
-                )
-                card_label = (
-                    f"{learner_row['Name']}\n"
-                    f"{learner_row['Team/Department'] or '—'} • {learner_row['Organization'] or 'Unassigned'}"
-                )
-                if st.button(
-                    card_label,
-                    key=css_key,
-                    width="stretch",
-                ):
-                    selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
-                    if learner_id in selected_ids:
-                        selected_ids.remove(learner_id)
+            for _, learner_row in filtered_active_learners.iterrows():
+                learner_id = int(learner_row["user_id"])
+                is_selected = learner_id in selected_ids
+                learner_name = str(learner_row.get("name") or "")
+                learner_team_department = str(learner_row.get("team") or "—")
+                learner_organization = str(learner_row.get("organization_name") or "Unassigned")
+
+                col_info, col_check = st.columns([10, 1])
+                with col_info:
+                    if st.button(
+                        f"{learner_name}\n{learner_team_department} • {learner_organization}",
+                        key=f"toggle_learner_{learner_id}",
+                        width="stretch",
+                    ):
+                        if learner_id in st.session_state[selected_learner_ids_key]:
+                            st.session_state[selected_learner_ids_key].remove(learner_id)
+                        else:
+                            st.session_state[selected_learner_ids_key].append(learner_id)
+                        st.rerun()
+                with col_check:
+                    if is_selected:
+                        st.markdown("✅")
                     else:
-                        selected_ids.add(learner_id)
-                    st.session_state[selected_learner_ids_key] = sorted(selected_ids)
-                    st.rerun()
+                        st.markdown("&nbsp;", unsafe_allow_html=True)
+
+        st.caption(f"Selected IDs: {st.session_state[selected_learner_ids_key]}")
 
         logger.info(
             "Assignment learner selection updated via compact list rows.",
