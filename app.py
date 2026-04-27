@@ -1242,31 +1242,16 @@ def _avatar_initials(full_name: str) -> str:
     return f"{tokens[0][0]}{tokens[-1][0]}".upper()
 
 
-def _render_sticky_user_header() -> None:
-    current_user = st.session_state.get("current_user") or {}
-    display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
-    email = (current_user.get("email") or "").strip()
-    with st.container(key="floating_user_menu"):
-        user_text_col, menu_col = st.columns([8, 1], vertical_alignment="center")
-        with user_text_col:
-            st.markdown(
-                f"""
-                <div class="floating-user-menu__identity">
-                    <strong>{display_name}</strong>
-                    <span>{email}</span>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with menu_col:
-            with st.popover("⚙️", use_container_width=False):
-                if st.button("Settings", key="header_settings_btn", use_container_width=True):
-                    st.session_state["current_page"] = "settings"
-                    _set_nav("settings")
-                    st.rerun()
-                if st.button("Logout", key="header_logout_btn", use_container_width=True):
-                    logout_user()
-                    st.rerun()
+def _render_sidebar_account_actions() -> None:
+    with st.sidebar.container(key="sidebar_account_actions"):
+        if st.button("⚙️ Settings", key="sidebar_settings_btn", type="secondary", width="stretch"):
+            st.session_state["page"] = "Settings"
+            st.session_state["current_page"] = "settings"
+            _set_nav("settings")
+            st.rerun()
+        if st.button("🚪 Logout", key="sidebar_logout_btn", type="secondary", width="stretch"):
+            logout_user()
+            st.rerun()
 
 
 def _is_valid_email(email: str) -> bool:
@@ -1486,62 +1471,19 @@ def render_main_app() -> None:
     st.markdown(
         """
         <style>
-        .st-key-floating_user_menu {
-            position: fixed;
-            top: 0.75rem;
-            left: 1rem;
-            right: 1rem;
-            width: auto;
-            z-index: 100;
-            min-height: 34px;
+        section[data-testid="stSidebar"] [data-testid="stVerticalBlock"] {
+            min-height: 100%;
             display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(16, 24, 40, 0.08);
-            padding: 0.12rem 0.35rem 0.12rem 0.5rem;
+            flex-direction: column;
         }
-        .floating-user-menu__identity {
-            line-height: 1.1;
-            overflow: hidden;
-            text-align: right;
-        }
-        .floating-user-menu__identity strong,
-        .floating-user-menu__identity span {
-            display: block;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            max-width: 100%;
-        }
-        .floating-user-menu__identity strong {
-            font-size: 0.75rem;
-            color: #101828;
-        }
-        .floating-user-menu__identity span {
-            font-size: 0.68rem;
-            color: #667085;
-            margin-top: 1px;
-        }
-        .st-key-floating_user_menu [data-testid="stPopover"] > button {
-            width: 28px;
-            min-width: 28px;
-            height: 28px;
-            border-radius: 7px;
-            border: 1px solid #d0d5dd;
-            background: #fff;
-            padding: 0;
-        }
-        .st-key-floating_user_menu [data-testid="stPopover"] > button:hover {
-            background: #f9fafb;
+        .st-key-sidebar_account_actions {
+            margin-top: auto;
+            padding-top: 0.5rem;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    _render_sticky_user_header()
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
@@ -1549,6 +1491,7 @@ def render_main_app() -> None:
         st.session_state["page"] = "Profile"
         st.session_state["current_page"] = "profile"
         _set_nav("profile")
+        _render_sidebar_account_actions()
         with page_container("narrow"):
             render_profile_page()
         return
@@ -1556,6 +1499,7 @@ def render_main_app() -> None:
         st.session_state["page"] = "Settings"
         st.session_state["current_page"] = "settings"
         _set_nav("settings")
+        _render_sidebar_account_actions()
         with page_container("narrow"):
             render_settings_page()
         return
@@ -1643,6 +1587,7 @@ def render_main_app() -> None:
                     st.session_state["page"] = None
                     _set_nav(option_slug)
                     st.rerun()
+        _render_sidebar_account_actions()
         normalized_page = NAV_TO_ADMIN_PAGE.get(current_slug, "Dashboard")
         if normalized_page in DEV_ONLY_ADMIN_PAGES and not is_dev_user:
             st.warning("You do not have access to this section.")
@@ -1745,6 +1690,7 @@ def render_main_app() -> None:
                     st.session_state["page"] = None
                     _set_nav(option_slug)
                     st.rerun()
+        _render_sidebar_account_actions()
         if st.session_state.get("nav") != current_slug:
             _set_nav(current_slug)
         st.session_state["current_page"] = _build_main_page_key("learner", current_slug)
