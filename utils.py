@@ -107,12 +107,14 @@ def inject_styles() -> None:
             background: var(--bg);
             color: var(--text);
         }
+        html, body, [data-testid="stAppViewContainer"], .stApp, .main {
+            overflow-y: auto !important;
+        }
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
             width: 220px !important;
             min-width: 220px !important;
             max-width: 220px !important;
-            flex: 0 0 220px !important;
         }
         section[data-testid="stSidebar"] > div:first-child,
         [data-testid="stSidebar"] > div:first-child {
