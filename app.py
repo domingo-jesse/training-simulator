@@ -1246,30 +1246,27 @@ def _render_sticky_user_header() -> None:
     current_user = st.session_state.get("current_user") or {}
     display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
     email = (current_user.get("email") or "").strip()
-    st.markdown('<div class="floating-user-menu">', unsafe_allow_html=True)
-    user_text_col, menu_col = st.columns([3.6, 1], vertical_alignment="center")
-    with user_text_col:
-        st.markdown(
-            f"""
-            <div class="floating-user-menu__identity">
-                <strong>{display_name}</strong>
-                <span>{email}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with menu_col:
-        st.markdown('<div class="floating-user-menu__actions">', unsafe_allow_html=True)
-        with st.popover("⚙️", use_container_width=False):
-            if st.button("Settings", key="header_settings_btn", use_container_width=True):
-                st.session_state["current_page"] = "settings"
-                _set_nav("settings")
-                st.rerun()
-            if st.button("Logout", key="header_logout_btn", use_container_width=True):
-                logout_user()
-                st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
+    with st.container(key="floating_user_menu"):
+        user_text_col, menu_col = st.columns([3.6, 1], vertical_alignment="center")
+        with user_text_col:
+            st.markdown(
+                f"""
+                <div class="floating-user-menu__identity">
+                    <strong>{display_name}</strong>
+                    <span>{email}</span>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+        with menu_col:
+            with st.popover("⚙️", use_container_width=False):
+                if st.button("Settings", key="header_settings_btn", use_container_width=True):
+                    st.session_state["current_page"] = "settings"
+                    _set_nav("settings")
+                    st.rerun()
+                if st.button("Logout", key="header_logout_btn", use_container_width=True):
+                    logout_user()
+                    st.rerun()
 
 
 def _is_valid_email(email: str) -> bool:
@@ -1489,7 +1486,7 @@ def render_main_app() -> None:
     st.markdown(
         """
         <style>
-        .floating-user-menu {
+        .st-key-floating_user_menu {
             position: fixed;
             top: 3.8rem;
             right: 1rem;
@@ -1525,7 +1522,7 @@ def render_main_app() -> None:
             color: #667085;
             margin-top: 1px;
         }
-        .floating-user-menu .floating-user-menu__actions [data-testid="stPopover"] > button {
+        .st-key-floating_user_menu [data-testid="stPopover"] > button {
             width: 28px;
             min-width: 28px;
             height: 28px;
@@ -1534,7 +1531,7 @@ def render_main_app() -> None:
             background: #fff;
             padding: 0;
         }
-        .floating-user-menu .floating-user-menu__actions [data-testid="stPopover"] > button:hover {
+        .st-key-floating_user_menu [data-testid="stPopover"] > button:hover {
             background: #f9fafb;
         }
         </style>
