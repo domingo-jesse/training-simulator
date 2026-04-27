@@ -1236,7 +1236,7 @@ def _render_sticky_user_header() -> None:
     email = (current_user.get("email") or "").strip()
     with st.container():
         st.markdown('<div class="sticky-user-header-marker"></div>', unsafe_allow_html=True)
-        _, user_text_col, menu_col = st.columns([7, 1.6, 0.5], vertical_alignment="center")
+        _, user_text_col, settings_col, logout_col = st.columns([6.6, 1.8, 0.45, 0.8], vertical_alignment="center")
         with user_text_col:
             st.markdown(
                 f"""
@@ -1247,17 +1247,18 @@ def _render_sticky_user_header() -> None:
                 """,
                 unsafe_allow_html=True,
             )
-        with menu_col:
+        with settings_col:
             st.markdown('<div class="settings-button-wrap">', unsafe_allow_html=True)
             with st.popover("⚙️", use_container_width=False):
                 if st.button("Settings", key="header_settings_btn", use_container_width=True):
                     st.session_state["current_page"] = "settings"
                     _set_nav("settings")
                     st.rerun()
-                if st.button("Logout", key="header_logout_btn", use_container_width=True):
-                    logout_user()
-                    st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
+        with logout_col:
+            if st.button("Logout", key="header_logout_btn", use_container_width=True):
+                logout_user()
+                st.rerun()
 
 
 def _is_valid_email(email: str) -> bool:
@@ -1477,15 +1478,19 @@ def render_main_app() -> None:
     st.markdown(
         """
         <style>
-        [data-testid="stMainBlockContainer"] { padding-top: 8px !important; }
+        [data-testid="stMainBlockContainer"] { padding-top: 78px !important; }
         [data-testid="stVerticalBlock"]:has(.sticky-user-header-marker) {
-            position: sticky;
-            top: 0;
+            position: fixed !important;
+            top: 3.25rem;
+            right: 1rem;
+            left: auto !important;
             z-index: 1000;
             background: #ffffff;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 6px 10px 4px 10px;
-            margin-bottom: 0.4rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 0.4rem 0.55rem;
+            margin: 0;
+            box-shadow: 0 2px 12px rgba(16, 24, 40, 0.08);
         }
         </style>
         """,
