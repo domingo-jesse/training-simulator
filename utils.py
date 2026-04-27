@@ -84,7 +84,7 @@ def inject_styles() -> None:
         .app-page-container {
             margin-left: auto;
             margin-right: auto;
-            padding: 12px 20px 32px 20px;
+            padding: 0 20px 32px 20px;
             width: 100%;
             box-sizing: border-box;
         }
@@ -240,7 +240,6 @@ def inject_styles() -> None:
             top: 0;
             z-index: 1000;
             background: var(--bg);
-            border-bottom: 1px solid var(--line);
             height: 46px;
             min-height: 46px;
             padding: 0 24px !important;
