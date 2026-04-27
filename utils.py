@@ -106,20 +106,27 @@ def inject_styles() -> None:
         }
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
-            width: 220px !important;
-            min-width: 220px !important;
-            max-width: 220px !important;
-            flex: 0 0 220px !important;
+            width: 260px !important;
+            min-width: 260px !important;
+            max-width: 260px !important;
+            flex: 0 0 260px !important;
+            position: fixed !important;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            overflow-y: auto !important;
+            z-index: 10001 !important;
         }
         section[data-testid="stSidebar"] > div:first-child,
         [data-testid="stSidebar"] > div:first-child {
             background: var(--surface);
             border-right: 1px solid var(--line);
-            width: 220px !important;
-            min-width: 220px !important;
-            max-width: 220px !important;
+            width: 260px !important;
+            min-width: 260px !important;
+            max-width: 260px !important;
+            height: 100vh !important;
             padding-top: 0.45rem;
-            overflow: visible !important;
+            overflow-y: auto !important;
         }
         [data-testid="stSidebar"] .block-container {
             padding-top: 0.2rem;
@@ -242,13 +249,18 @@ def inject_styles() -> None:
             margin-bottom: 0.1rem;
         }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) {
-            position: sticky;
+            position: fixed;
             top: 0;
-            z-index: 1000;
+            left: 260px;
+            right: 0;
+            height: 56px;
+            z-index: 9999;
             background: var(--bg);
             border-bottom: 1px solid var(--line);
-            padding: 0.1rem 0 0.2rem 0;
-            margin: 0 0 0.25rem 0 !important;
+            padding: 0 32px;
+            margin: 0 !important;
+            display: flex;
+            align-items: center;
         }
         .app-top-header-anchor {
             height: 0;
@@ -275,10 +287,17 @@ def inject_styles() -> None:
             padding-top: 0 !important;
             padding-bottom: 0 !important;
         }
+        [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) [data-testid="stHorizontalBlock"] {
+            width: 100%;
+            align-items: center;
+        }
         [data-testid="stVerticalBlock"] > div:has(.app-top-header-anchor) .stPopover > button {
             min-height: 2rem;
             padding-top: 0.1rem;
             padding-bottom: 0.1rem;
+        }
+        [data-testid="stAppViewContainer"]:has(.app-top-header-anchor) .main .block-container {
+            padding-top: 72px !important;
         }
         .page-header-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
         .page-header-subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 0.02rem; }
