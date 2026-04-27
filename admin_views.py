@@ -943,6 +943,54 @@ def _render_assignment_tool(current_user: dict) -> None:
                 st.rerun()
 
         st.markdown("<div class='assignment-learner-scroll-hint'>Scroll to view more learners.</div>", unsafe_allow_html=True)
+        st.markdown(
+            """
+            <style>
+            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] {
+                margin: 0 0 4px 0;
+                width: 100%;
+            }
+            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button {
+                width: 100%;
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                justify-content: flex-start;
+                text-align: left;
+                border-radius: 4px;
+                border: 1px solid #eeeeee;
+                box-shadow: none;
+                background: #ffffff;
+                color: #0f172a;
+                padding: 8px 12px;
+                margin: 0;
+                min-height: 0;
+                line-height: 1.2;
+                cursor: pointer;
+                white-space: pre-line;
+            }
+            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button:hover {
+                background: #f5f5f5;
+                border-color: #e5e7eb;
+            }
+            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button p {
+                margin: 0;
+                width: 100%;
+                text-align: left;
+            }
+            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button p:first-child {
+                font-weight: 600;
+                font-size: 0.95rem;
+            }
+            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button p:last-child {
+                color: #6b7280;
+                font-size: 0.8rem;
+                margin-top: 0.15rem;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
         selected_ids_set = set(st.session_state.get(selected_learner_ids_key, []))
         card_list_container = st.container(height=400, border=True)
         with card_list_container:
@@ -955,43 +1003,12 @@ def _render_assignment_tool(current_user: dict) -> None:
                     f"""
                     <style>
                     .st-key-{escaped_css_key} button {{
-                        width: 100%;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: flex-start;
-                        text-align: left;
-                        justify-content: flex-start;
-                        min-height: 4.4rem;
-                        border-radius: 0.6rem;
-                        border: {'2px solid #34a853' if is_selected else '1px solid #dddddd'};
+                        border: {'1px solid #34a853' if is_selected else '1px solid #eeeeee'};
                         background: {'#e6f4ea' if is_selected else '#ffffff'};
-                        color: #0f172a;
-                        padding: 0.75rem 0.9rem;
-                        margin-bottom: 0;
-                        white-space: pre-line;
-                        line-height: 1.2rem;
-                        cursor: pointer;
-                    }}
-                    .st-key-{escaped_css_key} {{
-                        margin-bottom: 0.12rem;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
-                        border-color: {'#34a853' if is_selected else '#d1d5db'};
-                        background: {'#dceedd' if is_selected else '#f5f5f5'};
-                    }}
-                    .st-key-{escaped_css_key} button p {{
-                        margin: 0;
-                        text-align: left;
-                        width: 100%;
-                    }}
-                    .st-key-{escaped_css_key} button p:first-child {{
-                        font-weight: 600;
-                        font-size: 0.97rem;
-                    }}
-                    .st-key-{escaped_css_key} button p:last-child {{
-                        font-size: 0.8rem;
-                        color: #6b7280;
-                        margin-top: 0.2rem;
+                        border-color: {'#34a853' if is_selected else '#e5e7eb'};
+                        background: {'#e6f4ea' if is_selected else '#f5f5f5'};
                     }}
                     </style>
                     """,
@@ -999,8 +1016,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                 )
                 card_label = (
                     f"**{learner_row['Name']}**\n"
-                    f"Team/Department: {learner_row['Team/Department'] or '—'}   •   "
-                    f"Organization: {learner_row['Organization'] or 'Unassigned'}"
+                    f"{learner_row['Team/Department'] or '—'} • {learner_row['Organization'] or 'Unassigned'}"
                 )
                 if st.button(
                     card_label,
