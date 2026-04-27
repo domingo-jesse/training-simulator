@@ -11,7 +11,6 @@ from uuid import uuid4
 import pandas as pd
 import psycopg2
 import streamlit as st
-from st_aggrid import AgGrid, DataReturnMode, GridOptionsBuilder, GridUpdateMode
 
 from db import (
     ensure_module_rubric_criteria_table,
@@ -82,7 +81,7 @@ def _format_datetime_for_admin_grid(value) -> str:
 
 
 def render_aggrid_test_page() -> None:
-    render_page_header("AgGrid Test", "Basic AgGrid rendering test with hardcoded data.")
+    render_page_header("AgGrid Test", "Native Streamlit dataframe row-selection test.")
 
     test_df = pd.DataFrame(
         [
@@ -92,52 +91,25 @@ def render_aggrid_test_page() -> None:
         ]
     )
 
-    st.write("AgGrid test dataframe shape:", test_df.shape)
-    st.write("AgGrid test dataframe columns:", list(test_df.columns))
-
-    gb = GridOptionsBuilder.from_dataframe(test_df)
-    gb.configure_selection(
-        selection_mode="multiple",
-        use_checkbox=True,
-    )
-    gb.configure_column("learner_id", hide=True)
-    grid_options = gb.build()
-
-    grid_response = AgGrid(
+    st.write("Test dataframe shape:", test_df.shape)
+    st.write("Test dataframe columns:", list(test_df.columns))
+    st.caption("Click rows to select.")
+    grid_response = st.dataframe(
         test_df,
-        gridOptions=grid_options,
+        hide_index=True,
         height=300,
-        width="100%",
-        theme="streamlit",
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
-        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-        fit_columns_on_grid_load=True,
+        width="stretch",
+        on_select="rerun",
+        selection_mode="multi-row",
         key="aggrid_test_basic",
+        column_config={"learner_id": None},
     )
-
-    selected_rows = grid_response.get("selected_rows") or []
+    selected_rows = grid_response.selection.rows if grid_response and grid_response.selection else []
+    selected_ids = [int(test_df.iloc[row]["learner_id"]) for row in selected_rows]
 
     st.write("Selected rows:")
-    st.json(selected_rows)
-
-    st.write("AgGrid alpine theme test:")
-    grid_response_alpine = AgGrid(
-        test_df,
-        gridOptions=grid_options,
-        height=300,
-        width="100%",
-        theme="alpine",
-        update_mode=GridUpdateMode.SELECTION_CHANGED,
-        data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-        fit_columns_on_grid_load=True,
-        key="aggrid_test_alpine",
-    )
-
-    st.write("Selected rows (alpine):")
-    st.json(grid_response_alpine.get("selected_rows") or [])
-
-    st.write("Fallback dataframe:")
-    st.dataframe(test_df, width="stretch")
+    st.json(selected_ids)
+    st.caption(f"{len(selected_ids)} item(s) selected.")
 
 
 def _select_all_filtered(multiselect_key: str, option_labels: list[str]) -> None:
@@ -623,12 +595,9 @@ def render_learner_management(current_user: dict) -> None:
         ].reset_index(drop=True)
 
         tab_key = tab_name.lower().replace(" ", "_")
-        multiselect_key = f"learner_bulk_select_{tab_key}"
         selection_state_key = f"learner_bulk_selected_ids_{tab_key}"
         selected_ids_key = f"learner_unified_selected_ids_{tab_key}"
         learner_options = {build_learner_option_label(r): int(r["user_id"]) for _, r in scoped.iterrows()}
-        option_labels = list(learner_options.keys())
-        label_by_id = {learner_id: label for label, learner_id in learner_options.items()}
         visible_ids = {int(v) for v in scoped["user_id"].tolist()}
         all_tab_ids = {int(v) for v in scoped_all["user_id"].tolist()}
 
@@ -659,7 +628,6 @@ def render_learner_management(current_user: dict) -> None:
         )
         if "Last Activity" in learner_display_df.columns:
             learner_display_df["Last Activity"] = learner_display_df["Last Activity"].apply(_format_datetime_for_admin_grid)
-        st.caption("Select learners directly from the table below.")
         _, selected_row_ids = render_admin_selection_table(
             learner_display_df,
             row_id_col="learner_id",
@@ -695,30 +663,8 @@ def render_learner_management(current_user: dict) -> None:
         unified_selected_ids = (set(st.session_state.get(selected_ids_key, [])) - visible_ids) | selected_id_set
         st.session_state[selected_ids_key] = sorted(int(v) for v in unified_selected_ids)
         st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
-        st.session_state[multiselect_key] = [
-            label_by_id[learner_id]
-            for learner_id in st.session_state[selected_ids_key]
-            if learner_id in label_by_id
-        ]
-
-        st.markdown("##### Selected learners")
-        selected_learners = st.multiselect(
-            "Selected learners",
-            options=option_labels,
-            key=multiselect_key,
-            help="Read-only list synced from the table above.",
-            label_visibility="collapsed",
-            disabled=True,
-        )
-        selected_from_multiselect = {learner_options[label] for label in selected_learners if label in learner_options}
-        unified_selected_ids = (set(st.session_state.get(selected_ids_key, [])) - visible_ids) | selected_from_multiselect
-        st.session_state[selected_ids_key] = sorted(int(v) for v in unified_selected_ids)
-        st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
         selected_ids = sorted(int(v) for v in st.session_state[selected_ids_key])
-        visible_selected_count = len(set(selected_ids) & visible_ids)
-        st.caption(
-            f"{len(selected_ids)} total selected • {visible_selected_count} of {len(scoped)} currently visible"
-        )
+        st.caption(f"{len(selected_ids)} item(s) selected.")
 
         if show_active:
             action_label = "Archive"
@@ -739,9 +685,10 @@ def render_learner_management(current_user: dict) -> None:
             )
 
         if run_bulk_action:
+            selected_ids = st.session_state.get(selected_ids_key, [])
             if not selected_ids:
-                st.warning("Select at least one learner.")
-                return
+                st.warning("Please select at least one row.")
+                st.stop()
             try:
                 status_sql = "TRUE" if new_status else "FALSE"
                 execute(
@@ -1327,6 +1274,7 @@ def render_current_assignments(current_user: dict) -> None:
     st.session_state[selected_ids_key] = selected_assignment_ids
     st.session_state[selection_state_key] = selected_assignment_ids
     selected_count = len(selected_assignment_ids)
+    st.caption(f"{selected_count} item(s) selected.")
 
     with st.container(border=True):
         st.markdown("#### Assignment actions")
@@ -1345,6 +1293,10 @@ def render_current_assignments(current_user: dict) -> None:
                 width="stretch",
                 disabled=selected_count == 0,
             ):
+                selected_assignment_ids = st.session_state.get(selected_ids_key, [])
+                if not selected_assignment_ids:
+                    st.warning("Please select at least one row.")
+                    st.stop()
                 try:
                     execute(
                         "UPDATE assignments SET due_date = ?, assigned_by = ?, assigned_at = CURRENT_TIMESTAMP "
@@ -1378,6 +1330,10 @@ def render_current_assignments(current_user: dict) -> None:
                 width="stretch",
                 disabled=selected_count == 0,
             ):
+                selected_assignment_ids = st.session_state.get(selected_ids_key, [])
+                if not selected_assignment_ids:
+                    st.warning("Please select at least one row.")
+                    st.stop()
                 try:
                     rows_to_cleanup = fetch_all(
                         """
@@ -3986,15 +3942,11 @@ def render_manage_modules(current_user: dict) -> None:
             )
 
         selected_module_state_key = f"manage_modules_selected_module_id_{state_prefix}"
-        explicit_selection_key = f"manage_modules_has_explicit_selection_{state_prefix}"
         dropdown_state_key = f"manage_modules_module_dropdown_{state_prefix}"
+        selected_module_id = st.session_state.get(selected_module_state_key)
 
-        has_explicit_selection = bool(st.session_state.get(explicit_selection_key, False))
-        selected_module_id = st.session_state.get(selected_module_state_key) if has_explicit_selection else None
-
-        pending_selection_key = f"manage_modules_pending_selection_{state_prefix}"
         pending_module_id = int(selected_module_ids[0]) if selected_module_ids else None
-        st.session_state[pending_selection_key] = pending_module_id
+        st.session_state[selected_module_state_key] = pending_module_id
 
         module_ids = [int(module_row["module_id"]) for _, module_row in tab_df.iterrows()]
         module_select_sentinel = None
@@ -4007,41 +3959,13 @@ def render_manage_modules(current_user: dict) -> None:
         if selected_module_id not in module_ids:
             selected_module_id = None
             st.session_state[selected_module_state_key] = None
-            st.session_state[explicit_selection_key] = False
 
         if dropdown_state_key not in st.session_state:
             st.session_state[dropdown_state_key] = module_select_sentinel
 
-        pending_label = "No module selected in the table."
+        st.caption(f"{1 if pending_module_id is not None else 0} item(s) selected.")
         if pending_module_id in module_map:
-            pending_label = f"Selected in table: {module_map[pending_module_id]}"
-        st.caption(pending_label)
-
-        load_selected_col, clear_selected_col = st.columns([2, 1])
-        with load_selected_col:
-            if st.button(
-                "Load selected module",
-                key=f"load_selected_module_{state_prefix}",
-                type="secondary",
-                width="stretch",
-                disabled=pending_module_id is None,
-            ):
-                st.session_state[selected_module_state_key] = pending_module_id
-                st.session_state[explicit_selection_key] = pending_module_id is not None
-                st.session_state[dropdown_state_key] = pending_module_id
-                st.rerun()
-        with clear_selected_col:
-            if st.button(
-                "Clear",
-                key=f"clear_selected_module_{state_prefix}",
-                width="stretch",
-                disabled=pending_module_id is None,
-            ):
-                st.session_state[selected_module_state_key] = None
-                st.session_state[explicit_selection_key] = False
-                st.session_state[dropdown_state_key] = module_select_sentinel
-                st.session_state[pending_selection_key] = None
-                st.rerun()
+            st.caption(f"Selected module: {module_map[pending_module_id]}")
 
         selected_module_id = st.selectbox(
             "Select module to edit",
@@ -4059,7 +3983,6 @@ def render_manage_modules(current_user: dict) -> None:
         if selected_module_id is not module_select_sentinel:
             module_id = int(selected_module_id)
             st.session_state[selected_module_state_key] = module_id
-            st.session_state[explicit_selection_key] = True
         else:
             keys_to_clear = [
                 "current_module",
@@ -4072,7 +3995,6 @@ def render_manage_modules(current_user: dict) -> None:
                 "module_takeaway",
                 "quiz_required",
                 selected_module_state_key,
-                explicit_selection_key,
                 f"edit_module_selected_module_id_{state_prefix}",
             ]
             for key in keys_to_clear:
