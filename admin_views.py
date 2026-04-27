@@ -912,26 +912,10 @@ def _render_assignment_tool(current_user: dict) -> None:
         st.markdown(
             """
             <style>
-            .assignment-learner-card {
-                border: 1px solid #d1d5db;
-                border-radius: 0.6rem;
-                padding: 0.6rem 0.8rem;
-                margin-bottom: 0.45rem;
-                background: #ffffff;
-            }
-            .assignment-learner-card.selected {
-                border-color: #16a34a;
-                background: #ecfdf3;
-                box-shadow: inset 0 0 0 1px #16a34a;
-            }
-            .assignment-learner-name {
-                font-weight: 600;
-                margin-bottom: 0.15rem;
-            }
-            .assignment-learner-meta {
-                color: #475569;
-                font-size: 0.9rem;
-                line-height: 1.25rem;
+            .assignment-learner-scroll-hint {
+                color: #64748b;
+                font-size: 0.85rem;
+                margin-bottom: 0.35rem;
             }
             </style>
             """,
@@ -945,6 +929,9 @@ def _render_assignment_tool(current_user: dict) -> None:
         }
         st.session_state[selected_learner_ids_key] = sorted(current_selected_ids)
 
+        selected_count = len(st.session_state.get(selected_learner_ids_key, []))
+        st.info(f"{selected_count} learner(s) selected.")
+
         control_col1, control_col2 = st.columns([1, 1])
         with control_col1:
             if st.button("Select all filtered learners", key="assignment_tool_select_all_filtered", width="stretch"):
@@ -957,35 +944,51 @@ def _render_assignment_tool(current_user: dict) -> None:
                 st.session_state[selected_learner_ids_key] = []
                 st.rerun()
 
-        selected_count = len(st.session_state.get(selected_learner_ids_key, []))
-        st.info(f"{selected_count} learner(s) selected.")
-
-        for learner_row in assignment_learner_table.to_dict("records"):
-            learner_id = int(learner_row["learner_id"])
-            is_selected = learner_id in set(st.session_state.get(selected_learner_ids_key, []))
-            card_css_class = "assignment-learner-card selected" if is_selected else "assignment-learner-card"
-            card_col, action_col = st.columns([6, 1.2], vertical_alignment="center")
-            with card_col:
+        st.markdown("<div class='assignment-learner-scroll-hint'>Scroll to view more learners.</div>", unsafe_allow_html=True)
+        selected_ids_set = set(st.session_state.get(selected_learner_ids_key, []))
+        card_list_container = st.container(height=400, border=True)
+        with card_list_container:
+            for learner_row in assignment_learner_table.to_dict("records"):
+                learner_id = int(learner_row["learner_id"])
+                is_selected = learner_id in selected_ids_set
+                css_key = f"toggle_learner_{learner_id}"
+                escaped_css_key = css_key.replace("_", "\\_")
                 st.markdown(
-                    (
-                        f"<div class='{card_css_class}'>"
-                        f"<div class='assignment-learner-name'>{learner_row['Name']}</div>"
-                        f"<div class='assignment-learner-meta'>"
-                        f"{learner_row['Email']}<br/>"
-                        f"Team/Department: {learner_row['Team/Department'] or '—'} &nbsp;|&nbsp; "
-                        f"Organization: {learner_row['Organization'] or 'Unassigned'} &nbsp;|&nbsp; "
-                        f"Status: {learner_row['Status']}"
-                        "</div>"
-                        "</div>"
-                    ),
+                    f"""
+                    <style>
+                    .st-key-{escaped_css_key} button {{
+                        width: 100%;
+                        text-align: left;
+                        justify-content: flex-start;
+                        min-height: 4.75rem;
+                        border-radius: 0.6rem;
+                        border: 1px solid {'#16a34a' if is_selected else '#d1d5db'};
+                        background: {'#ecfdf3' if is_selected else '#ffffff'};
+                        color: #0f172a;
+                        padding: 0.55rem 0.75rem;
+                        margin-bottom: 0.4rem;
+                        white-space: pre-line;
+                        line-height: 1.25rem;
+                    }}
+                    .st-key-{escaped_css_key} button:hover {{
+                        border-color: {'#16a34a' if is_selected else '#94a3b8'};
+                        background: {'#dcfce7' if is_selected else '#f8fafc'};
+                    }}
+                    </style>
+                    """,
                     unsafe_allow_html=True,
                 )
-            with action_col:
-                toggle_label = "Selected" if is_selected else "Select"
+                card_label = (
+                    f"{'✅ Selected   ' if is_selected else ''}{learner_row['Name']}\n"
+                    f"{learner_row['Email']}\n"
+                    f"Team/Department: {learner_row['Team/Department'] or '—'}   •   "
+                    f"Organization: {learner_row['Organization'] or 'Unassigned'}   •   "
+                    f"Status: {learner_row['Status']}"
+                )
                 if st.button(
-                    toggle_label,
-                    key=f"assignment_tool_toggle_learner_{learner_id}",
-                    type="secondary" if is_selected else "primary",
+                    card_label,
+                    key=css_key,
+                    type="secondary",
                     width="stretch",
                 ):
                     selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
