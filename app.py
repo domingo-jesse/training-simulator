@@ -1479,13 +1479,17 @@ def render_main_app() -> None:
         <style>
         [data-testid="stMainBlockContainer"] { padding-top: 8px !important; }
         [data-testid="stVerticalBlock"]:has(.sticky-user-header-marker) {
-            position: sticky;
-            top: 0;
+            position: fixed !important;
+            top: 0.75rem;
+            right: 1rem;
+            left: auto !important;
             z-index: 1000;
             background: #ffffff;
-            border-bottom: 1px solid #e5e7eb;
-            padding: 6px 10px 4px 10px;
-            margin-bottom: 0.4rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 0.4rem 0.55rem;
+            margin: 0;
+            box-shadow: 0 2px 12px rgba(16, 24, 40, 0.08);
         }
         </style>
         """,
