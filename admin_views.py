@@ -835,9 +835,63 @@ def _render_assignment_tool(current_user: dict) -> None:
                 "organization_name": "organization",
             }
         ).copy()
+        filtered_learners_df["learner_label"] = filtered_learners_df.apply(
+            lambda row: build_learner_option_label(
+                {
+                    "name": row.get("full_name"),
+                    "team": row.get("team_department"),
+                    "organization_name": row.get("organization"),
+                    "email": row.get("email"),
+                }
+            ),
+            axis=1,
+        )
+        all_filtered_labels = filtered_learners_df["learner_label"].tolist()
+        label_to_learner_id = {
+            row["learner_label"]: int(row["learner_id"])
+            for _, row in filtered_learners_df.iterrows()
+        }
+        multiselect_key = "assignment_tool_filtered_multiselect"
+        if multiselect_key not in st.session_state:
+            st.session_state[multiselect_key] = []
+        valid_selected = [
+            label for label in st.session_state[multiselect_key] if label in all_filtered_labels
+        ]
+        if valid_selected != st.session_state[multiselect_key]:
+            st.session_state[multiselect_key] = valid_selected
+
+        def select_all_filtered_learners() -> None:
+            st.session_state[multiselect_key] = list(all_filtered_labels)
+
+        def clear_filtered_learners() -> None:
+            st.session_state[multiselect_key] = []
+
         st.caption(f"{len(filtered_learners_df)} active learners match current filters")
+        select_col1, select_col2 = st.columns([1, 1])
+        with select_col1:
+            st.button(
+                "Select all filtered",
+                key="assignment_tool_select_all_filtered",
+                on_click=select_all_filtered_learners,
+                disabled=filtered_learners_df.empty,
+            )
+        with select_col2:
+            st.button(
+                "Clear selected",
+                key="assignment_tool_clear_filtered",
+                on_click=clear_filtered_learners,
+                disabled=not bool(st.session_state.get(multiselect_key, [])),
+            )
+        selected_labels = st.multiselect(
+            "Selected learners",
+            options=all_filtered_labels,
+            key=multiselect_key,
+            help="Selections persist while applying filters. Use Clear selected to reset.",
+        )
+        selected_learner_ids = [label_to_learner_id[label] for label in selected_labels if label in label_to_learner_id]
+        st.session_state[selected_learner_ids_key] = selected_learner_ids
+
         if filtered_learners_df.empty:
-            st.session_state[selected_learner_ids_key] = []
             st.info("No active learners match the current filters.")
             return
 
@@ -861,28 +915,20 @@ def _render_assignment_tool(current_user: dict) -> None:
                 "status": "Status",
             }
         )
-        event = st.dataframe(
+        st.dataframe(
             display_df,
             hide_index=True,
             width="stretch",
             height=360,
             key="assignment_learner_table",
-            on_select="rerun",
-            selection_mode="multi-row",
             column_config={
                 "learner_id": None,
             },
         )
-        selected_rows = event.selection.rows if event and event.selection else []
-        selected_learner_ids = [
-            int(display_df.iloc[row]["learner_id"])
-            for row in selected_rows
-        ]
-        st.session_state.assignment_selected_learner_ids = selected_learner_ids
         st.info(f"{len(selected_learner_ids)} learner(s) selected.")
 
         logger.info(
-            "Assignment learner selection updated via dataframe row selection.",
+            "Assignment learner selection updated.",
             action="assignment_tool_selection",
             selected_count=len(selected_learner_ids),
         )
