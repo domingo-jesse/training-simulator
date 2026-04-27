@@ -947,7 +947,10 @@ def _render_assignment_tool(current_user: dict) -> None:
             """
             <style>
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] {
-                gap: 0.15rem;
+                gap: 0.1rem;
+            }
+            .st-key-assignment_learner_rows [data-testid="stVerticalBlockBorderWrapper"] {
+                padding: 0.25rem 0.35rem;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] {
                 margin: 0 0 4px 0;
@@ -960,21 +963,21 @@ def _render_assignment_tool(current_user: dict) -> None:
                 align-items: flex-start;
                 justify-content: flex-start;
                 text-align: left;
-                border-radius: 4px;
+                border-radius: 3px;
                 border: 1px solid #e5e7eb;
                 box-shadow: none;
                 background: #ffffff;
                 color: #1f2937;
-                padding: 8px 12px;
+                padding: 9px 10px;
                 margin: 0;
                 min-height: 0;
-                line-height: 1.2;
+                line-height: 1.25;
                 cursor: pointer;
                 white-space: pre-line;
-                font-size: 0.9rem;
+                font-size: 1rem;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button:hover {
-                background: #f3f4f6;
+                background: #f5f5f5;
                 border-color: #e5e7eb;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button div,
@@ -983,14 +986,16 @@ def _render_assignment_tool(current_user: dict) -> None:
                 width: 100%;
                 text-align: left;
                 justify-content: flex-start;
+                align-items: flex-start;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:first-child {
                 font-weight: 600;
+                font-size: 17px;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:last-child {
-                color: #6b7280;
-                font-size: 0.8rem;
-                margin-top: 0.15rem;
+                color: #555;
+                font-size: 14px;
+                margin-top: 0.1rem;
             }
             </style>
             """,
@@ -1014,7 +1019,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                     }}
                     .st-key-{escaped_css_key} button:hover {{
                         border-color: {'#34a853' if is_selected else '#e5e7eb'} !important;
-                        background: {'#e6f4ea' if is_selected else '#f3f4f6'} !important;
+                        background: {'#e6f4ea' if is_selected else '#f5f5f5'} !important;
                     }}
                     </style>
                     """,
