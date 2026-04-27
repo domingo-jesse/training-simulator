@@ -272,27 +272,34 @@ def inject_styles() -> None:
         .admin-user-menu {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 8px;
         }
         .admin-user-text {
             text-align: right;
-            line-height: 1.1;
+            line-height: 1.02;
+            min-width: 0;
         }
         .admin-user-text strong {
             display: block;
-            font-size: 14px;
+            font-size: 12px;
             color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .admin-user-text span {
             display: block;
-            font-size: 12px;
+            font-size: 10px;
             color: #667085;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
         .settings-button-wrap [data-testid="stPopover"] > button {
-            width: 32px;
-            min-width: 32px;
-            height: 32px;
-            border-radius: 8px;
+            width: 28px;
+            min-width: 28px;
+            height: 28px;
+            border-radius: 7px;
             border: 1px solid #d0d5dd;
             background: #ffffff;
             padding: 0;

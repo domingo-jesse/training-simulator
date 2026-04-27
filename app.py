@@ -1248,7 +1248,7 @@ def _render_sticky_user_header() -> None:
     email = (current_user.get("email") or "").strip()
     with st.container():
         st.markdown('<div class="sticky-user-header-marker"></div>', unsafe_allow_html=True)
-        _, user_text_col, menu_col = st.columns([7, 1.6, 0.5], vertical_alignment="center")
+        user_text_col, menu_col = st.columns([1, 0.24], vertical_alignment="center")
         with user_text_col:
             st.markdown(
                 f"""
@@ -1492,14 +1492,16 @@ def render_main_app() -> None:
         [data-testid="stMainBlockContainer"] { padding-top: 8px !important; }
         [data-testid="stVerticalBlock"]:has(.sticky-user-header-marker) {
             position: sticky !important;
-            top: 0.5rem;
-            z-index: 10;
+            top: 0.25rem;
+            z-index: 100;
             background: #ffffff;
             border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 0.4rem 0.55rem;
-            margin: 0 0 0.5rem auto;
-            box-shadow: 0 2px 12px rgba(16, 24, 40, 0.08);
+            border-radius: 10px;
+            padding: 0.2rem 0.4rem;
+            margin: 0 0 0.4rem auto;
+            box-shadow: 0 1px 8px rgba(16, 24, 40, 0.08);
+            width: fit-content;
+            max-width: 280px;
         }
         </style>
         """,
