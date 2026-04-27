@@ -105,6 +105,18 @@ section.main > div {
     gap: 0.5rem;
 }
 
+/* THIN OUT HORIZONTAL ROWS (st.columns containers) */
+[data-testid="stHorizontalBlock"] {
+    gap: 0.2rem !important;
+}
+
+[data-testid="stHorizontalBlock"] > div {
+    padding-top: 0.05rem;
+    padding-bottom: 0.05rem;
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
 /* TIGHTEN HEADERS */
 h1, h2, h3 {
     margin-bottom: 0.5rem;
