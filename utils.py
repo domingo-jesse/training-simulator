@@ -132,23 +132,31 @@ def inject_styles() -> None:
             max-width: 100% !important;
             overflow: visible !important;
         }
+        [data-testid="stSidebarHeader"] {
+            min-height: 2.2rem;
+            margin-bottom: 0.45rem;
+            padding-top: 0.1rem;
+            padding-bottom: 0.12rem;
+        }
         .sidebar-header {
-            margin: 0.05rem 0 0.4rem 0;
-            padding: 0.08rem 0.2rem 0.32rem 0.2rem;
+            margin: 0.01rem 0 0.24rem 0;
+            padding: 0.02rem 0.16rem 0.16rem 0.16rem;
             border-bottom: 1px solid var(--line);
         }
         .sidebar-eyebrow {
-            font-size: 0.74rem;
+            font-size: 0.68rem;
             text-transform: uppercase;
             letter-spacing: 0.08em;
             color: var(--muted);
             font-weight: 700;
-            margin-bottom: 0.15rem;
+            margin-bottom: 0.08rem;
+            line-height: 1.1;
         }
         .sidebar-title {
-            font-size: 1.02rem;
+            font-size: 0.94rem;
             color: var(--text);
             font-weight: 700;
+            line-height: 1.12;
         }
         [data-testid="stSidebar"] .stButton {
             width: 100%;
