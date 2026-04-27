@@ -956,6 +956,9 @@ def _render_assignment_tool(current_user: dict) -> None:
                     <style>
                     .st-key-{escaped_css_key} button {{
                         width: 100%;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: flex-start;
                         text-align: left;
                         justify-content: flex-start;
                         min-height: 4.4rem;
@@ -963,7 +966,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                         border: {'2px solid #34a853' if is_selected else '1px solid #dddddd'};
                         background: {'#e6f4ea' if is_selected else '#ffffff'};
                         color: #0f172a;
-                        padding: 0.5rem 0.7rem;
+                        padding: 0.75rem 0.9rem;
                         margin-bottom: 0.5rem;
                         white-space: pre-line;
                         line-height: 1.2rem;
@@ -975,14 +978,17 @@ def _render_assignment_tool(current_user: dict) -> None:
                     }}
                     .st-key-{escaped_css_key} button p {{
                         margin: 0;
+                        text-align: left;
+                        width: 100%;
                     }}
                     .st-key-{escaped_css_key} button p:first-child {{
                         font-weight: 600;
+                        font-size: 0.97rem;
                     }}
                     .st-key-{escaped_css_key} button p:last-child {{
-                        font-size: 0.82rem;
-                        color: #475569;
-                        margin-top: 0.15rem;
+                        font-size: 0.8rem;
+                        color: #6b7280;
+                        margin-top: 0.2rem;
                     }}
                     </style>
                     """,
