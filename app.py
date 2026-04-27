@@ -119,7 +119,19 @@ section.main > div {
 
 /* TIGHTEN HEADERS */
 h1, h2, h3 {
+    margin-top: 0;
     margin-bottom: 0.5rem;
+}
+
+/* TIGHTEN TOP-LEVEL PAGE STACK ONLY (not sidebar/internal component spacing) */
+[data-testid="stAppViewContainer"] > .main .block-container > [data-testid="stVerticalBlock"] {
+    padding-top: 0 !important;
+    margin-top: 0 !important;
+}
+
+[data-testid="stAppViewContainer"] > .main .block-container > [data-testid="stVerticalBlock"] > div:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
 }
 
 /* REDUCE INPUT / FILTER HEIGHT */
