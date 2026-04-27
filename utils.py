@@ -63,10 +63,10 @@ def inject_styles() -> None:
         .main .block-container,
         [data-testid="stAppViewBlockContainer"],
         [data-testid="stMainBlockContainer"] {
-            padding-top: 0rem !important;
+            padding-top: 1px !important;
         }
         [data-testid="stAppViewContainer"] > .main {
-            padding-top: 0 !important;
+            padding-top: 1px !important;
         }
         .main .block-container {
             padding-bottom: 2rem;
