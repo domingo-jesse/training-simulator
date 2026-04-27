@@ -888,15 +888,13 @@ def _render_assignment_tool(current_user: dict) -> None:
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
         assignment_learner_table = filtered_active_learners[
-            ["user_id", "name", "email", "team", "organization_name", "status"]
+            ["user_id", "name", "team", "organization_name"]
         ].reset_index(drop=True).rename(
             columns={
                 "user_id": "learner_id",
                 "name": "Name",
-                "email": "Email",
                 "team": "Team/Department",
                 "organization_name": "Organization",
-                "status": "Status",
             }
         )
         logger.info(
@@ -980,10 +978,8 @@ def _render_assignment_tool(current_user: dict) -> None:
                 )
                 card_label = (
                     f"{'✅ Selected   ' if is_selected else ''}{learner_row['Name']}\n"
-                    f"{learner_row['Email']}\n"
                     f"Team/Department: {learner_row['Team/Department'] or '—'}   •   "
-                    f"Organization: {learner_row['Organization'] or 'Unassigned'}   •   "
-                    f"Status: {learner_row['Status']}"
+                    f"Organization: {learner_row['Organization'] or 'Unassigned'}"
                 )
                 if st.button(
                     card_label,
@@ -1005,15 +1001,6 @@ def _render_assignment_tool(current_user: dict) -> None:
             selected_count=len(st.session_state.get(selected_learner_ids_key, [])),
             visible_count=len(visible_ids),
         )
-
-        with st.expander("View filtered learner table"):
-            st.dataframe(
-                assignment_learner_table[
-                    ["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"]
-                ],
-                width="stretch",
-                hide_index=True,
-            )
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
