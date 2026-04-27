@@ -1351,9 +1351,7 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
     safe_email = escape(email)
 
     _ = safe_title  # Title is rendered by each page body to avoid duplicate headers.
-    header_spacer, header_user, header_icon = st.columns([7, 2, 1], vertical_alignment="center")
-    with header_spacer:
-        st.markdown("&nbsp;", unsafe_allow_html=True)
+    _, header_user, header_icon = st.columns([7, 2, 1], vertical_alignment="center")
     with header_user:
         st.markdown(
             f"""
@@ -1375,7 +1373,7 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
             if st.button("Logout", key="header_profile_logout_btn", type="secondary", width="stretch"):
                 logout_user()
                 st.rerun()
-    st.markdown("<hr style='margin: 0.3rem 0 0.8rem 0; border: 0; border-top: 1px solid #e5e7eb;'>", unsafe_allow_html=True)
+    st.markdown("<hr style='margin: 0.2rem 0 0.25rem 0; border: 0; border-top: 1px solid #e5e7eb;'>", unsafe_allow_html=True)
 
 
 def _current_header_title(user: dict[str, Any], nav_page: str) -> str:

@@ -238,10 +238,15 @@ def inject_styles() -> None:
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 0.25rem;
+            margin-top: 0;
+            margin-bottom: 0.1rem;
         }
         .page-header-title { font-size: 1.5rem; font-weight: 700; color: var(--text); }
-        .page-header-subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 0.1rem; }
+        .page-header-subtitle { color: var(--muted); font-size: 0.92rem; margin-top: 0.02rem; }
+        [data-testid="stElementContainer"]:has(.page-header) {
+            margin-top: 0 !important;
+            margin-bottom: 0.2rem !important;
+        }
         .kpi-card {
             background: var(--surface);
             border: 1px solid var(--line);
