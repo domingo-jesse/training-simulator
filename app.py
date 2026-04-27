@@ -1247,12 +1247,13 @@ def _render_sticky_user_header() -> None:
     display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
     email = (current_user.get("email") or "").strip()
     with st.container():
-        st.markdown('<div class="sticky-user-header-marker"></div>', unsafe_allow_html=True)
-        _, user_text_col, menu_col = st.columns([7, 1.6, 0.5], vertical_alignment="center")
+        st.markdown('<div class="floating-user-menu-marker"></div>', unsafe_allow_html=True)
+        st.markdown('<div class="floating-user-menu">', unsafe_allow_html=True)
+        user_text_col, menu_col = st.columns([3.6, 1], vertical_alignment="center")
         with user_text_col:
             st.markdown(
                 f"""
-                <div class="admin-user-text">
+                <div class="floating-user-menu__identity">
                     <strong>{display_name}</strong>
                     <span>{email}</span>
                 </div>
@@ -1260,7 +1261,7 @@ def _render_sticky_user_header() -> None:
                 unsafe_allow_html=True,
             )
         with menu_col:
-            st.markdown('<div class="settings-button-wrap">', unsafe_allow_html=True)
+            st.markdown('<div class="floating-user-menu__actions">', unsafe_allow_html=True)
             with st.popover("⚙️", use_container_width=False):
                 if st.button("Settings", key="header_settings_btn", use_container_width=True):
                     st.session_state["current_page"] = "settings"
@@ -1270,6 +1271,7 @@ def _render_sticky_user_header() -> None:
                     logout_user()
                     st.rerun()
             st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 
 def _is_valid_email(email: str) -> bool:
@@ -1489,17 +1491,64 @@ def render_main_app() -> None:
     st.markdown(
         """
         <style>
-        [data-testid="stMainBlockContainer"] { padding-top: 8px !important; }
-        [data-testid="stVerticalBlock"]:has(.sticky-user-header-marker) {
-            position: sticky !important;
-            top: 0.5rem;
-            z-index: 10;
+        [data-testid="stMainBlockContainer"] {
+            padding-top: 8px !important;
+            padding-right: 21rem !important;
+        }
+        [data-testid="stVerticalBlock"]:has(.floating-user-menu-marker) {
+            position: fixed !important;
+            top: 3.8rem;
+            right: 1rem;
+            width: min(19rem, calc(100vw - 2rem));
+            z-index: 100;
+            margin: 0 !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: 0 !important;
+            box-shadow: none !important;
+        }
+        .floating-user-menu {
+            min-height: 44px;
+            display: flex;
+            align-items: center;
             background: #ffffff;
             border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 0.4rem 0.55rem;
-            margin: 0 0 0.5rem auto;
-            box-shadow: 0 2px 12px rgba(16, 24, 40, 0.08);
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(16, 24, 40, 0.08);
+            padding: 0.2rem 0.4rem 0.2rem 0.6rem;
+        }
+        .floating-user-menu__identity {
+            line-height: 1.1;
+            overflow: hidden;
+        }
+        .floating-user-menu__identity strong,
+        .floating-user-menu__identity span {
+            display: block;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
+        }
+        .floating-user-menu__identity strong {
+            font-size: 0.75rem;
+            color: #101828;
+        }
+        .floating-user-menu__identity span {
+            font-size: 0.68rem;
+            color: #667085;
+            margin-top: 1px;
+        }
+        .floating-user-menu .floating-user-menu__actions [data-testid="stPopover"] > button {
+            width: 28px;
+            min-width: 28px;
+            height: 28px;
+            border-radius: 7px;
+            border: 1px solid #d0d5dd;
+            background: #fff;
+            padding: 0;
+        }
+        .floating-user-menu .floating-user-menu__actions [data-testid="stPopover"] > button:hover {
+            background: #f9fafb;
         }
         </style>
         """,
