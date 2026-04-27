@@ -914,43 +914,41 @@ def _render_assignment_tool(current_user: dict) -> None:
             for v in st.session_state.get(selected_learner_ids_key, [])
             if int(v) in visible_ids
         }
-        preselected_row_indices = [
-            row_index
-            for row_index, learner_id in enumerate(assignment_learner_table["learner_id"].tolist())
-            if int(learner_id) in current_selected_ids
-        ]
         selection_table_df = assignment_learner_table[
             ["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"]
         ].copy()
-        gb = GridOptionsBuilder.from_dataframe(selection_table_df)
-        gb.configure_default_column(sortable=True, filter=False, resizable=True)
-        gb.configure_selection(
-            selection_mode="multiple",
-            use_checkbox=False,
-            pre_selected_rows=preselected_row_indices,
+        selection_table_df.insert(
+            0,
+            "Selected",
+            selection_table_df["learner_id"].apply(lambda learner_id: int(learner_id) in current_selected_ids),
         )
-        gb.configure_column("learner_id", hide=True)
-        grid_options = gb.build()
-        grid_options["rowMultiSelectWithClick"] = True
-        grid_options["suppressRowClickSelection"] = False
 
-        grid_response = AgGrid(
+        edited_selection_df = st.data_editor(
             selection_table_df,
-            gridOptions=grid_options,
+            hide_index=True,
+            width="stretch",
             height=380,
-            width="100%",
-            theme="streamlit",
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-            fit_columns_on_grid_load=True,
-            key="assignment_learner_selection_grid",
+            column_config={
+                "Selected": st.column_config.CheckboxColumn(
+                    "Select",
+                    help="Check to include this learner in the assignment.",
+                    default=False,
+                ),
+                "learner_id": st.column_config.NumberColumn("Learner ID", disabled=True),
+                "Name": st.column_config.TextColumn(disabled=True),
+                "Email": st.column_config.TextColumn(disabled=True),
+                "Team/Department": st.column_config.TextColumn(disabled=True),
+                "Organization": st.column_config.TextColumn(disabled=True),
+                "Status": st.column_config.TextColumn(disabled=True),
+            },
+            disabled=["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"],
+            key="assignment_learner_selection_editor",
         )
 
-        selected_rows = grid_response.get("selected_rows") or []
         selected_visible_ids = {
-            int(row.get("learner_id"))
-            for row in selected_rows
-            if row.get("learner_id") is not None
+            int(row["learner_id"])
+            for _, row in edited_selection_df.iterrows()
+            if bool(row.get("Selected", False))
         }
         preserved_non_visible_ids = {
             int(v)
