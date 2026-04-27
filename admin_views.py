@@ -947,13 +947,16 @@ def _render_assignment_tool(current_user: dict) -> None:
             """
             <style>
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] {
-                gap: 0.1rem;
+                gap: 0;
             }
             .st-key-assignment_learner_rows [data-testid="stVerticalBlockBorderWrapper"] {
-                padding: 0.25rem 0.35rem;
+                padding: 0;
+                border: 1px solid #e5e7eb;
+                border-radius: 8px;
+                overflow: hidden;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] {
-                margin: 0 0 4px 0;
+                margin: 0;
                 width: 100%;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button {
@@ -961,24 +964,27 @@ def _render_assignment_tool(current_user: dict) -> None:
                 display: flex;
                 flex-direction: column;
                 align-items: flex-start;
-                justify-content: flex-start;
+                justify-content: center;
                 text-align: left;
-                border-radius: 3px;
-                border: 1px solid #e5e7eb;
+                border-radius: 0;
+                border: none;
+                border-bottom: 1px solid #eef2f7;
                 box-shadow: none;
                 background: #ffffff;
                 color: #1f2937;
-                padding: 12px 16px;
+                padding: 8px 12px;
                 margin: 0;
-                min-height: 0;
+                min-height: 48px;
                 line-height: 1.25;
                 cursor: pointer;
                 white-space: pre-line;
-                font-size: 18px;
+                font-size: 15px;
+                position: relative;
+                gap: 2px;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button:hover {
-                background: #f5f5f5;
-                border-color: #e5e7eb;
+                background: #f8fafc;
+                border-color: #eef2f7;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button [data-testid="stMarkdownContainer"] {
                 width: 100%;
@@ -1001,19 +1007,23 @@ def _render_assignment_tool(current_user: dict) -> None:
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:first-child {
                 font-weight: 600;
-                font-size: 18px;
+                font-size: 15px;
+                color: #111827;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:last-child {
-                color: #4b5563;
-                font-size: 15px;
-                margin-top: 0.2rem;
+                color: #6b7280;
+                font-size: 13px;
+                margin-top: 1px;
+            }
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div:last-child[class*="st-key-learner\_row\_toggle\_"] button {
+                border-bottom: none;
             }
             </style>
             """,
             unsafe_allow_html=True,
         )
         selected_ids_set = set(st.session_state.get(selected_learner_ids_key, []))
-        card_list_container = st.container(key="assignment_learner_rows", height=400, border=True)
+        card_list_container = st.container(key="assignment_learner_rows", height=320, border=False)
         with card_list_container:
             for learner_row in assignment_learner_table.to_dict("records"):
                 learner_id = int(learner_row["learner_id"])
@@ -1024,19 +1034,32 @@ def _render_assignment_tool(current_user: dict) -> None:
                     f"""
                     <style>
                     .st-key-{escaped_css_key} button {{
-                        border: {'1px solid #34a853' if is_selected else '1px solid #e5e7eb'} !important;
-                        background: {'#34a853' if is_selected else '#ffffff'} !important;
-                        color: {'#ffffff' if is_selected else '#1f2937'} !important;
+                        background: {'#e6f4ea' if is_selected else '#ffffff'} !important;
+                        border-left: {'4px solid #34a853' if is_selected else '4px solid transparent'} !important;
+                        padding-left: {'8px' if is_selected else '12px'} !important;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
-                        border-color: {'#34a853' if is_selected else '#e5e7eb'} !important;
-                        background: {'#34a853' if is_selected else '#f5f5f5'} !important;
+                        background: {'#e6f4ea' if is_selected else '#f8fafc'} !important;
                     }}
                     .st-key-{escaped_css_key} button p:first-child {{
-                        color: {'#ffffff' if is_selected else '#1f2937'} !important;
+                        color: #111827 !important;
                     }}
                     .st-key-{escaped_css_key} button p:last-child {{
-                        color: {'#e8f5e9' if is_selected else '#4b5563'} !important;
+                        color: #6b7280 !important;
+                    }}
+                    .st-key-{escaped_css_key} button::after {{
+                        content: {'"Selected"' if is_selected else '""'};
+                        position: absolute;
+                        right: 12px;
+                        top: 50%;
+                        transform: translateY(-50%);
+                        background: #34a853;
+                        color: #ffffff;
+                        border-radius: 999px;
+                        font-size: 11px;
+                        font-weight: 600;
+                        line-height: 1;
+                        padding: 4px 8px;
                     }}
                     </style>
                     """,
@@ -1060,7 +1083,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                     st.rerun()
 
         logger.info(
-            "Assignment learner selection updated via learner cards.",
+            "Assignment learner selection updated via compact list rows.",
             action="assignment_tool_selection",
             selected_count=len(st.session_state.get(selected_learner_ids_key, [])),
             visible_count=len(visible_ids),
