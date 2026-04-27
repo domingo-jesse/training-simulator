@@ -255,16 +255,11 @@ def inject_styles() -> None:
         .app-sticky-header {
             margin: -0.2rem 0 0.35rem;
             padding: 0.18rem 0.15rem 0.25rem;
-        }
-        [data-testid="stHorizontalBlock"]:has(.app-sticky-header-user-meta) {
             position: sticky;
             top: 0;
             z-index: 100;
             background: var(--surface);
             border-bottom: 1px solid var(--line);
-            padding-top: 0.18rem;
-            padding-bottom: 0.25rem;
-            margin-top: -0.2rem;
         }
         .app-sticky-header-user-meta { text-align: right; }
         .app-sticky-header-username {
