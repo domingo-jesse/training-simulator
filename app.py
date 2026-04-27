@@ -78,80 +78,15 @@ st.set_page_config(
 st.markdown(
     """
 <style>
-
-/* MAIN PAGE CONTAINER */
-section.main > div {
-    padding-top: 0;
-    padding-bottom: 0rem;
-    padding-left: 2rem;
-    padding-right: 2rem;
-}
-
-/* NEW STREAMLIT CLASS (important) */
-.stAppViewBlockContainer {
-    padding-top: 0;
-    padding-bottom: 0rem;
-}
-
-/* REMOVE EXTRA TOP SPACE */
+/* GLOBAL PAGE CONTENT OFFSET (main content only) */
 .block-container {
-    padding-top: 0;
-    padding-bottom: 0rem;
-    margin-top: 0rem;
+    padding-top: 0.8rem;
 }
 
-/* REDUCE SPACE BETWEEN COMPONENTS */
-[data-testid="stVerticalBlock"] > div {
-    gap: 0.5rem;
-}
-
-/* THIN OUT HORIZONTAL ROWS (st.columns containers) */
-[data-testid="stHorizontalBlock"] {
-    gap: 0.2rem !important;
-}
-
-[data-testid="stHorizontalBlock"] > div {
-    padding-top: 0.05rem;
-    padding-bottom: 0.05rem;
-    margin-top: 0;
-    margin-bottom: 0;
-}
-
-/* TIGHTEN HEADERS */
-h1, h2, h3 {
-    margin-top: 0;
-    margin-bottom: 0.5rem;
-}
-
-/* TIGHTEN TOP-LEVEL PAGE STACK ONLY (not sidebar/internal component spacing) */
-[data-testid="stAppViewContainer"] > .main .block-container > [data-testid="stVerticalBlock"] {
-    padding-top: 0 !important;
-    margin-top: 0 !important;
-}
-
-[data-testid="stAppViewContainer"] > .main .block-container > [data-testid="stVerticalBlock"] > div:first-child {
-    margin-top: 0 !important;
-    padding-top: 0 !important;
-}
-
-/* REDUCE INPUT / FILTER HEIGHT */
-.stTextInput, .stSelectbox, .stMultiSelect {
-    margin-bottom: 0.5rem;
-}
-
-/* SIDEBAR CLEANUP */
-section[data-testid="stSidebar"] .block-container {
-    padding-top: 0.5rem;
-}
-
-/* TABLE SPACING */
-[data-testid="stDataFrame"] {
-    margin-top: 0rem;
-}
-
-/* OPTIONAL: REMOVE DEFAULT EMPTY SPACING BLOCKS */
-.stMarkdown {
-    margin-bottom: 0.25rem;
+h1,
+h2 {
+    margin-top: 0.1rem;
+    margin-bottom: 0.45rem;
 }
 
 </style>

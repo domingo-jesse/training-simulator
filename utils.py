@@ -63,8 +63,7 @@ def inject_styles() -> None:
         .main .block-container,
         [data-testid="stAppViewBlockContainer"],
         [data-testid="stMainBlockContainer"] {
-            padding-top: 0 !important;
-            margin-top: 0 !important;
+            padding-top: 0.8rem !important;
         }
         [data-testid="stAppViewContainer"] > .main {
             padding-top: 0 !important;
@@ -73,10 +72,15 @@ def inject_styles() -> None:
             padding-bottom: 2rem;
             padding-left: 20px !important;
             padding-right: 20px !important;
-            padding-top: 0 !important;
+            padding-top: 0.8rem !important;
             max-width: 1120px !important;
             margin-left: auto !important;
             margin-right: auto !important;
+        }
+        .main .block-container h1,
+        .main .block-container h2 {
+            margin-top: 0.1rem;
+            margin-bottom: 0.45rem;
         }
         @media (min-width: 1600px) {
             .main .block-container {
