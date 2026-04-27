@@ -244,12 +244,44 @@ def inject_styles() -> None:
             margin-top: 0;
             margin-bottom: 0;
         }
-        .admin-content {
-            padding-top: 0;
+        .app-sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 30;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(6px);
+            border-bottom: 1px solid var(--line);
+            margin: -0.2rem 0 0.35rem;
+            padding: 0.2rem 0.15rem;
         }
-        .admin-content > *:first-child {
-            margin-top: 0 !important;
-            padding-top: 0 !important;
+        .app-sticky-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.4rem;
+            min-height: 1.05rem;
+        }
+        .app-sticky-header-username {
+            color: #475467;
+            font-size: 0.72rem;
+            line-height: 1;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .app-sticky-header-settings {
+            color: var(--brand);
+            font-size: 0.7rem;
+            line-height: 1;
+            font-weight: 700;
+            text-decoration: none;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .app-sticky-header-settings:hover {
+            color: #4338ca;
+            text-decoration: underline;
         }
         h1, .page-title, .page-header-title {
             margin-top: 0 !important;
@@ -495,7 +527,7 @@ def _normalize_container_variant(variant: str) -> str:
 def page_container(variant: str = "wide"):
     normalized = _normalize_container_variant(variant)
     st.markdown(
-        f"<div class='app-page-shell'><div class='app-page-container admin-content app-page-container-{normalized}'>",
+        f"<div class='app-page-shell'><div class='app-page-container app-page-container-{normalized}'>",
         unsafe_allow_html=True,
     )
     try:
