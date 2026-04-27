@@ -760,9 +760,14 @@ def _render_assignment_tool(current_user: dict) -> None:
             if learner.get("role") == "learner"
             or (current_user_is_dev and is_dev_account(learner))
         ]
-        learners_df = to_df(assignable_learners, columns=["user_id", "name", "team", "organization_name"])
+        learners_df = to_df(
+            assignable_learners,
+            columns=["user_id", "name", "email", "team", "organization_name", "is_active"],
+        )
+        learners_df["email"] = learners_df["email"].fillna("")
         learners_df["team"] = learners_df["team"].fillna("")
         learners_df["organization_name"] = learners_df["organization_name"].fillna("Unassigned")
+        learners_df["status"] = learners_df["is_active"].apply(lambda is_active: "Active" if bool(is_active) else "Inactive")
 
         team_options = sorted([team for team in learners_df["team"].unique().tolist() if team])
         org_options = sorted(learners_df["organization_name"].unique().tolist())
@@ -811,21 +816,41 @@ def _render_assignment_tool(current_user: dict) -> None:
             team_filter=team_filter,
             org_filter=org_filter,
         )
+        logger.info(
+            "Assignment learners dataframe ready for grid.",
+            action="assignment_tool_learners_df",
+            shape=filtered_active_learners.shape,
+            columns=list(filtered_active_learners.columns),
+        )
         visible_ids = {int(v) for v in filtered_active_learners["user_id"].tolist()}
         all_active_ids = {int(v) for v in all_active_learners["user_id"].tolist()}
         existing_ids = {int(v) for v in st.session_state.get(selected_learner_ids_key, []) if int(v) in all_active_ids}
         st.session_state[selected_learner_ids_key] = sorted(existing_ids)
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        assignment_learner_grid = filtered_active_learners[["user_id", "name", "team", "organization_name"]].reset_index(
-            drop=True
-        ).rename(
+        assignment_learner_grid = filtered_active_learners[
+            ["user_id", "name", "email", "team", "organization_name", "status"]
+        ].reset_index(drop=True).rename(
             columns={
                 "user_id": "learner_id",
                 "name": "Learner",
+                "email": "Email",
                 "team": "Team",
                 "organization_name": "Organization",
+                "status": "Status",
             }
+        )
+        logger.info(
+            "Rendering learner grid data.",
+            action="assignment_tool_grid_dataset",
+            shape=assignment_learner_grid.shape,
+            columns=list(assignment_learner_grid.columns),
+        )
+        if assignment_learner_grid.empty:
+            st.info("No active learners match the current filters.")
+            return
+        st.caption(
+            f"Rendering learner grid with {len(assignment_learner_grid)} rows and {len(assignment_learner_grid.columns)} columns."
         )
         prior_selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
         preselected_rows = [
@@ -838,7 +863,7 @@ def _render_assignment_tool(current_user: dict) -> None:
         gb.configure_default_column(filter=True, sortable=True, resizable=True)
         gb.configure_selection(
             selection_mode="multiple",
-            use_checkbox=False,
+            use_checkbox=True,
             rowMultiSelectWithClick=True,
             suppressRowDeselection=False,
             pre_selected_rows=preselected_rows,
@@ -855,11 +880,11 @@ def _render_assignment_tool(current_user: dict) -> None:
             gridOptions=gb.build(),
             data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
             update_mode=GridUpdateMode.SELECTION_CHANGED,
-            height=420,
-            width="stretch",
+            height=360,
+            width="100%",
             allow_unsafe_jscode=False,
             key="assignment_tool_learner_aggrid",
-            fit_columns_on_grid_load=False,
+            fit_columns_on_grid_load=True,
             theme="streamlit",
         )
         selected_rows = grid_response.get("selected_rows") or []
