@@ -253,14 +253,18 @@ def inject_styles() -> None:
             margin-bottom: 0;
         }
         .app-sticky-header {
-            position: sticky;
-            top: 0;
-            z-index: 30;
-            background: rgba(255, 255, 255, 0.92);
-            backdrop-filter: blur(6px);
-            border-bottom: 1px solid var(--line);
             margin: -0.2rem 0 0.35rem;
             padding: 0.18rem 0.15rem 0.25rem;
+        }
+        [data-testid="stHorizontalBlock"]:has(.app-sticky-header-user-meta) {
+            position: sticky;
+            top: 0;
+            z-index: 100;
+            background: var(--surface);
+            border-bottom: 1px solid var(--line);
+            padding-top: 0.18rem;
+            padding-bottom: 0.25rem;
+            margin-top: -0.2rem;
         }
         .app-sticky-header-user-meta { text-align: right; }
         .app-sticky-header-username {
