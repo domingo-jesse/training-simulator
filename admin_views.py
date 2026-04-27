@@ -917,39 +917,21 @@ def _render_assignment_tool(current_user: dict) -> None:
         selection_table_df = assignment_learner_table[
             ["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"]
         ].copy()
-        selection_table_df.insert(
-            0,
-            "Selected",
-            selection_table_df["learner_id"].apply(lambda learner_id: int(learner_id) in current_selected_ids),
-        )
+        selection_table_key = "assignment_learner_selection_editor"
+        st.session_state[f"{selection_table_key}_selected_ids"] = sorted(current_selected_ids)
 
-        edited_selection_df = st.data_editor(
+        _, selected_visible_id_list = render_admin_selection_table(
             selection_table_df,
-            hide_index=True,
-            width="stretch",
+            row_id_col="learner_id",
+            selection_state_key="assignment_learner_selected_visible_ids",
+            table_key=selection_table_key,
+            selection_label="Select",
+            selection_help="Check to include this learner in the assignment.",
+            single_select=False,
             height=380,
-            column_config={
-                "Selected": st.column_config.CheckboxColumn(
-                    "Select",
-                    help="Check to include this learner in the assignment.",
-                    default=False,
-                ),
-                "learner_id": st.column_config.NumberColumn("Learner ID", disabled=True),
-                "Name": st.column_config.TextColumn(disabled=True),
-                "Email": st.column_config.TextColumn(disabled=True),
-                "Team/Department": st.column_config.TextColumn(disabled=True),
-                "Organization": st.column_config.TextColumn(disabled=True),
-                "Status": st.column_config.TextColumn(disabled=True),
-            },
-            disabled=["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"],
-            key="assignment_learner_selection_editor",
+            show_selection_caption=False,
         )
-
-        selected_visible_ids = {
-            int(row["learner_id"])
-            for _, row in edited_selection_df.iterrows()
-            if bool(row.get("Selected", False))
-        }
+        selected_visible_ids = {int(v) for v in selected_visible_id_list}
         preserved_non_visible_ids = {
             int(v)
             for v in st.session_state.get(selected_learner_ids_key, [])
