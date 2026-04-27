@@ -2294,7 +2294,30 @@ def render_admin_assignment_review(current_user: dict, assignment_id: int | None
 
 def render_progress_tracking(current_user: dict) -> None:
     org_id = current_user["organization_id"]
-    render_page_header("Progress Tracking", "Monitor assignment completion and learner activity across your organization.")
+    st.markdown(
+        """
+<style>
+/* Remove top padding from main block */
+.block-container {
+    padding-top: 0rem !important;
+}
+
+/* Remove extra spacing from first container */
+div[data-testid="stElementContainer"]:first-child {
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+}
+
+/* Remove phantom empty containers */
+div[data-testid="stElementContainer"]:empty {
+    display: none;
+}
+</style>
+""",
+        unsafe_allow_html=True,
+    )
+    st.title("Progress Tracking")
+    st.caption("Monitor assignment completion and learner activity across your organization.")
 
     assignments_df = _assignments_with_status(org_id)
     if assignments_df.empty:
