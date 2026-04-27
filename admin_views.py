@@ -909,44 +909,108 @@ def _render_assignment_tool(current_user: dict) -> None:
             st.info("No active learners match the current filters.")
             return
 
+        st.markdown(
+            """
+            <style>
+            .assignment-learner-card {
+                border: 1px solid #d1d5db;
+                border-radius: 0.6rem;
+                padding: 0.6rem 0.8rem;
+                margin-bottom: 0.45rem;
+                background: #ffffff;
+            }
+            .assignment-learner-card.selected {
+                border-color: #16a34a;
+                background: #ecfdf3;
+                box-shadow: inset 0 0 0 1px #16a34a;
+            }
+            .assignment-learner-name {
+                font-weight: 600;
+                margin-bottom: 0.15rem;
+            }
+            .assignment-learner-meta {
+                color: #475569;
+                font-size: 0.9rem;
+                line-height: 1.25rem;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+
         current_selected_ids = {
             int(v)
             for v in st.session_state.get(selected_learner_ids_key, [])
-            if int(v) in visible_ids
+            if int(v) in all_active_ids
         }
-        selection_table_df = assignment_learner_table[
-            ["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"]
-        ].copy()
-        selection_table_key = "assignment_learner_selection_editor"
-        st.session_state[f"{selection_table_key}_selected_ids"] = sorted(current_selected_ids)
+        st.session_state[selected_learner_ids_key] = sorted(current_selected_ids)
 
-        _, selected_visible_id_list = render_admin_selection_table(
-            selection_table_df,
-            row_id_col="learner_id",
-            selection_state_key="assignment_learner_selected_visible_ids",
-            table_key=selection_table_key,
-            selection_label="Select",
-            selection_help="Check to include this learner in the assignment.",
-            single_select=False,
-            height=380,
-            show_selection_caption=False,
-        )
-        selected_visible_ids = {int(v) for v in selected_visible_id_list}
-        preserved_non_visible_ids = {
-            int(v)
-            for v in st.session_state.get(selected_learner_ids_key, [])
-            if int(v) not in visible_ids and int(v) in all_active_ids
-        }
-        merged_selected_ids = sorted(selected_visible_ids | preserved_non_visible_ids)
-        st.session_state[selected_learner_ids_key] = merged_selected_ids
+        control_col1, control_col2 = st.columns([1, 1])
+        with control_col1:
+            if st.button("Select all filtered learners", key="assignment_tool_select_all_filtered", width="stretch"):
+                st.session_state[selected_learner_ids_key] = sorted(
+                    set(st.session_state.get(selected_learner_ids_key, [])) | visible_ids
+                )
+                st.rerun()
+        with control_col2:
+            if st.button("Clear selection", key="assignment_tool_clear_selection", width="stretch"):
+                st.session_state[selected_learner_ids_key] = []
+                st.rerun()
 
-        selected_count = len(merged_selected_ids)
+        selected_count = len(st.session_state.get(selected_learner_ids_key, []))
         st.info(f"{selected_count} learner(s) selected.")
+
+        for learner_row in assignment_learner_table.to_dict("records"):
+            learner_id = int(learner_row["learner_id"])
+            is_selected = learner_id in set(st.session_state.get(selected_learner_ids_key, []))
+            card_css_class = "assignment-learner-card selected" if is_selected else "assignment-learner-card"
+            card_col, action_col = st.columns([6, 1.2], vertical_alignment="center")
+            with card_col:
+                st.markdown(
+                    (
+                        f"<div class='{card_css_class}'>"
+                        f"<div class='assignment-learner-name'>{learner_row['Name']}</div>"
+                        f"<div class='assignment-learner-meta'>"
+                        f"{learner_row['Email']}<br/>"
+                        f"Team/Department: {learner_row['Team/Department'] or '—'} &nbsp;|&nbsp; "
+                        f"Organization: {learner_row['Organization'] or 'Unassigned'} &nbsp;|&nbsp; "
+                        f"Status: {learner_row['Status']}"
+                        "</div>"
+                        "</div>"
+                    ),
+                    unsafe_allow_html=True,
+                )
+            with action_col:
+                toggle_label = "Selected" if is_selected else "Select"
+                if st.button(
+                    toggle_label,
+                    key=f"assignment_tool_toggle_learner_{learner_id}",
+                    type="secondary" if is_selected else "primary",
+                    width="stretch",
+                ):
+                    selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
+                    if learner_id in selected_ids:
+                        selected_ids.remove(learner_id)
+                    else:
+                        selected_ids.add(learner_id)
+                    st.session_state[selected_learner_ids_key] = sorted(selected_ids)
+                    st.rerun()
+
         logger.info(
-            "Assignment learner selection updated via row selection grid.",
+            "Assignment learner selection updated via learner cards.",
             action="assignment_tool_selection",
-            selected_count=selected_count,
+            selected_count=len(st.session_state.get(selected_learner_ids_key, [])),
+            visible_count=len(visible_ids),
         )
+
+        with st.expander("View filtered learner table"):
+            st.dataframe(
+                assignment_learner_table[
+                    ["learner_id", "Name", "Email", "Team/Department", "Organization", "Status"]
+                ],
+                width="stretch",
+                hide_index=True,
+            )
 
         due_date_enabled_key = "assignment_tool_due_date_enabled"
         due_date_value_key = "assignment_tool_due_date_value"
