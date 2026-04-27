@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import re
 import sys
 from typing import Any
@@ -1242,34 +1243,146 @@ def _avatar_initials(full_name: str) -> str:
     return f"{tokens[0][0]}{tokens[-1][0]}".upper()
 
 
-def _render_sticky_user_header() -> None:
+def _render_fixed_top_bar() -> None:
     current_user = st.session_state.get("current_user") or {}
     display_name = (current_user.get("full_name") or current_user.get("email") or "User").strip()
     email = (current_user.get("email") or "").strip()
-    with st.container():
-        st.markdown('<div class="sticky-user-header-marker"></div>', unsafe_allow_html=True)
-        _, user_text_col, menu_col = st.columns([7, 1.6, 0.5], vertical_alignment="center")
-        with user_text_col:
-            st.markdown(
-                f"""
-                <div class="admin-user-text">
-                    <strong>{display_name}</strong>
-                    <span>{email}</span>
+    safe_name = html.escape(display_name)
+    safe_email = html.escape(email)
+    st.markdown(
+        f"""
+        <style>
+        :root {{
+            --sidebar-open-width: 21rem;
+            --sidebar-closed-width: 3.75rem;
+        }}
+        .custom-top-bar {{
+            position: fixed;
+            top: 0;
+            right: 0;
+            left: var(--sidebar-open-width);
+            height: 44px;
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding: 0 0.8rem;
+            box-sizing: border-box;
+        }}
+        section[data-testid="stSidebar"][aria-expanded="false"] ~ div .custom-top-bar {{
+            left: var(--sidebar-closed-width);
+        }}
+        .custom-top-bar-right {{
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+        }}
+        .custom-top-bar-user {{
+            display: flex;
+            flex-direction: column;
+            line-height: 1.05;
+            text-align: right;
+        }}
+        .custom-top-bar-user-name {{
+            font-size: 0.86rem;
+            font-weight: 600;
+            color: #0f172a;
+        }}
+        .custom-top-bar-user-email {{
+            font-size: 0.73rem;
+            color: #64748b;
+        }}
+        .custom-top-bar-menu {{
+            position: relative;
+        }}
+        .custom-top-bar-menu summary {{
+            list-style: none;
+            cursor: pointer;
+            user-select: none;
+            font-size: 0.9rem;
+            line-height: 1;
+            padding: 0.2rem 0.35rem;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            background: #ffffff;
+        }}
+        .custom-top-bar-menu summary::-webkit-details-marker {{
+            display: none;
+        }}
+        .custom-top-bar-menu[open] .custom-top-bar-menu-items {{
+            display: flex;
+        }}
+        .custom-top-bar-menu-items {{
+            display: none;
+            flex-direction: column;
+            position: absolute;
+            top: 105%;
+            right: 0;
+            min-width: 120px;
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+            overflow: hidden;
+            z-index: 1001;
+        }}
+        .custom-top-bar-menu-items a {{
+            font-size: 0.8rem;
+            color: #0f172a;
+            text-decoration: none;
+            padding: 0.38rem 0.6rem;
+            white-space: nowrap;
+        }}
+        .custom-top-bar-menu-items a:hover {{
+            background: #f8fafc;
+        }}
+        [data-testid="stMainBlockContainer"] {{
+            padding-top: 52px !important;
+        }}
+        #MainMenu,
+        [data-testid="stToolbar"] {{
+            visibility: hidden;
+            height: 0;
+        }}
+        </style>
+        <div class="custom-top-bar">
+            <div class="custom-top-bar-right">
+                <div class="custom-top-bar-user">
+                    <span class="custom-top-bar-user-name">{safe_name}</span>
+                    <span class="custom-top-bar-user-email">{safe_email}</span>
                 </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        with menu_col:
-            st.markdown('<div class="settings-button-wrap">', unsafe_allow_html=True)
-            with st.popover("⚙️", use_container_width=False):
-                if st.button("Settings", key="header_settings_btn", use_container_width=True):
-                    st.session_state["current_page"] = "settings"
-                    _set_nav("settings")
-                    st.rerun()
-                if st.button("Logout", key="header_logout_btn", use_container_width=True):
-                    logout_user()
-                    st.rerun()
-            st.markdown("</div>", unsafe_allow_html=True)
+                <details class="custom-top-bar-menu">
+                    <summary>⚙</summary>
+                    <div class="custom-top-bar-menu-items">
+                        <a href="?page=settings&topbar_action=settings">Settings</a>
+                        <a href="?topbar_action=logout">Logout</a>
+                    </div>
+                </details>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _handle_top_bar_actions() -> None:
+    action = st.query_params.get("topbar_action")
+    if isinstance(action, list):
+        action = action[0] if action else None
+    action = str(action or "").strip().lower()
+    if not action:
+        return
+
+    st.query_params.pop("topbar_action", None)
+
+    if action == "settings":
+        st.session_state["current_page"] = "settings"
+        _set_nav("settings")
+    elif action == "logout":
+        logout_user()
+    st.rerun()
 
 
 def _is_valid_email(email: str) -> bool:
@@ -1486,26 +1599,8 @@ def render_main_app() -> None:
     is_dev_user = is_dev_account(user)
     requested_page = st.session_state.get("page")
     nav_page = _sync_current_page_with_query(user["role"])
-    st.markdown(
-        """
-        <style>
-        [data-testid="stMainBlockContainer"] { padding-top: 8px !important; }
-        [data-testid="stVerticalBlock"]:has(.sticky-user-header-marker) {
-            position: sticky !important;
-            top: 0.5rem;
-            z-index: 10;
-            background: #ffffff;
-            border: 1px solid #e5e7eb;
-            border-radius: 12px;
-            padding: 0.4rem 0.55rem;
-            margin: 0 0 0.5rem auto;
-            box-shadow: 0 2px 12px rgba(16, 24, 40, 0.08);
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
-    )
-    _render_sticky_user_header()
+    _handle_top_bar_actions()
+    _render_fixed_top_bar()
     assignment_from_url = _read_assignment_id_from_query_params()
     if assignment_from_url is not None:
         st.session_state["active_assignment_id"] = assignment_from_url
