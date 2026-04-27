@@ -107,6 +107,13 @@ def inject_styles() -> None:
             background: var(--bg);
             color: var(--text);
         }
+        [data-testid="stToolbar"],
+        [data-testid="stAppToolbar"],
+        #MainMenu,
+        [data-testid="stAppDeployButton"] {
+            display: none !important;
+            visibility: hidden !important;
+        }
         section[data-testid="stSidebar"],
         [data-testid="stSidebar"] {
             width: 220px !important;
@@ -569,6 +576,74 @@ def render_page_header(title: str, subtitle: str = "") -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_user_top_bar(
+    *,
+    display_name: str,
+    email: str,
+    key_prefix: str = "top_bar",
+) -> str | None:
+    safe_name = escape((display_name or "User").strip())
+    safe_email = escape((email or "").strip())
+    st.markdown(
+        """
+        <style>
+        [data-testid="stVerticalBlock"]:has(.app-user-top-bar-marker) {
+            position: sticky;
+            top: 0;
+            z-index: 1100;
+            margin-top: 0 !important;
+            margin-bottom: 0 !important;
+            padding-top: 0 !important;
+            background: #ffffff;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .app-user-top-bar {
+            min-height: 40px;
+            padding: 4px 10px;
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            background: #ffffff;
+        }
+        .app-user-top-bar .admin-user-text {
+            margin: 0;
+        }
+        .app-user-top-bar [data-testid="stPopover"] > button {
+            width: 32px;
+            min-width: 32px;
+            height: 32px;
+            border-radius: 8px;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown('<div class="app-user-top-bar-marker"></div>', unsafe_allow_html=True)
+    _, user_text_col, menu_col = st.columns([7, 1.6, 0.6], vertical_alignment="center")
+    with user_text_col:
+        st.markdown(
+            f"""
+            <div class="app-user-top-bar">
+                <div class="admin-user-text">
+                    <strong>{safe_name}</strong>
+                    <span>{safe_email}</span>
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with menu_col:
+        with st.popover("⚙️", use_container_width=False):
+            if st.button("Profile", key=f"{key_prefix}_profile_btn", use_container_width=True):
+                return "profile"
+            if st.button("Settings", key=f"{key_prefix}_settings_btn", use_container_width=True):
+                return "settings"
+            if st.button("Sign out", key=f"{key_prefix}_signout_btn", use_container_width=True):
+                return "sign_out"
+    return None
 
 
 def render_kpi_card(label: str, value: Any, subtext: str = "", tone: str = "default", compact: bool = False) -> None:
