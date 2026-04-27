@@ -1351,8 +1351,11 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
     safe_email = escape(email)
 
     _ = safe_title  # Title is rendered by each page body to avoid duplicate headers.
+    header_anchor_class = "app-top-header-anchor"
+    if str(user.get("role", "")).lower() == "admin":
+        header_anchor_class = "app-top-header-anchor admin-top-header-anchor"
     with st.container():
-        st.markdown('<div class="app-top-header-anchor"></div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="{header_anchor_class}"></div>', unsafe_allow_html=True)
         _, header_user, header_icon = st.columns([8, 2.2, 0.8], vertical_alignment="center")
         with header_user:
             st.markdown(
