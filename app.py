@@ -76,6 +76,66 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown(
+    """
+<style>
+
+/* MAIN PAGE CONTAINER */
+section.main > div {
+    padding-top: 1rem;
+    padding-bottom: 0rem;
+    padding-left: 2rem;
+    padding-right: 2rem;
+}
+
+/* NEW STREAMLIT CLASS (important) */
+.stAppViewBlockContainer {
+    padding-top: 1rem;
+    padding-bottom: 0rem;
+}
+
+/* REMOVE EXTRA TOP SPACE */
+.block-container {
+    padding-top: 1rem;
+    padding-bottom: 0rem;
+    margin-top: 0rem;
+}
+
+/* REDUCE SPACE BETWEEN COMPONENTS */
+[data-testid="stVerticalBlock"] > div {
+    gap: 0.5rem;
+}
+
+/* TIGHTEN HEADERS */
+h1, h2, h3 {
+    margin-bottom: 0.5rem;
+}
+
+/* REDUCE INPUT / FILTER HEIGHT */
+.stTextInput, .stSelectbox, .stMultiSelect {
+    margin-bottom: 0.5rem;
+}
+
+/* SIDEBAR CLEANUP */
+section[data-testid="stSidebar"] .block-container {
+    padding-top: 1rem;
+}
+
+/* TABLE SPACING */
+[data-testid="stDataFrame"] {
+    margin-top: 0rem;
+}
+
+/* OPTIONAL: REMOVE DEFAULT EMPTY SPACING BLOCKS */
+.stMarkdown {
+    margin-bottom: 0.25rem;
+}
+
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
 def hash_password(password: str) -> str:
     """Demo-only hashing helper.
 
