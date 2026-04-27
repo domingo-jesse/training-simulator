@@ -825,7 +825,6 @@ def render_admin_selection_table(
     height: int = 450,
     empty_message: str | None = None,
     show_selection_caption: bool = True,
-    column_config: dict | None = None,
 ) -> tuple[pd.DataFrame, list]:
     table_selection_key = f"{table_key}_selected_ids"
 
@@ -843,10 +842,6 @@ def render_admin_selection_table(
 
     display_df = df.reset_index(drop=True).copy()
     st.caption("Click rows to select.")
-    resolved_column_config = {row_id_col: None}
-    if column_config:
-        resolved_column_config.update(column_config)
-
     event = st.dataframe(
         display_df,
         key=table_key,
@@ -855,7 +850,9 @@ def render_admin_selection_table(
         height=height or 420,
         on_select="rerun",
         selection_mode="single-row" if single_select else "multi-row",
-        column_config=resolved_column_config,
+        column_config={
+            row_id_col: None,
+        },
     )
     selected_rows = event.selection.rows if event and event.selection else []
     selected_ids = [
