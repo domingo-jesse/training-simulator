@@ -908,14 +908,8 @@ def _render_assignment_tool(current_user: dict) -> None:
         if assignment_learner_table.empty:
             st.info("No active learners match the current filters.")
             return
-        prior_selected_ids = {
-            int(v)
-            for v in st.session_state.get(selected_learner_ids_key, [])
-            if int(v) in visible_ids
-        }
         table_records = assignment_learner_table.to_dict(orient="records")
         table_data_json = json.dumps(table_records)
-        initial_selected_json = json.dumps(sorted(prior_selected_ids))
         html_table = f"""
             <style>
                 .assignment-table-wrap {{
@@ -943,16 +937,6 @@ def _render_assignment_tool(current_user: dict) -> None:
                     background: #f8f9fb;
                     z-index: 1;
                 }}
-                .assignment-table tbody tr {{
-                    cursor: pointer;
-                }}
-                .assignment-table tbody tr:hover {{
-                    background: #f3f7ff;
-                }}
-                .assignment-table tbody tr.selected-row {{
-                    background: #dbeafe;
-                    box-shadow: inset 3px 0 0 #2563eb;
-                }}
             </style>
             <div class="assignment-table-wrap">
                 <table class="assignment-table">
@@ -968,47 +952,17 @@ def _render_assignment_tool(current_user: dict) -> None:
                     <tbody id="assignment-table-body"></tbody>
                 </table>
             </div>
-            <input id="selected-learner-ids" type="hidden" value="[]"/>
             <script>
                 const tableData = {table_data_json};
-                const selectedIds = new Set({initial_selected_json}.map((v) => String(v)));
                 const tbody = document.getElementById("assignment-table-body");
-                const hiddenInput = document.getElementById("selected-learner-ids");
-
-                const sendSelection = () => {{
-                    const selected = Array.from(selectedIds).map((value) => Number(value)).filter((value) => !Number.isNaN(value));
-                    hiddenInput.value = JSON.stringify(selected);
-                    window.parent.postMessage({{
-                        isStreamlitMessage: true,
-                        type: "streamlit:setComponentValue",
-                        value: selected
-                    }}, "*");
-                }};
 
                 tableData.forEach((record) => {{
                     const tr = document.createElement("tr");
-                    tr.dataset.learnerId = String(record.learner_id);
-
-                    if (selectedIds.has(String(record.learner_id))) {{
-                        tr.classList.add("selected-row");
-                    }}
 
                     ["Name", "Email", "Team/Department", "Organization", "Status"].forEach((column) => {{
                         const td = document.createElement("td");
                         td.textContent = record[column] ?? "";
                         tr.appendChild(td);
-                    }});
-
-                    tr.addEventListener("click", () => {{
-                        const learnerId = tr.dataset.learnerId;
-                        if (selectedIds.has(learnerId)) {{
-                            selectedIds.delete(learnerId);
-                            tr.classList.remove("selected-row");
-                        }} else {{
-                            selectedIds.add(learnerId);
-                            tr.classList.add("selected-row");
-                        }}
-                        sendSelection();
                     }});
 
                     tbody.appendChild(tr);
@@ -1019,26 +973,40 @@ def _render_assignment_tool(current_user: dict) -> None:
                     type: "streamlit:setFrameHeight",
                     height: 410
                 }}, "*");
-                sendSelection();
             </script>
         """
-        selected_learner_ids = st.components.v1.html(
+        st.components.v1.html(
             html_table,
             height=410,
-            key="assignment_tool_learner_click_table",
         )
-        if selected_learner_ids is None:
-            selected_learner_ids = sorted(prior_selected_ids)
-        if isinstance(selected_learner_ids, str):
-            try:
-                selected_learner_ids = json.loads(selected_learner_ids)
-            except json.JSONDecodeError:
-                selected_learner_ids = []
-        if not isinstance(selected_learner_ids, list):
-            selected_learner_ids = []
-        st.session_state[selected_learner_ids_key] = sorted(
-            {int(v) for v in selected_learner_ids if str(v).isdigit() and int(v) in visible_ids}
+        st.caption("Prototype row-click table is display-only until a custom Streamlit component is added.")
+
+        learner_selection_df = filtered_active_learners[
+            ["user_id", "name", "email"]
+        ].rename(columns={"user_id": "learner_id", "name": "full_name"})
+        learner_options = {
+            f"{row['full_name']} ({row['email']})": int(row["learner_id"])
+            for _, row in learner_selection_df.iterrows()
+        }
+        current_selected_ids = {
+            int(v)
+            for v in st.session_state.get(selected_learner_ids_key, [])
+            if int(v) in visible_ids
+        }
+        preselected_labels = [
+            label for label, learner_id in learner_options.items() if learner_id in current_selected_ids
+        ]
+        selected_labels = st.multiselect(
+            "Select learners for assignment",
+            options=list(learner_options.keys()),
+            default=preselected_labels,
+            key="assignment_selected_learner_labels",
         )
+        selected_learner_ids = [
+            learner_options[label]
+            for label in selected_labels
+        ]
+        st.session_state.assignment_selected_learner_ids = selected_learner_ids
         selected_count = len(st.session_state[selected_learner_ids_key])
         logger.info(
             "Assignment learner selection updated.",
