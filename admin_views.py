@@ -946,11 +946,14 @@ def _render_assignment_tool(current_user: dict) -> None:
         st.markdown(
             """
             <style>
-            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] {
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] {
+                gap: 0.15rem;
+            }
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] {
                 margin: 0 0 4px 0;
                 width: 100%;
             }
-            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button {
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button {
                 width: 100%;
                 display: flex;
                 flex-direction: column;
@@ -958,31 +961,33 @@ def _render_assignment_tool(current_user: dict) -> None:
                 justify-content: flex-start;
                 text-align: left;
                 border-radius: 4px;
-                border: 1px solid #eeeeee;
+                border: 1px solid #e5e7eb;
                 box-shadow: none;
                 background: #ffffff;
-                color: #0f172a;
+                color: #1f2937;
                 padding: 8px 12px;
                 margin: 0;
                 min-height: 0;
                 line-height: 1.2;
                 cursor: pointer;
                 white-space: pre-line;
+                font-size: 0.9rem;
             }
-            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button:hover {
-                background: #f5f5f5;
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button:hover {
+                background: #f3f4f6;
                 border-color: #e5e7eb;
             }
-            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button p {
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button div,
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p {
                 margin: 0;
                 width: 100%;
                 text-align: left;
+                justify-content: flex-start;
             }
-            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button p:first-child {
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:first-child {
                 font-weight: 600;
-                font-size: 0.95rem;
             }
-            div[data-testid="stVerticalBlock"] > div[class*="st-key-toggle\_learner\_"] button p:last-child {
+            .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:last-child {
                 color: #6b7280;
                 font-size: 0.8rem;
                 margin-top: 0.15rem;
@@ -992,36 +997,36 @@ def _render_assignment_tool(current_user: dict) -> None:
             unsafe_allow_html=True,
         )
         selected_ids_set = set(st.session_state.get(selected_learner_ids_key, []))
-        card_list_container = st.container(height=400, border=True)
+        card_list_container = st.container(key="assignment_learner_rows", height=400, border=True)
         with card_list_container:
             for learner_row in assignment_learner_table.to_dict("records"):
                 learner_id = int(learner_row["learner_id"])
                 is_selected = learner_id in selected_ids_set
-                css_key = f"toggle_learner_{learner_id}"
+                css_key = f"learner_row_toggle_{learner_id}"
                 escaped_css_key = css_key.replace("_", "\\_")
                 st.markdown(
                     f"""
                     <style>
                     .st-key-{escaped_css_key} button {{
-                        border: {'1px solid #34a853' if is_selected else '1px solid #eeeeee'};
-                        background: {'#e6f4ea' if is_selected else '#ffffff'};
+                        border: {'1px solid #34a853' if is_selected else '1px solid #e5e7eb'} !important;
+                        background: {'#e6f4ea' if is_selected else '#ffffff'} !important;
+                        color: #1f2937 !important;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
-                        border-color: {'#34a853' if is_selected else '#e5e7eb'};
-                        background: {'#e6f4ea' if is_selected else '#f5f5f5'};
+                        border-color: {'#34a853' if is_selected else '#e5e7eb'} !important;
+                        background: {'#e6f4ea' if is_selected else '#f3f4f6'} !important;
                     }}
                     </style>
                     """,
                     unsafe_allow_html=True,
                 )
                 card_label = (
-                    f"**{learner_row['Name']}**\n"
+                    f"{'✓ ' if is_selected else ''}{learner_row['Name']}\n"
                     f"{learner_row['Team/Department'] or '—'} • {learner_row['Organization'] or 'Unassigned'}"
                 )
                 if st.button(
                     card_label,
                     key=css_key,
-                    type="secondary",
                     width="stretch",
                 ):
                     selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
