@@ -914,9 +914,6 @@ def _render_assignment_tool(current_user: dict) -> None:
         }
         st.session_state[selected_learner_ids_key] = sorted(current_selected_ids)
 
-        selected_count = len(st.session_state.get(selected_learner_ids_key, []))
-        st.info(f"{selected_count} learner(s) selected.")
-
         control_col1, control_col2 = st.columns([1, 1])
         with control_col1:
             if st.button("Select all filtered learners", key="assignment_tool_select_all_filtered", width="stretch"):
@@ -929,87 +926,38 @@ def _render_assignment_tool(current_user: dict) -> None:
                 st.session_state[selected_learner_ids_key] = []
                 st.rerun()
 
-        st.markdown(
-            """
-            <style>
-            .assignment-learner-selector button {
-                text-align: left !important;
-                justify-content: flex-start !important;
-            }
-            .assignment-learner-selector button[kind="secondary"] {
-                width: 100% !important;
-                padding: 10px 14px !important;
-                border-radius: 6px !important;
-                border: 1px solid #e5e7eb !important;
-                background-color: white !important;
-            }
-            .assignment-learner-selector button[kind="secondary"]:hover {
-                background-color: #f8fafc !important;
-                cursor: pointer;
-            }
-            .assignment-learner-selector button [data-testid="stMarkdownContainer"] p {
-                margin: 0 !important;
-                line-height: 1.35 !important;
-                font-size: 13px !important;
-                color: #6b7280 !important;
-                text-align: left !important;
-            }
-            .assignment-learner-selector button [data-testid="stMarkdownContainer"] p::first-line {
-                font-size: 16px !important;
-                font-weight: 600 !important;
-                color: #111827 !important;
-            }
-            .assignment-learner-selector [data-testid="stButton"] {
-                margin: 0.1rem 0 !important;
-            }
-            .assignment-learner-selector .selected-row button {
-                background-color: #e6f4ea !important;
-                border: 1px solid #34a853 !important;
-            }
-            </style>
-            <div class="assignment-learner-selector">
-            """,
-            unsafe_allow_html=True,
+        label_to_learner_id: dict[str, int] = {}
+        for _, learner_row in filtered_active_learners.iterrows():
+            learner_id = int(learner_row["user_id"])
+            full_name = str(learner_row.get("name") or "Unknown learner").strip() or "Unknown learner"
+            team_department = str(learner_row.get("team") or "—").strip() or "—"
+            organization = str(learner_row.get("organization_name") or "Unassigned").strip() or "Unassigned"
+            label = f"{full_name} • {team_department} • {organization}"
+            label_to_learner_id[label] = learner_id
+
+        selected_id_set = {
+            int(v)
+            for v in st.session_state.get(selected_learner_ids_key, [])
+            if int(v) in all_active_ids
+        }
+        default_selected_labels = [
+            option_label
+            for option_label, learner_id in label_to_learner_id.items()
+            if learner_id in selected_id_set
+        ]
+        selected_labels = st.multiselect(
+            "Select learners from filtered results",
+            options=list(label_to_learner_id.keys()),
+            default=default_selected_labels,
+            key="assignment_tool_filtered_multiselect",
         )
-        selected_ids = st.session_state.setdefault(selected_learner_ids_key, [])
-        card_list_container = st.container(key="assignment_learner_rows", height=300, border=False)
-        with card_list_container:
-            for _, learner_row in filtered_active_learners.iterrows():
-                learner_id = int(learner_row["user_id"])
-                is_selected = learner_id in selected_ids
-                learner_name = str(learner_row.get("name") or "")
-                learner_team_department = str(learner_row.get("team") or "—")
-                learner_organization = str(learner_row.get("organization_name") or "Unassigned")
-
-                col_info, col_check = st.columns([10, 1])
-                with col_info:
-                    if is_selected:
-                        st.markdown('<div class="selected-row">', unsafe_allow_html=True)
-                    if st.button(
-                        f"{learner_name}\n{learner_team_department} • {learner_organization}",
-                        key=f"toggle_learner_{learner_id}",
-                        width="stretch",
-                        type="secondary",
-                    ):
-                        if learner_id in st.session_state[selected_learner_ids_key]:
-                            st.session_state[selected_learner_ids_key].remove(learner_id)
-                        else:
-                            st.session_state[selected_learner_ids_key].append(learner_id)
-                        st.rerun()
-                    if is_selected:
-                        st.markdown("</div>", unsafe_allow_html=True)
-                with col_check:
-                    if is_selected:
-                        st.markdown("✅")
-                    else:
-                        st.markdown("&nbsp;", unsafe_allow_html=True)
-
-        st.markdown("</div>", unsafe_allow_html=True)
-
-        st.caption(f"Selected IDs: {st.session_state[selected_learner_ids_key]}")
+        selected_visible_ids = {label_to_learner_id[label] for label in selected_labels}
+        selected_hidden_ids = selected_id_set - visible_ids
+        st.session_state[selected_learner_ids_key] = sorted(selected_hidden_ids | selected_visible_ids)
+        st.info(f"{len(st.session_state[selected_learner_ids_key])} learner(s) selected.")
 
         logger.info(
-            "Assignment learner selection updated via compact list rows.",
+            "Assignment learner selection updated via multiselect.",
             action="assignment_tool_selection",
             selected_count=len(st.session_state.get(selected_learner_ids_key, [])),
             visible_count=len(visible_ids),
