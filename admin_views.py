@@ -952,8 +952,9 @@ def _render_assignment_tool(current_user: dict) -> None:
             .st-key-assignment_learner_rows [data-testid="stVerticalBlockBorderWrapper"] {
                 padding: 0;
                 border: 1px solid #e5e7eb;
-                border-radius: 8px;
+                border-radius: 10px;
                 overflow: hidden;
+                background: #ffffff;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] {
                 margin: 0;
@@ -962,9 +963,8 @@ def _render_assignment_tool(current_user: dict) -> None:
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button {
                 width: 100%;
                 display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-                justify-content: center;
+                justify-content: space-between;
+                align-items: center;
                 text-align: left;
                 border-radius: 0;
                 border: none;
@@ -972,15 +972,14 @@ def _render_assignment_tool(current_user: dict) -> None:
                 box-shadow: none;
                 background: #ffffff;
                 color: #1f2937;
-                padding: 8px 12px;
+                padding: 10px 14px;
                 margin: 0;
-                min-height: 48px;
-                line-height: 1.25;
+                min-height: 56px;
                 cursor: pointer;
                 white-space: pre-line;
-                font-size: 15px;
+                font-size: 16px;
                 position: relative;
-                gap: 2px;
+                line-height: 1.2;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button:hover {
                 background: #f8fafc;
@@ -991,8 +990,9 @@ def _render_assignment_tool(current_user: dict) -> None:
                 display: flex;
                 flex-direction: column;
                 align-items: flex-start;
-                justify-content: flex-start;
+                justify-content: center;
                 text-align: left;
+                gap: 2px;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button div,
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p {
@@ -1007,13 +1007,12 @@ def _render_assignment_tool(current_user: dict) -> None:
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:first-child {
                 font-weight: 600;
-                font-size: 15px;
+                font-size: 16px;
                 color: #111827;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div[class*="st-key-learner\_row\_toggle\_"] button p:last-child {
                 color: #6b7280;
                 font-size: 13px;
-                margin-top: 1px;
             }
             .st-key-assignment_learner_rows div[data-testid="stVerticalBlock"] > div:last-child[class*="st-key-learner\_row\_toggle\_"] button {
                 border-bottom: none;
@@ -1023,7 +1022,7 @@ def _render_assignment_tool(current_user: dict) -> None:
             unsafe_allow_html=True,
         )
         selected_ids_set = set(st.session_state.get(selected_learner_ids_key, []))
-        card_list_container = st.container(key="assignment_learner_rows", height=320, border=False)
+        card_list_container = st.container(key="assignment_learner_rows", height=300, border=False)
         with card_list_container:
             for learner_row in assignment_learner_table.to_dict("records"):
                 learner_id = int(learner_row["learner_id"])
@@ -1036,7 +1035,7 @@ def _render_assignment_tool(current_user: dict) -> None:
                     .st-key-{escaped_css_key} button {{
                         background: {'#e6f4ea' if is_selected else '#ffffff'} !important;
                         border-left: {'4px solid #34a853' if is_selected else '4px solid transparent'} !important;
-                        padding-left: {'8px' if is_selected else '12px'} !important;
+                        padding: 10px 14px 10px {'10px' if is_selected else '14px'} !important;
                     }}
                     .st-key-{escaped_css_key} button:hover {{
                         background: {'#e6f4ea' if is_selected else '#f8fafc'} !important;
@@ -1048,18 +1047,17 @@ def _render_assignment_tool(current_user: dict) -> None:
                         color: #6b7280 !important;
                     }}
                     .st-key-{escaped_css_key} button::after {{
-                        content: {'"Selected"' if is_selected else '""'};
+                        content: {'"✓"' if is_selected else '""'};
                         position: absolute;
-                        right: 12px;
+                        right: 14px;
                         top: 50%;
                         transform: translateY(-50%);
-                        background: #34a853;
-                        color: #ffffff;
-                        border-radius: 999px;
-                        font-size: 11px;
+                        color: #34a853;
+                        background: transparent;
+                        border: none;
+                        font-size: 18px;
                         font-weight: 600;
                         line-height: 1;
-                        padding: 4px 8px;
                     }}
                     </style>
                     """,
