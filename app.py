@@ -1350,9 +1350,10 @@ def render_top_header(user: dict[str, Any], title: str) -> None:
     safe_role = escape(role)
     safe_email = escape(email)
 
-    header_left, header_user, header_icon = st.columns([7, 2, 1], vertical_alignment="center")
-    with header_left:
-        st.markdown(f"### {safe_title}")
+    _ = safe_title  # Title is rendered by each page body to avoid duplicate headers.
+    header_spacer, header_user, header_icon = st.columns([7, 2, 1], vertical_alignment="center")
+    with header_spacer:
+        st.markdown("&nbsp;", unsafe_allow_html=True)
     with header_user:
         st.markdown(
             f"""
