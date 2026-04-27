@@ -726,7 +726,6 @@ def _render_assignment_tool(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
     logger.info("Assignment page rendered.", action="assignment_tool_render")
-    st.subheader("Assignment Tool")
     assign_status_key = "assignment_tool_assign_status"
     assign_status_expiry_key = "assignment_tool_assign_status_expiry"
     assign_in_progress_key = "assignment_tool_is_assigning"
@@ -1087,6 +1086,7 @@ def _render_assignment_tool(current_user: dict) -> None:
 
 
 def render_assignment_management(current_user: dict) -> None:
+    render_page_header("Assignment Management", "Review current assignments and assign modules to learners.")
     publish_notice = st.session_state.pop("module_publish_notice", None)
     if publish_notice:
         st.success("Module published successfully.")
@@ -2995,21 +2995,12 @@ def render_module_builder(current_user: dict) -> None:
         _reset_builder_state(queued_mode)
 
     selected_mode = st.session_state.get(mode_key)
-    header_description = "Single-page module editor with autosave and inline validation." if selected_mode != "ai" else ""
-    if selected_mode == "ai":
-        header_title_col, header_action_col = st.columns([3, 1], vertical_alignment="center")
-        with header_title_col:
-            st.markdown("### Module Builder")
-        with header_action_col:
-            if st.button("Change creation method", key="module_builder_change_creation_method", width="stretch"):
-                _queue_builder_reset(None)
-    else:
-        render_page_header("Module Builder", header_description)
+    header_description = "Single-page module editor with autosave and inline validation."
+    render_page_header("Module Builder", header_description)
     inject_scroll_to_top()
 
     if selected_mode is None:
-        st.markdown("### Create a Module")
-        st.caption("Choose how you want to begin before opening the full module builder.")
+        st.caption("Choose a creation method before opening the full module builder.")
         mode_col_1, mode_col_2 = st.columns(2)
         if mode_col_1.button("Start from Scratch", width="stretch"):
             _queue_builder_reset("manual")
@@ -3911,8 +3902,7 @@ def render_manage_modules(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     recently_created_module_id = st.session_state.get("recently_created_module_id")
     recently_created_module_title = st.session_state.get("recently_created_module_title")
-    st.subheader("Manage Modules")
-    st.caption("Browse active and archived modules in separate tabs, then edit a selected module.")
+    render_page_header("Manage Modules", "Browse active and archived modules in separate tabs, then edit a selected module.")
 
     modules_df = to_df(
         fetch_all(
@@ -5946,8 +5936,7 @@ def render_database_tables_view() -> None:
         st.warning("You do not have access to this section.")
         return
 
-    st.subheader("Database Tables")
-    st.caption("Live table data from the connected database.")
+    render_page_header("Database Tables", "Live table data from the connected database.")
 
     try:
         tables = list_public_tables()
@@ -6041,8 +6030,7 @@ def render_admin_log_viewer() -> None:
         st.warning("You do not have access to this section.")
         return
 
-    st.subheader("Debug Panel")
-    st.caption("Inspect application logs from any workspace when signed in as a developer account.")
+    render_page_header("Debug Logs", "Inspect application logs from any workspace when signed in as a developer account.")
 
     app_tab, error_tab, structured_tab, db_tester_tab = st.tabs(
         ["App Logs", "Error Logs", "Structured JSON Logs", "DB Tester"]
