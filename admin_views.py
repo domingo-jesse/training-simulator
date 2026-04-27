@@ -887,76 +887,158 @@ def _render_assignment_tool(current_user: dict) -> None:
         st.session_state[selected_learner_ids_key] = sorted(existing_ids)
 
         st.caption(f"{len(filtered_active_learners)} active learners match current filters")
-        assignment_learner_grid = filtered_active_learners[
+        assignment_learner_table = filtered_active_learners[
             ["user_id", "name", "email", "team", "organization_name", "status"]
         ].reset_index(drop=True).rename(
             columns={
                 "user_id": "learner_id",
-                "name": "Learner",
+                "name": "Name",
                 "email": "Email",
-                "team": "Team",
+                "team": "Team/Department",
                 "organization_name": "Organization",
                 "status": "Status",
             }
         )
         logger.info(
-            "Rendering learner grid data.",
-            action="assignment_tool_grid_dataset",
-            shape=assignment_learner_grid.shape,
-            columns=list(assignment_learner_grid.columns),
+            "Rendering learner selection table data.",
+            action="assignment_tool_selection_dataset",
+            shape=assignment_learner_table.shape,
+            columns=list(assignment_learner_table.columns),
         )
-        if assignment_learner_grid.empty:
+        if assignment_learner_table.empty:
             st.info("No active learners match the current filters.")
             return
-        st.caption(
-            f"Rendering learner grid with {len(assignment_learner_grid)} rows and {len(assignment_learner_grid.columns)} columns."
-        )
-        prior_selected_ids = set(st.session_state.get(selected_learner_ids_key, []))
-        preselected_rows = [
-            idx
-            for idx, learner_id in enumerate(assignment_learner_grid["learner_id"].tolist())
-            if int(learner_id) in prior_selected_ids
-        ]
+        prior_selected_ids = {
+            int(v)
+            for v in st.session_state.get(selected_learner_ids_key, [])
+            if int(v) in visible_ids
+        }
+        table_records = assignment_learner_table.to_dict(orient="records")
+        table_data_json = json.dumps(table_records)
+        initial_selected_json = json.dumps(sorted(prior_selected_ids))
+        html_table = f"""
+            <style>
+                .assignment-table-wrap {{
+                    border: 1px solid rgba(49, 51, 63, 0.2);
+                    border-radius: 0.5rem;
+                    overflow: auto;
+                    max-height: 360px;
+                    background: white;
+                }}
+                table.assignment-table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                    font-size: 14px;
+                }}
+                .assignment-table th, .assignment-table td {{
+                    padding: 0.55rem 0.65rem;
+                    border-bottom: 1px solid rgba(49, 51, 63, 0.1);
+                    text-align: left;
+                    vertical-align: top;
+                }}
+                .assignment-table th {{
+                    position: sticky;
+                    top: 0;
+                    background: #f8f9fb;
+                    z-index: 1;
+                }}
+                .assignment-table tbody tr {{
+                    cursor: pointer;
+                }}
+                .assignment-table tbody tr:hover {{
+                    background: #f3f7ff;
+                }}
+                .assignment-table tbody tr.selected-row {{
+                    background: #dbeafe;
+                    box-shadow: inset 3px 0 0 #2563eb;
+                }}
+            </style>
+            <div class="assignment-table-wrap">
+                <table class="assignment-table">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Team/Department</th>
+                            <th>Organization</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="assignment-table-body"></tbody>
+                </table>
+            </div>
+            <input id="selected-learner-ids" type="hidden" value="[]"/>
+            <script>
+                const tableData = {table_data_json};
+                const selectedIds = new Set({initial_selected_json}.map((v) => String(v)));
+                const tbody = document.getElementById("assignment-table-body");
+                const hiddenInput = document.getElementById("selected-learner-ids");
 
-        gb = GridOptionsBuilder.from_dataframe(assignment_learner_grid)
-        gb.configure_default_column(filter=True, sortable=True, resizable=True)
-        gb.configure_selection(
-            selection_mode="multiple",
-            use_checkbox=True,
-            rowMultiSelectWithClick=True,
-            suppressRowDeselection=False,
-            pre_selected_rows=preselected_rows,
+                const sendSelection = () => {{
+                    const selected = Array.from(selectedIds).map((value) => Number(value)).filter((value) => !Number.isNaN(value));
+                    hiddenInput.value = JSON.stringify(selected);
+                    window.parent.postMessage({{
+                        isStreamlitMessage: true,
+                        type: "streamlit:setComponentValue",
+                        value: selected
+                    }}, "*");
+                }};
+
+                tableData.forEach((record) => {{
+                    const tr = document.createElement("tr");
+                    tr.dataset.learnerId = String(record.learner_id);
+
+                    if (selectedIds.has(String(record.learner_id))) {{
+                        tr.classList.add("selected-row");
+                    }}
+
+                    ["Name", "Email", "Team/Department", "Organization", "Status"].forEach((column) => {{
+                        const td = document.createElement("td");
+                        td.textContent = record[column] ?? "";
+                        tr.appendChild(td);
+                    }});
+
+                    tr.addEventListener("click", () => {{
+                        const learnerId = tr.dataset.learnerId;
+                        if (selectedIds.has(learnerId)) {{
+                            selectedIds.delete(learnerId);
+                            tr.classList.remove("selected-row");
+                        }} else {{
+                            selectedIds.add(learnerId);
+                            tr.classList.add("selected-row");
+                        }}
+                        sendSelection();
+                    }});
+
+                    tbody.appendChild(tr);
+                }});
+
+                window.parent.postMessage({{
+                    isStreamlitMessage: true,
+                    type: "streamlit:setFrameHeight",
+                    height: 410
+                }}, "*");
+                sendSelection();
+            </script>
+        """
+        selected_learner_ids = st.components.v1.html(
+            html_table,
+            height=410,
+            key="assignment_tool_learner_click_table",
         )
-        gb.configure_pagination(enabled=True, paginationAutoPageSize=False, paginationPageSize=12)
-        gb.configure_column("learner_id", hide=True)
-        gb.configure_grid_options(
-            suppressRowClickSelection=False,
-            rowSelection="multiple",
-            domLayout="normal",
+        if selected_learner_ids is None:
+            selected_learner_ids = sorted(prior_selected_ids)
+        if isinstance(selected_learner_ids, str):
+            try:
+                selected_learner_ids = json.loads(selected_learner_ids)
+            except json.JSONDecodeError:
+                selected_learner_ids = []
+        if not isinstance(selected_learner_ids, list):
+            selected_learner_ids = []
+        st.session_state[selected_learner_ids_key] = sorted(
+            {int(v) for v in selected_learner_ids if str(v).isdigit() and int(v) in visible_ids}
         )
-        grid_response = AgGrid(
-            assignment_learner_grid,
-            gridOptions=gb.build(),
-            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
-            update_mode=GridUpdateMode.SELECTION_CHANGED,
-            height=360,
-            width="100%",
-            allow_unsafe_jscode=False,
-            key="assignment_tool_learner_aggrid",
-            fit_columns_on_grid_load=True,
-            theme="streamlit",
-        )
-        selected_rows = grid_response.get("selected_rows") or []
-        if isinstance(selected_rows, pd.DataFrame):
-            selected_rows = selected_rows.to_dict("records")
-        selected_learner_ids = [
-            int(row["learner_id"])
-            for row in selected_rows
-            if isinstance(row, dict) and row.get("learner_id") is not None
-        ]
-        selected_visible_ids = set(selected_learner_ids)
-        updated_selected_ids = (prior_selected_ids - visible_ids) | selected_visible_ids
-        st.session_state[selected_learner_ids_key] = sorted(int(v) for v in updated_selected_ids)
         selected_count = len(st.session_state[selected_learner_ids_key])
         logger.info(
             "Assignment learner selection updated.",
