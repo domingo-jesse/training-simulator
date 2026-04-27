@@ -1087,7 +1087,6 @@ def _render_assignment_tool(current_user: dict) -> None:
 
 
 def render_assignment_management(current_user: dict) -> None:
-    render_page_header("Assignment Management", "Assign modules in bulk and monitor assignment status.")
     publish_notice = st.session_state.pop("module_publish_notice", None)
     if publish_notice:
         st.success("Module published successfully.")
@@ -1107,7 +1106,6 @@ def render_assignment_management(current_user: dict) -> None:
 def render_current_assignments(current_user: dict) -> None:
     org_id = current_user["organization_id"]
     logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    st.markdown("#### Current assignments")
 
     refresh_token = int(st.session_state.get("assignment_management_refresh_token", 0))
     assignments_df = _assignments_with_status(org_id, refresh_token)
