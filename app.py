@@ -1212,7 +1212,7 @@ def load_current_user_profile() -> dict[str, Any] | None:
         return None
     row = fetch_one(
         """
-        SELECT user_id, id, name, email, username, role, password_hash, auth_provider, organization_id
+        SELECT user_id, id, name, email, username, role, password_hash, auth_provider, organization_id, email_notifications_enabled
         FROM users
         WHERE user_id = ?
         LIMIT 1
@@ -1311,6 +1311,53 @@ def save_user_profile_updates(
     return True, "Profile updated successfully."
 
 
+def save_user_settings_updates(
+    *,
+    current_password: str,
+    new_password: str,
+    confirm_new_password: str,
+    email_notifications_enabled: bool,
+) -> tuple[bool, str]:
+    profile = load_current_user_profile()
+    if not profile:
+        return False, "Could not load your account details. Please sign in again."
+
+    updates: dict[str, Any] = {"email_notifications_enabled": 1 if email_notifications_enabled else 0}
+
+    current_password = (current_password or "").strip()
+    new_password = (new_password or "").strip()
+    confirm_new_password = (confirm_new_password or "").strip()
+    wants_password_change = any([current_password, new_password, confirm_new_password])
+    if wants_password_change:
+        if profile.get("auth_provider") != "local_password":
+            return False, "Password updates are unavailable for Google-authenticated accounts."
+        if not current_password:
+            return False, "Current password is required to set a new password."
+        if hash_password(current_password) != (profile.get("password_hash") or ""):
+            return False, "Current password is incorrect."
+        if not new_password or not confirm_new_password:
+            return False, "Enter and confirm your new password."
+        if len(new_password) < 8:
+            return False, "New password must be at least 8 characters."
+        if new_password != confirm_new_password:
+            return False, "New password and confirmation must match."
+        updates["password_hash"] = hash_password(new_password)
+
+    execute_update("users", updates, "user_id = ?", (profile["user_id"],))
+    return True, "Settings updated successfully."
+
+
+def _initialize_settings_form(profile: dict[str, Any]) -> None:
+    profile_user_id = profile.get("user_id")
+    if st.session_state.get("settings_form_initialized_for") == profile_user_id:
+        return
+    st.session_state["settings_current_password"] = ""
+    st.session_state["settings_new_password"] = ""
+    st.session_state["settings_confirm_password"] = ""
+    st.session_state["settings_email_notifications_enabled"] = bool(profile.get("email_notifications_enabled"))
+    st.session_state["settings_form_initialized_for"] = profile_user_id
+
+
 def _initialize_profile_form(profile: dict[str, Any]) -> None:
     profile_user_id = profile.get("user_id")
     if st.session_state.get("profile_form_initialized_for") == profile_user_id:
@@ -1391,23 +1438,74 @@ def render_profile_page() -> None:
 
 
 def render_settings_page() -> None:
+    profile = load_current_user_profile()
     back_col, _ = st.columns([1.2, 5], vertical_alignment="center")
     with back_col:
         if st.button("← Back to Dashboard", key="settings_back_btn", width="stretch"):
             _navigate_back_to_main_app()
     st.caption("Dashboard / Settings")
     render_page_header("Settings", "Personalization and account preferences.")
+    if not profile:
+        st.error("Could not load account settings.")
+        return
+    _initialize_settings_form(profile)
+    settings_feedback = st.session_state.get("settings_feedback")
+    if settings_feedback:
+        status, message = settings_feedback
+        if status == "success":
+            st.success(message)
+        else:
+            st.error(message)
+
     _, content, _ = st.columns([1, 2.2, 1])
     with content:
         with st.container(border=True):
-            st.markdown("#### Account Preferences")
-            st.caption("Workspace defaults and account-level preferences will appear here.")
+            st.markdown("#### Account Settings")
+            with st.form("account_settings_form", clear_on_submit=False):
+                st.markdown("##### Update Password")
+                if profile.get("auth_provider") == "local_password":
+                    st.text_input("Current password", type="password", key="settings_current_password")
+                    st.text_input("New password", type="password", key="settings_new_password")
+                    st.text_input("Confirm new password", type="password", key="settings_confirm_password")
+                else:
+                    st.info("Password is managed by Google for this account.")
+
+                st.markdown("##### Notifications")
+                st.toggle(
+                    "Email notifications",
+                    key="settings_email_notifications_enabled",
+                    help="Receive important account and training updates via email.",
+                )
+
+                save_col, reset_col = st.columns(2)
+                with save_col:
+                    save_clicked = st.form_submit_button("Save settings", width="stretch", type="primary")
+                with reset_col:
+                    reset_clicked = st.form_submit_button("Reset", width="stretch")
+
+                if save_clicked:
+                    ok, message = save_user_settings_updates(
+                        current_password=st.session_state.get("settings_current_password", ""),
+                        new_password=st.session_state.get("settings_new_password", ""),
+                        confirm_new_password=st.session_state.get("settings_confirm_password", ""),
+                        email_notifications_enabled=bool(
+                            st.session_state.get("settings_email_notifications_enabled", False)
+                        ),
+                    )
+                    st.session_state["settings_feedback"] = ("success" if ok else "error", message)
+                    if ok:
+                        st.session_state["settings_form_initialized_for"] = None
+                    return
+                if reset_clicked:
+                    st.session_state["settings_form_initialized_for"] = None
+                    st.session_state["settings_feedback"] = None
+                    return
         with st.container(border=True):
             st.markdown("#### Display")
             st.caption("Theme, density, and dashboard layout preferences are coming soon.")
         with st.container(border=True):
             st.markdown("#### Notifications")
-            st.caption("Email and in-app notification preferences are coming soon.")
+            st.caption("Additional in-app notification preferences are coming soon.")
 
 
 def render_main_app() -> None:
