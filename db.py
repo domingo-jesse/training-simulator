@@ -511,6 +511,7 @@ def init_db() -> None:
                     role TEXT NOT NULL,
                     team TEXT,
                     organization_id BIGINT,
+                    email_notifications_enabled INTEGER DEFAULT 0,
                     is_active INTEGER DEFAULT 1,
                     created_at TIMESTAMPTZ DEFAULT NOW(),
                     FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
@@ -878,6 +879,7 @@ def init_db() -> None:
                 role TEXT NOT NULL,
                 team TEXT,
                 organization_id INTEGER,
+                email_notifications_enabled INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
                 created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(organization_id) REFERENCES organizations(organization_id)
@@ -1228,6 +1230,7 @@ def init_db() -> None:
             _ensure_column(conn, "users", "username", "TEXT")
             _ensure_column(conn, "users", "password_hash", "TEXT")
             _ensure_column(conn, "users", "auth_provider", "TEXT DEFAULT 'local_password'")
+            _ensure_column(conn, "users", "email_notifications_enabled", "INTEGER DEFAULT 0")
             if RUNTIME_USE_POSTGRES:
                 text_migration_columns = [
                     ("learner_profiles", "user_id"),
