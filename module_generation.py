@@ -194,13 +194,11 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
             question_type = str(item.get("question_type", "open_text")).strip().lower()
             if question_type not in {"open_text", "multiple_choice", "ai_conversation"}:
                 question_type = "open_text"
-            scoring_type = str(item.get("scoring_type", "manual")).strip().lower()
+            scoring_type = str(item.get("scoring_type", "llm")).strip().lower()
             if scoring_type not in {"manual", "keyword", "llm"}:
-                scoring_type = "manual"
-            if question_type == "ai_conversation" and scoring_type == "keyword":
-                scoring_type = "manual"
-            if question_type == "multiple_choice" and scoring_type == "keyword":
-                scoring_type = "manual"
+                scoring_type = "llm"
+            if question_type in {"ai_conversation", "multiple_choice"} and scoring_type == "keyword":
+                scoring_type = "llm"
             safe_questions.append(
                 {
                     "question_text": question_text,
@@ -228,7 +226,7 @@ def generate_module_draft(payload: ModuleDraftGenerationInput) -> tuple[dict[str
                     {
                         "question_text": f"Question {len(safe_questions) + 1}: Add scenario-specific prompt.",
                         "question_type": "open_text",
-                        "scoring_type": "manual",
+                        "scoring_type": "llm",
                         "keyword_expected_terms": [],
                         "llm_grading_criteria": "",
                         "learner_visible_feedback_mode": "admin_approved_only",

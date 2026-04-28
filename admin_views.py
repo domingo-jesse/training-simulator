@@ -2525,7 +2525,7 @@ def _normalize_question_type(value: object, fallback: str = "open_text") -> str:
     return fallback
 
 
-def _normalize_question_scoring_type(value: object, fallback: str = "manual") -> str:
+def _normalize_question_scoring_type(value: object, fallback: str = "llm") -> str:
     normalized = str(value or "").strip().lower()
     if normalized in QUESTION_SCORING_OPTIONS:
         return normalized
@@ -2534,17 +2534,17 @@ def _normalize_question_scoring_type(value: object, fallback: str = "manual") ->
     if normalized in {"rubric_llm", "llm_rubric"}:
         return "llm"
     normalized_fallback = str(fallback or "").strip().lower()
-    return normalized_fallback if normalized_fallback in QUESTION_SCORING_OPTIONS else "manual"
+    return normalized_fallback if normalized_fallback in QUESTION_SCORING_OPTIONS else "llm"
 
 
 def _safe_scoring_option_index(
-    scoring_type: object, options: list[str] | tuple[str, ...], fallback: str = "manual"
+    scoring_type: object, options: list[str] | tuple[str, ...], fallback: str = "llm"
 ) -> int:
     normalized = _normalize_question_scoring_type(scoring_type, fallback=fallback)
     options_list = [str(option).strip().lower() for option in options]
     if normalized in options_list:
         return options_list.index(normalized)
-    fallback_normalized = _normalize_question_scoring_type(fallback, fallback="manual")
+    fallback_normalized = _normalize_question_scoring_type(fallback, fallback="llm")
     if fallback_normalized in options_list:
         return options_list.index(fallback_normalized)
     return 0
@@ -2556,7 +2556,7 @@ def _normalize_module_scoring_fallback(module_value: object) -> str:
         return "manual"
     if normalized in {"rubric_llm", "llm"}:
         return "llm"
-    return "manual"
+    return "llm"
 
 
 def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, object]:
@@ -2564,7 +2564,7 @@ def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, obj
     scoring_type = _normalize_scoring_for_question_type(
         question_type,
         question.get("scoring_type"),
-        fallback="manual",
+        fallback="llm",
     )
     cleaned = dict(question)
     cleaned["scoring_type"] = scoring_type
@@ -2592,13 +2592,11 @@ def _clean_question_scoring_fields(question: dict[str, object]) -> dict[str, obj
     return cleaned
 
 
-def _normalize_scoring_for_question_type(question_type: object, scoring_type: object, fallback: str = "manual") -> str:
+def _normalize_scoring_for_question_type(question_type: object, scoring_type: object, fallback: str = "llm") -> str:
     normalized = _normalize_question_scoring_type(scoring_type, fallback=fallback)
     normalized_question_type = str(question_type or "").strip().lower()
-    if normalized_question_type == "ai_conversation" and normalized == "keyword":
-        return "manual"
-    if normalized_question_type == "multiple_choice" and normalized == "keyword":
-        return "manual"
+    if normalized_question_type in {"ai_conversation", "multiple_choice"} and normalized == "keyword":
+        return "llm"
     return normalized
 
 
@@ -3018,7 +3016,7 @@ def render_module_builder(current_user: dict) -> None:
                 "rationale": "",
                 "expected_answer": "",
                 "max_points": 10.0,
-                "scoring_type": "manual",
+                "scoring_type": "llm",
                 "llm_grading_criteria": "",
                 "rubric_criteria_text": "",
                 "ai_conversation_prompt": "",
@@ -3137,7 +3135,7 @@ def render_module_builder(current_user: dict) -> None:
                 q_type = str(question.get("question_type") or "").strip().lower()
                 if q_type not in QUESTION_TYPE_OPTIONS:
                     q_type = "open_text"
-                scoring_type = _normalize_scoring_for_question_type(q_type, question.get("scoring_type"), fallback="manual")
+                scoring_type = _normalize_scoring_for_question_type(q_type, question.get("scoring_type"), fallback="llm")
                 normalized_questions.append(
                     {
                         "question_text": question_text,
@@ -3236,7 +3234,7 @@ def render_module_builder(current_user: dict) -> None:
             st.session_state[f"{q_prefix}_scoring_type"] = _normalize_scoring_for_question_type(
                 "multiple_choice",
                 st.session_state.get(f"{q_prefix}_scoring_type"),
-                fallback="manual",
+                fallback="llm",
             )
         if question_type == "ai_conversation":
             st.session_state[f"{q_prefix}_scoring_type"] = "manual"
@@ -3654,7 +3652,7 @@ def render_module_builder(current_user: dict) -> None:
             scoring_type = _normalize_scoring_for_question_type(
                 active_question_type,
                 st.session_state.get(scoring_state_key),
-                fallback="manual",
+                fallback="llm",
             )
             st.number_input(
                 "Max points",
@@ -3774,7 +3772,7 @@ def render_module_builder(current_user: dict) -> None:
                 validation_errors[f"question_{idx}_options"] = f"Question {idx} needs at least two answer choices."
             correct_idx = question.get("correct_choice_index")
             if not isinstance(correct_idx, int) or correct_idx < 0 or correct_idx >= len(choices):
-                scoring_type = _normalize_scoring_for_question_type(question.get("question_type"), question.get("scoring_type"), fallback="manual")
+                scoring_type = _normalize_scoring_for_question_type(question.get("question_type"), question.get("scoring_type"), fallback="llm")
                 if scoring_type == "llm":
                     validation_errors[f"question_{idx}_correct_answer"] = (
                         f"Question {idx} uses AI review and must have a correct answer selected."
@@ -3788,7 +3786,7 @@ def render_module_builder(current_user: dict) -> None:
                 validation_errors[f"question_{idx}"] = f"Question {idx} needs an AI persona/role."
             if not _is_present(question.get("evaluation_focus")):
                 validation_errors[f"question_{idx}"] = f"Question {idx} needs an evaluation focus."
-        scoring_type = _normalize_scoring_for_question_type(question.get("question_type"), question.get("scoring_type"), fallback="manual")
+        scoring_type = _normalize_scoring_for_question_type(question.get("question_type"), question.get("scoring_type"), fallback="llm")
         if scoring_type == "keyword" and not _is_present(question.get("expected_answer")):
             validation_errors[f"question_{idx}_keyword"] = f"Question {idx} needs expected keyword terms for keyword scoring."
         if scoring_type == "llm" and not _is_present(question.get("llm_grading_criteria")):
@@ -3834,13 +3832,13 @@ def render_module_builder(current_user: dict) -> None:
                 _normalize_bool(module_form.get("quiz_required"), default=False),
                 current_user["user_id"],
                 True,
-                "keyword",
+                "llm",
                 "",
                 module_form.get("learner_feedback_visibility", "admin_approved_only"),
                 json.dumps(
                     {
                         "llm_scoring_enabled": True,
-                        "scoring_style": "keyword",
+                        "scoring_style": "llm",
                         "learner_feedback_visibility": module_form.get("learner_feedback_visibility", "admin_approved_only"),
                     }
                 ),
@@ -3870,16 +3868,16 @@ def render_module_builder(current_user: dict) -> None:
                     q.get("question_type") or "open_text",
                     _serialize_question_options(q),
                     None,
-                    _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="manual"),
+                    _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="llm"),
                     q.get("expected_answer", "").strip()
-                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="manual") == "keyword"
+                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="llm") == "keyword"
                     else "",
                     q.get("llm_grading_criteria", "").strip()
-                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="manual") == "llm"
+                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="llm") == "llm"
                     else "",
                     module_form.get("learner_feedback_visibility", "admin_approved_only"),
                     json.dumps(_parse_rubric_criteria_lines(str(q.get("rubric_criteria_text") or "")))
-                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="manual") == "llm"
+                    if _normalize_scoring_for_question_type(q.get("question_type"), q.get("scoring_type"), fallback="llm") == "llm"
                     else "[]",
                     q.get("ai_conversation_prompt", "").strip()
                     if str(q.get("question_type") or "").strip() == "ai_conversation"
@@ -4157,7 +4155,7 @@ def render_manage_modules(current_user: dict) -> None:
             "hidden_root_cause": "",
             "expected_reasoning_path": "",
             "llm_scoring_enabled": True,
-            "scoring_style": "keyword",
+            "scoring_style": "llm",
             "llm_grader_instructions": "",
             "learner_feedback_visibility": "admin_approved_only",
         }
@@ -4339,7 +4337,7 @@ def render_manage_modules(current_user: dict) -> None:
                     edit_question_scoring_type = _normalize_scoring_for_question_type(
                         edit_question_type,
                         edit_question_scoring_type,
-                        fallback="manual",
+                        fallback="llm",
                     )
                     edit_question_max_points = st.number_input(
                         "Max points",
@@ -4631,7 +4629,7 @@ def render_manage_modules(current_user: dict) -> None:
                                             ),
                                         }
                                     ) if edit_question_type == "multiple_choice" else "",
-                                    _normalize_scoring_for_question_type(edit_question_type, edit_question_scoring_type, fallback="manual"),
+                                    _normalize_scoring_for_question_type(edit_question_type, edit_question_scoring_type, fallback="llm"),
                                     _parse_lines(edit_question_keywords) if edit_question_type != "multiple_choice" else "",
                                     edit_question_llm_instructions.strip(),
                                     edit_form.get("learner_feedback_visibility", "admin_approved_only"),
@@ -4704,9 +4702,9 @@ def render_manage_modules(current_user: dict) -> None:
                     MULTIPLE_CHOICE_SCORING_OPTIONS if add_question_type == "multiple_choice" else (
                         ["manual", "llm"] if add_question_type == "ai_conversation" else QUESTION_SCORING_OPTIONS
                     ),
-                    index=_safe_scoring_option_index("manual", MULTIPLE_CHOICE_SCORING_OPTIONS if add_question_type == "multiple_choice" else (
+                    index=_safe_scoring_option_index("llm", MULTIPLE_CHOICE_SCORING_OPTIONS if add_question_type == "multiple_choice" else (
                         ["manual", "llm"] if add_question_type == "ai_conversation" else QUESTION_SCORING_OPTIONS
-                    ), fallback="manual"),
+                    ), fallback="llm"),
                     format_func=lambda value: QUESTION_SCORING_LABELS.get(value, str(value)),
                     key=f"add_question_scoring_type_{state_prefix}_{module_id}",
                     horizontal=True,
@@ -4714,7 +4712,7 @@ def render_manage_modules(current_user: dict) -> None:
                 add_question_scoring_type = _normalize_scoring_for_question_type(
                     add_question_type,
                     add_question_scoring_type,
-                    fallback="manual",
+                    fallback="llm",
                 )
                 add_question_llm_instructions = ""
                 add_question_rubric_criteria = ""
@@ -4809,7 +4807,7 @@ def render_manage_modules(current_user: dict) -> None:
                                 }
                             ) if add_question_type == "multiple_choice" else "",
                             None,
-                            _normalize_scoring_for_question_type(add_question_type, add_question_scoring_type, fallback="manual"),
+                            _normalize_scoring_for_question_type(add_question_type, add_question_scoring_type, fallback="llm"),
                             _parse_lines(add_question_keywords) if (add_question_type != "multiple_choice" and _is_present(add_question_keywords)) else add_question_expected_answer.strip(),
                             add_question_llm_instructions.strip(),
                             edit_form.get("learner_feedback_visibility", "admin_approved_only"),
@@ -4871,13 +4869,13 @@ def render_manage_modules(current_user: dict) -> None:
                             edit_form.get("completion_requirements", ""),
                             bool(edit_form.get("quiz_required", False)),
                             True,
-                            "keyword",
+                            "llm",
                             "",
                             edit_form.get("learner_feedback_visibility", "admin_approved_only"),
                             json.dumps(
                                 {
                                     "llm_scoring_enabled": True,
-                                    "scoring_style": "keyword",
+                                    "scoring_style": "llm",
                                     "learner_feedback_visibility": edit_form.get("learner_feedback_visibility", "admin_approved_only"),
                                 }
                             ),

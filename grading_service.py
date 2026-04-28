@@ -12,7 +12,7 @@ grading_service_logger = get_logger(module="grading_service")
 SCORING_APPROACHES = {"keyword", "llm", "manual"}
 
 
-def _normalize_scoring_type(value: object, fallback: str = "manual") -> str:
+def _normalize_scoring_type(value: object, fallback: str = "llm") -> str:
     normalized = str(value or "").strip().lower()
     if normalized in SCORING_APPROACHES:
         return normalized
@@ -20,7 +20,7 @@ def _normalize_scoring_type(value: object, fallback: str = "manual") -> str:
         return "manual"
     if normalized in {"rubric_llm", "llm_rubric"}:
         return "llm"
-    return fallback if fallback in SCORING_APPROACHES else "manual"
+    return fallback if fallback in SCORING_APPROACHES else "llm"
 
 
 def _keywords(text: str) -> list[str]:
@@ -183,10 +183,20 @@ def _multiple_choice_grade(learner_answer: str, options_text: str | None, max_po
     }
 
 
+def _compose_multiple_choice_expected_answer(options_text: str | None) -> str:
+    choices, correct_idx = _parse_multiple_choice_options(options_text)
+    if correct_idx is None or correct_idx >= len(choices):
+        return ""
+    return str(choices[correct_idx]).strip()
+
+
 def _compose_grading_reference(question: dict[str, Any]) -> str:
     sections: list[str] = []
+    expected_answer = question.get("expected_answer")
+    if str(question.get("question_type") or "").strip() == "multiple_choice":
+        expected_answer = _compose_multiple_choice_expected_answer(question.get("options_text"))
     for label, value in [
-        ("Expected answer", question.get("expected_answer")),
+        ("Expected answer", expected_answer),
         ("Rubric", question.get("rubric")),
         ("LLM instructions", question.get("llm_grading_criteria")),
         ("Partial credit guidance", question.get("partial_credit_guidance")),
@@ -216,7 +226,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
     attempt = fetch_one(
         """
         SELECT a.*, m.organization_id AS module_org_id, m.expected_customer_response, m.lesson_takeaway,
-               COALESCE(m.scoring_style, 'manual') AS module_scoring_style,
+               COALESCE(m.scoring_style, 'llm') AS module_scoring_style,
                COALESCE(m.llm_grader_instructions, '') AS llm_grader_instructions,
                COALESCE(m.learner_feedback_visibility, 'admin_approved_only') AS learner_feedback_visibility,
                COALESCE(m.scoring_config_json, '') AS module_scoring_config_json
@@ -257,8 +267,8 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
     except Exception:
         question_responses = {}
 
-    module_scoring_style = _normalize_scoring_type(attempt.get("module_scoring_style"), fallback="manual")
-    default_style = module_scoring_style
+    module_scoring_style = _normalize_scoring_type(attempt.get("module_scoring_style"), fallback="llm")
+    default_style = "llm" if module_scoring_style != "llm" else module_scoring_style
 
     execute("UPDATE attempts SET result_status = 'ai_grading' WHERE attempt_id = ?", (attempt_id,))
     execute(
@@ -289,26 +299,9 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             else:
                 learner_answer = str(raw_answer or "")
             max_points = float(question.get("max_points") or 0)
-            q_style = _normalize_scoring_type(question.get("scoring_type"), fallback=default_style)
+            q_style = "llm"
             question_type = str(question.get("question_type") or "").strip()
-            if question_type == "ai_conversation" and q_style == "keyword":
-                q_style = "manual"
-            if question_type == "multiple_choice" and q_style == "keyword":
-                q_style = "manual"
-            if question_type == "multiple_choice":
-                graded = _multiple_choice_grade(learner_answer, question.get("options_text"), max_points)
-                if q_style == "manual":
-                    graded["reasoning"] = f"{graded['reasoning']} Pending admin review approval."
-            elif q_style == "manual":
-                graded = {
-                    "awarded_points": 0.0,
-                    "max_points": max_points,
-                    "reasoning": "Marked for manual review.",
-                    "feedback": "Awaiting admin review.",
-                    "missing_elements": [],
-                    "breakdown": [],
-                }
-            elif q_style == "llm":
+            if q_style == "llm":
                 graded = _rubric_grade(
                     learner_answer,
                     _compose_grading_reference(question),
@@ -318,6 +311,15 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             else:
                 keyword_terms = str(question.get("keyword_expected_terms") or question.get("expected_answer") or "").strip()
                 graded = _keyword_grade(learner_answer, keyword_terms, _compose_grading_reference(question), max_points)
+
+            if not str(graded.get("reasoning") or "").strip():
+                graded["reasoning"] = (
+                    "No learner response was provided; score reflects missing response."
+                    if not str(learner_answer or "").strip()
+                    else "Rationale unavailable from scorer; default rationale applied."
+                )
+            if not str(graded.get("feedback") or "").strip():
+                graded["feedback"] = "No feedback generated."
 
             total_score += float(graded["awarded_points"])
             max_total_score += max_points
@@ -402,8 +404,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
 
         percentage = round((total_score / max_total_score) * 100, 1) if max_total_score else None
         overall_feedback = "Strong performance across rubric criteria." if (percentage or 0) >= 80 else "Partial understanding shown; review missed concepts and add more detail."
-        any_manual_review = any(row.get("scoring_method") == "manual" for row in question_scores)
-        grading_status = "pending_review" if any_manual_review else "ai_graded_pending_review"
+        grading_status = "ai_graded_pending_review"
 
         execute(
             """
