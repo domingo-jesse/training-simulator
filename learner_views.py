@@ -1265,17 +1265,22 @@ def render_scenario_page(user: Dict) -> None:
                             for turn in transcript:
                                 role = "AI" if turn.get("role") == "assistant" else "You"
                                 st.markdown(f"**{role}:** {turn.get('content') or ''}")
-                            input_key = f"{conversation_key}_input"
-                            learner_reply = st.text_input(
-                                "Your reply",
-                                key=input_key,
-                                disabled=bool(payload.get("complete")),
-                            )
-                            if st.button("Send reply", key=f"{conversation_key}_send", disabled=bool(payload.get("complete"))):
-                                if learner_reply.strip():
-                                    transcript.append({"role": "user", "content": learner_reply.strip(), "timestamp": datetime.now(timezone.utc).isoformat()})
-                                    learner_count = int(payload.get("learner_responses") or 0) + 1
-                                    payload["learner_responses"] = learner_count
+                            form_key = f"{conversation_key}_form"
+                            with st.form(form_key, clear_on_submit=True):
+                                learner_reply = st.text_input(
+                                    "Your reply",
+                                    key=f"{conversation_key}_input",
+                                    disabled=bool(payload.get("complete")),
+                                )
+                                send_clicked = st.form_submit_button(
+                                    "Send reply",
+                                    disabled=bool(payload.get("complete")),
+                                )
+                            if send_clicked and learner_reply.strip():
+                                transcript.append({"role": "user", "content": learner_reply.strip(), "timestamp": datetime.now(timezone.utc).isoformat()})
+                                learner_count = int(payload.get("learner_responses") or 0) + 1
+                                payload["learner_responses"] = learner_count
+                                with st.spinner("AI is responding..."):
                                     if learner_count >= max_responses:
                                         closing = _generate_ai_conversation_message(question=question, transcript=transcript, is_wrap_up=True)
                                         transcript.append({"role": "assistant", "content": closing, "timestamp": datetime.now(timezone.utc).isoformat()})
@@ -1283,12 +1288,11 @@ def render_scenario_page(user: Dict) -> None:
                                     else:
                                         ai_reply = _generate_ai_conversation_message(question=question, transcript=transcript)
                                         transcript.append({"role": "assistant", "content": ai_reply, "timestamp": datetime.now(timezone.utc).isoformat()})
-                                    payload["transcript"] = transcript
-                                    question_answers_local[qid] = payload
-                                    st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
-                                    st.session_state[input_key] = ""
-                                    _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
-                                    st.rerun()
+                                payload["transcript"] = transcript
+                                question_answers_local[qid] = payload
+                                st.session_state[f"question_answers_{assignment_id}"] = question_answers_local
+                                _persist_workspace_state(assignment_id=assignment_id, module_id=module_id, user=user)
+                                st.rerun()
                             if payload.get("complete"):
                                 st.success("Conversation complete. This question is locked.")
                         question_answers_local[qid] = payload
