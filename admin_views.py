@@ -46,6 +46,7 @@ from utils import (
     render_app_table,
     render_kpi_card,
     render_page_header,
+    table_card_container,
     safe_int,
     inject_scroll_to_top,
     to_df,
@@ -94,16 +95,17 @@ def render_aggrid_test_page() -> None:
     st.write("Test dataframe shape:", test_df.shape)
     st.write("Test dataframe columns:", list(test_df.columns))
     st.caption("Click rows to select.")
-    grid_response = st.dataframe(
-        test_df,
-        hide_index=True,
-        height=300,
-        width="stretch",
-        on_select="rerun",
-        selection_mode="multi-row",
-        key="aggrid_test_basic",
-        column_config={"learner_id": None},
-    )
+    with table_card_container():
+        grid_response = st.dataframe(
+            test_df,
+            hide_index=True,
+            height=300,
+            width="stretch",
+            on_select="rerun",
+            selection_mode="multi-row",
+            key="aggrid_test_basic",
+            column_config={"learner_id": None},
+        )
     selected_rows = grid_response.selection.rows if grid_response and grid_response.selection else []
     selected_ids = [int(test_df.iloc[row]["learner_id"]) for row in selected_rows]
 
@@ -915,16 +917,17 @@ def _render_assignment_tool(current_user: dict) -> None:
                 "status": "Status",
             }
         )
-        st.dataframe(
-            display_df,
-            hide_index=True,
-            width="stretch",
-            height=360,
-            key="assignment_learner_table",
-            column_config={
-                "learner_id": None,
-            },
-        )
+        with table_card_container():
+            st.dataframe(
+                display_df,
+                hide_index=True,
+                width="stretch",
+                height=360,
+                key="assignment_learner_table",
+                column_config={
+                    "learner_id": None,
+                },
+            )
         st.info(f"{len(selected_learner_ids)} learner(s) selected.")
 
         logger.info(
@@ -1580,12 +1583,13 @@ def render_grading_center(current_user: dict) -> None:
     ]:
         grading_display_df[score_col] = pd.to_numeric(grading_display_df[score_col], errors="coerce").round(1)
     grading_table_height = max(360, min(760, 36 * (len(grading_display_df) + 1)))
-    st.dataframe(
-        grading_display_df,
-        hide_index=True,
-        width="stretch",
-        height=grading_table_height,
-    )
+    with table_card_container():
+        st.dataframe(
+            grading_display_df,
+            hide_index=True,
+            width="stretch",
+            height=grading_table_height,
+        )
 
     if filtered.empty or "attempt_id" not in filtered.columns:
         st.info("No submissions match the current filters.")
@@ -2501,12 +2505,13 @@ div[data-testid="stElementContainer"]:empty {
     for datetime_col in ["Due Date", "Assigned At", "Completed At"]:
         progress_display_df[datetime_col] = progress_display_df[datetime_col].apply(_format_datetime_for_admin_grid)
     progress_table_height = max(360, min(760, 36 * (len(progress_display_df) + 1)))
-    st.dataframe(
-        progress_display_df,
-        hide_index=True,
-        width="stretch",
-        height=progress_table_height,
-    )
+    with table_card_container():
+        st.dataframe(
+            progress_display_df,
+            hide_index=True,
+            width="stretch",
+            height=progress_table_height,
+        )
 
 
 def _parse_lines(value: str) -> str:
