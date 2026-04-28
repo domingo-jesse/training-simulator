@@ -14,6 +14,7 @@ import numpy as np
 _APP_TABLE_STYLE_KEY = "_app_table_styles_injected"
 _ADMIN_TABLE_STYLE_KEY = "_admin_table_styles_injected"
 _ADMIN_SELECTION_STYLE_KEY = "_admin_selection_table_styles_injected"
+_TABLE_CARD_STYLE_KEY = "_table_card_styles_injected"
 _PAGE_CONTAINER_VARIANTS = {"wide", "medium", "narrow"}
 
 
@@ -805,43 +806,75 @@ def _normalize_css_size(value: int | str | None, default: str = "450px") -> str:
     return cleaned or default
 
 
+def _inject_table_card_styles() -> None:
+    if st.session_state.get(_TABLE_CARD_STYLE_KEY):
+        return
+    st.session_state[_TABLE_CARD_STYLE_KEY] = True
+    st.markdown(
+        """
+        <style>
+        .table-card {
+            background: #ffffff;
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 0.6rem;
+            width: 100%;
+            box-sizing: border-box;
+            overflow: hidden;
+            margin-top: 0.45rem;
+            margin-bottom: 0.7rem;
+        }
+        .table-card .table-card-body {
+            width: 100%;
+            overflow-x: auto;
+            overflow-y: auto;
+            max-width: 100%;
+        }
+        .table-card .table-card-title {
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.45rem;
+        }
+        .table-card .table-card-body [data-testid="stDataFrame"] {
+            width: 100%;
+            max-width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+@contextmanager
+def table_card_container(title: str | None = None) -> Any:
+    _inject_table_card_styles()
+    st.markdown('<div class="table-card">', unsafe_allow_html=True)
+    if title:
+        st.markdown(f'<div class="table-card-title">{escape(title)}</div>', unsafe_allow_html=True)
+    st.markdown('<div class="table-card-body">', unsafe_allow_html=True)
+    try:
+        yield
+    finally:
+        st.markdown("</div></div>", unsafe_allow_html=True)
+
+
 def render_admin_table(
     df: pd.DataFrame,
     *,
     height: int = 500,
     empty_message: str = "No records match current filters.",
 ) -> None:
-    if not st.session_state.get(_ADMIN_TABLE_STYLE_KEY):
-        st.session_state[_ADMIN_TABLE_STYLE_KEY] = True
-        st.markdown(
-            """
-            <style>
-            .admin-table-card {
-                background: #ffffff;
-                border: 1px solid #e5e7eb;
-                border-radius: 16px;
-                padding: 0;
-                margin-top: 12px;
-                margin-bottom: 12px;
-                width: 100%;
-                overflow: hidden;
-            }
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
-
     if df is None or df.empty:
         st.info(empty_message)
         return
 
-    st.markdown('<div class="admin-table-card">', unsafe_allow_html=True)
-    st.dataframe(
-        df,
-        width="stretch",
-        height=height,
-    )
-    st.markdown("</div>", unsafe_allow_html=True)
+    with table_card_container():
+        st.dataframe(
+            df,
+            width="stretch",
+            height=height,
+        )
 
 
 def _inject_admin_selection_table_styles() -> None:
@@ -927,18 +960,19 @@ def render_admin_selection_table(
 
     display_df = df.reset_index(drop=True).copy()
     st.caption("Click rows to select.")
-    event = st.dataframe(
-        display_df,
-        key=table_key,
-        hide_index=hide_index,
-        width="stretch" if use_container_width else "content",
-        height=height or 420,
-        on_select="rerun",
-        selection_mode="single-row" if single_select else "multi-row",
-        column_config={
-            row_id_col: None,
-        },
-    )
+    with table_card_container():
+        event = st.dataframe(
+            display_df,
+            key=table_key,
+            hide_index=hide_index,
+            width="stretch" if use_container_width else "content",
+            height=height or 420,
+            on_select="rerun",
+            selection_mode="single-row" if single_select else "multi-row",
+            column_config={
+                row_id_col: None,
+            },
+        )
     selected_rows = event.selection.rows if event and event.selection else []
     selected_ids = [
         safe_int(display_df.iloc[row_idx][row_id_col], -1)
