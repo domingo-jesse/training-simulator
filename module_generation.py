@@ -76,6 +76,22 @@ def generate_question_scoring_criteria(
     }
 
 
+def generate_ai_grading_criteria(
+    question: dict[str, Any],
+    module_context: dict[str, Any],
+    max_points: float,
+) -> dict[str, Any]:
+    return generate_question_scoring_criteria(
+        module_title=str(module_context.get("title") or ""),
+        module_description=str(module_context.get("description") or ""),
+        question_text=str(question.get("question_text") or ""),
+        question_type=str(question.get("question_type") or "open_text"),
+        answer_choices=[str(choice) for choice in (question.get("answer_choices") or [])],
+        expected_answer=str(question.get("expected_answer") or ""),
+        max_points=max_points,
+    )
+
+
 def _fallback_preview(payload: ModuleGenerationInput) -> dict[str, Any]:
     question_count = min(10, max(0, payload.question_count))
     objectives = payload.learning_objectives or ["Demonstrate role-specific troubleshooting judgement"]
