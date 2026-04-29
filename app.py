@@ -13,7 +13,7 @@ from admin_views import (
     render_assignment_management,
     render_database_tables_view,
     render_grading_center,
-    render_learner_management,
+    render_account_management,
     render_admin_log_viewer,
     render_manage_modules,
     render_module_builder,
@@ -107,7 +107,7 @@ ADMIN_PAGE_TO_NAV = {
     "AgGrid Test": "aggrid-test",
     "Submission Grading": "submission-grading",
     "Progress Tracking": "progress-tracking",
-    "Learner Management": "learner-management",
+    "Account Management": "account-management",
     "Module Builder": "module-builder",
     "Manage Modules": "manage-modules",
     "Database Tables": "database-tables",
@@ -1036,27 +1036,6 @@ def render_login_view() -> None:
     if st.session_state.get("auth_error"):
         st.error(st.session_state["auth_error"])
 
-    pending = st.session_state.get("pending_google")
-    if pending:
-        st.info(f"Google account detected: {pending.get('email') or 'Unknown email'}")
-        action_a, action_b = st.columns(2)
-        with action_a:
-            st.button(
-                "Send to database: Create account",
-                width="stretch",
-                key="pending_google_create",
-                on_click=_set_ui_event,
-                args=("pending_google_create",),
-            )
-        with action_b:
-            st.button(
-                "Back to sign in",
-                width="stretch",
-                key="pending_google_back",
-                on_click=_set_ui_event,
-                args=("pending_google_back",),
-            )
-
     learner_tab, admin_tab = st.tabs(["Learner", "Admin"])
 
     with learner_tab:
@@ -1070,17 +1049,7 @@ def render_login_view() -> None:
                     _sign_in_user(user, "dev_quick")
                     return
                 st.session_state["auth_error"] = message
-                st.session_state["pending_google"] = None
                 return
-
-        _render_google_button("learner")
-        st.button(
-            "Create account",
-            key="create_link_learner",
-            width="stretch",
-            on_click=_set_ui_event,
-            args=("create_link_learner",),
-        )
 
     with admin_tab:
         with st.form("local_login_admin", clear_on_submit=False):
@@ -1093,54 +1062,12 @@ def render_login_view() -> None:
                     _sign_in_user(user, "dev_quick")
                     return
                 st.session_state["auth_error"] = message
-                st.session_state["pending_google"] = None
                 return
-
-        _render_google_button("admin")
-        st.button(
-            "Create account",
-            key="create_link_admin",
-            width="stretch",
-            on_click=_set_ui_event,
-            args=("create_link_admin",),
-        )
 
     if can_view_db_tools:
         with st.expander("Database tools", expanded=False):
             _render_database_connection_tester()
 
-    ui_event = st.session_state.get("ui_event")
-    if not ui_event:
-        return
-
-    st.session_state["ui_event"] = None
-    if ui_event == "pending_google_create":
-        ok, message, user = create_google_account(
-            role=pending.get("expected_role", "learner") if pending else "learner",
-            email=pending.get("email", "") if pending else "",
-            full_name=pending.get("full_name", "Google User") if pending else "Google User",
-        )
-        if ok and user:
-            _sign_in_user(user, "google")
-            st.session_state["post_create_success"] = message
-            return
-        st.session_state["auth_error"] = message
-        return
-
-    if ui_event == "pending_google_back":
-        st.session_state["pending_google"] = None
-        st.session_state["auth_error"] = None
-        st.logout()
-
-    if ui_event == "create_link_learner":
-        st.session_state["auth_view"] = "create_account"
-        st.session_state["selected_role"] = "learner"
-        return
-
-    if ui_event == "create_link_admin":
-        st.session_state["auth_view"] = "create_account"
-        st.session_state["selected_role"] = "admin"
-        return
 
 
 
@@ -1562,7 +1489,7 @@ def render_main_app() -> None:
             "🧪 AgGrid Test",
             "✅ Submission Grading",
             "📈 Progress Tracking",
-            "👥 Learner Management",
+            "👥 Account Management",
         ]
         if is_dev_user:
             operations_pages.extend(["🛠️ Database Tables", "📝 Debug Logs"])
@@ -1650,7 +1577,7 @@ def render_main_app() -> None:
             "AgGrid Test": "wide",
             "Submission Grading": "medium",
             "Progress Tracking": "wide",
-            "Learner Management": "wide",
+            "Account Management": "wide",
             "Module Builder": "medium",
             "Manage Modules": "wide",
             "Database Tables": "wide",
@@ -1668,8 +1595,8 @@ def render_main_app() -> None:
                 render_grading_center(user)
             elif normalized_page == "Progress Tracking":
                 render_progress_tracking(user)
-            elif normalized_page == "Learner Management":
-                render_learner_management(user)
+            elif normalized_page == "Account Management":
+                render_account_management(user)
             elif normalized_page == "Module Builder":
                 render_module_builder(user)
             elif normalized_page == "Manage Modules":
@@ -1793,10 +1720,7 @@ def main() -> None:
         render_main_app()
         return
 
-    if st.session_state.get("auth_view") == "create_account":
-        render_auth_shell(render_create_account_view)
-    else:
-        render_auth_shell(render_login_view)
+    render_auth_shell(render_login_view)
 
 
 if __name__ == "__main__":

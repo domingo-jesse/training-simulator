@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import time
@@ -59,6 +60,11 @@ from module_generation import (
     generate_module_draft,
     generate_module_preview,
 )
+
+
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode("utf-8")).hexdigest()
 
 admin_logger = get_logger(module="admin_views")
 
@@ -493,237 +499,131 @@ def render_admin_dashboard(current_user: dict) -> None:
     
 
 
-def render_learner_management(current_user: dict) -> None:
-    org_id = current_user["organization_id"]
-    logger = admin_logger.bind(user_id=current_user.get("user_id"), session_id=st.session_state.get("session_id"))
-    render_page_header("Learner Management", "Search, segment, and manage active learner access.")
-
-    rows = fetch_all(
-        """
-        WITH assignment_counts AS (
-            SELECT
-                learner_id,
-                COUNT(DISTINCT assignment_id) AS assigned_modules
-            FROM assignments
-            WHERE organization_id = ?
-              AND is_active IS TRUE
-            GROUP BY learner_id
-        ),
-        progress_counts AS (
-            SELECT
-                user_id,
-                COUNT(
-                    DISTINCT CASE
-                        WHEN completed_at IS NOT NULL OR progress_percent >= 100 THEN module_id
-                        ELSE NULL
-                    END
-                ) AS completed_modules,
-                MAX(COALESCE(last_activity_at, updated_at, completed_at, started_at)) AS progress_last_activity
-            FROM module_progress
-            WHERE organization_id = ?
-            GROUP BY user_id
+def _create_account_from_admin(
+    org_id: int,
+    role: str,
+    full_name: str,
+    email: str,
+    username: str,
+    password: str,
+    confirm_password: str,
+) -> tuple[bool, str]:
+    role = (role or "").strip().lower()
+    full_name = (full_name or "").strip()
+    email = (email or "").strip().lower()
+    username = (username or "").strip()
+    if role not in {"learner", "admin"}:
+        return False, "Please select a valid role."
+    if not full_name or not email or not password or not confirm_password:
+        return False, "Please complete all required fields."
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return False, "Please enter a valid email address."
+    existing = fetch_one("SELECT user_id FROM users WHERE LOWER(email)=? AND role=? LIMIT 1", (email, role))
+    if existing:
+        return False, f"A {role.title()} account with this email already exists."
+    if username and fetch_one("SELECT user_id FROM users WHERE LOWER(username)=? LIMIT 1", (username.lower(),)):
+        return False, "That username is already in use."
+    if password != confirm_password:
+        return False, "Passwords must match."
+    try:
+        execute(
+            """
+            INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', TRUE)
+            """,
+            (f"u_{role}_{email}", full_name, email, role, "General", org_id, (username or None), hash_password(password)),
         )
-        SELECT
-            u.user_id,
-            u.id AS user_uuid,
-            u.name,
-            u.team,
-            u.is_active,
-            u.organization_id,
-            o.name AS organization_name,
-            COALESCE(ac.assigned_modules, 0) AS assigned_modules,
-            COALESCE(pc.completed_modules, 0) AS completed_modules,
-            COALESCE(lp.last_activity, pc.progress_last_activity) AS last_activity
-        FROM users u
-        LEFT JOIN assignment_counts ac ON ac.learner_id = u.user_id
-        LEFT JOIN learner_profiles lp ON lp.user_id = u.id
-        LEFT JOIN progress_counts pc ON pc.user_id = u.id
-        LEFT JOIN organizations o ON o.organization_id = u.organization_id
-        WHERE u.role = 'learner'
-          AND u.organization_id = ?
-        ORDER BY u.name
-        """,
-        (org_id, org_id, org_id),
-    )
-    df = to_df(
-        rows,
-        columns=[
-            "user_id",
-            "user_uuid",
-            "name",
-            "team",
-            "is_active",
-            "organization_id",
-            "organization_name",
-            "assigned_modules",
-            "completed_modules",
-            "last_activity",
-        ],
-    )
+    except Exception as exc:
+        txt = str(exc).lower()
+        if "username" in txt:
+            return False, "That username is already in use."
+        if "email" in txt:
+            return False, f"A {role.title()} account with this email already exists."
+        return False, "We couldn't create that account right now."
+    return True, f"{role.title()} account created successfully."
 
-    if df.empty:
-        st.info("No learners in this organization.")
+
+def render_account_management(current_user: dict) -> None:
+    if str(current_user.get("role") or "").lower() != "admin":
+        st.error("Account Management is restricted to admin users.")
         return
 
-    df["team"] = df["team"].fillna("")
-    df["organization_name"] = df["organization_name"].fillna("Unassigned")
-    df["is_active"] = df["is_active"].astype(bool)
-    df["status"] = df["is_active"].map({True: "Active", False: "Inactive"})
+    org_id = current_user["organization_id"]
+    render_page_header("Account Management", "View all organization accounts and create new accounts.")
 
-    c1, c2, c3 = st.columns([2, 1, 1])
-    team_options = sorted([team for team in df["team"].unique().tolist() if team])
-    org_options = sorted(df["organization_name"].unique().tolist())
-    with c1:
-        q = st.text_input("Search learners", placeholder="Search by name, team, or department")
-    with c2:
-        team_filter = st.selectbox("Department/Team", ["All"] + team_options)
-    with c3:
-        org_filter = st.selectbox("Organization", ["All"] + org_options)
-    filtered = apply_learner_filters(df, search_text=q, team_filter=team_filter, org_filter=org_filter)
+    all_tab, create_tab = st.tabs(["All Accounts", "Create Account"])
 
-    def _render_learner_tab(tab_df: pd.DataFrame, full_df: pd.DataFrame, tab_name: str, show_active: bool) -> None:
-        scoped = filter_active_learners(tab_df) if show_active else filter_inactive_learners(tab_df)
-        scoped_all = filter_active_learners(full_df) if show_active else filter_inactive_learners(full_df)
-        st.caption(f"{len(scoped)} learner(s) in {tab_name.lower()}.")
-        learner_table_df = scoped[
-            [
-                "user_id",
-                "name",
-                "team",
-                "organization_name",
-                "status",
-                "assigned_modules",
-                "completed_modules",
-                "last_activity",
-            ]
-        ].reset_index(drop=True)
-
-        tab_key = tab_name.lower().replace(" ", "_")
-        selection_state_key = f"learner_bulk_selected_ids_{tab_key}"
-        selected_ids_key = f"learner_unified_selected_ids_{tab_key}"
-        learner_options = {build_learner_option_label(r): int(r["user_id"]) for _, r in scoped.iterrows()}
-        visible_ids = {int(v) for v in scoped["user_id"].tolist()}
-        all_tab_ids = {int(v) for v in scoped_all["user_id"].tolist()}
-
-        existing_ids = {
-            int(v) for v in st.session_state.get(selected_ids_key, []) if int(v) in all_tab_ids
-        }
-        st.session_state[selected_ids_key] = sorted(existing_ids)
-        if selection_state_key not in st.session_state:
-            st.session_state[selection_state_key] = sorted(existing_ids & visible_ids)
+    with all_tab:
+        rows = fetch_all(
+            """
+            SELECT user_id, id AS user_uuid, name, email, username, role, team, is_active, auth_provider, organization_id
+            FROM users
+            WHERE organization_id = ?
+            ORDER BY LOWER(name), user_id
+            """,
+            (org_id,),
+        )
+        df = to_df(rows, columns=["user_id", "user_uuid", "name", "email", "username", "role", "team", "is_active", "auth_provider", "organization_id"])
+        if df.empty:
+            st.info("No accounts in this organization yet.")
         else:
-            st.session_state[selection_state_key] = sorted(
-                int(v)
-                for v in st.session_state.get(selection_state_key, [])
-                if int(v) in visible_ids
-            )
+            df["team"] = df["team"].fillna("")
+            df["email"] = df["email"].fillna("")
+            df["username"] = df["username"].fillna("")
+            df["role"] = df["role"].fillna("unknown")
+            df["status"] = df["is_active"].astype(bool).map({True: "Active", False: "Inactive"})
+            c1, c2, c3 = st.columns([2,1,1])
+            with c1:
+                q = st.text_input("Search accounts", placeholder="Search by name, email, username, or team")
+            with c2:
+                role_options = ["All"] + sorted(df["role"].str.lower().unique().tolist())
+                role_filter = st.selectbox("Role", role_options)
+            with c3:
+                status_filter = st.selectbox("Status", ["All", "Active", "Inactive"])
+            filtered = df.copy()
+            if q.strip():
+                qn = q.strip().lower()
+                filtered = filtered[
+                    filtered[["name", "email", "username", "team", "role"]]
+                    .fillna("")
+                    .apply(lambda col: col.astype(str).str.lower().str.contains(qn, na=False))
+                    .any(axis=1)
+                ]
+            if role_filter != "All":
+                filtered = filtered[filtered["role"].str.lower() == role_filter]
+            if status_filter != "All":
+                filtered = filtered[filtered["status"] == status_filter]
 
-        learner_display_df = learner_table_df.rename(
-            columns={
-                "user_id": "learner_id",
-                "name": "Learner",
+            display = filtered[["user_id", "name", "email", "username", "role", "team", "status", "auth_provider"]].rename(columns={
+                "user_id": "Account ID",
+                "name": "Name",
+                "email": "Email",
+                "username": "Username",
+                "role": "Role",
                 "team": "Team",
-                "organization_name": "Organization",
                 "status": "Status",
-                "assigned_modules": "Assigned",
-                "completed_modules": "Completed",
-                "last_activity": "Last Activity",
-            }
-        )
-        if "Last Activity" in learner_display_df.columns:
-            learner_display_df["Last Activity"] = learner_display_df["Last Activity"].apply(_format_datetime_for_admin_grid)
-        _, selected_row_ids = render_admin_selection_table(
-            learner_display_df,
-            row_id_col="learner_id",
-            selection_state_key=selection_state_key,
-            table_key=f"learner_management_table_{tab_key}",
-            selection_label="Select",
-            selection_help="Select learners for archive/activate actions.",
-            single_select=False,
-            height=520,
-            empty_message="No learners match current filters. Adjust filters to display learners.",
-        )
+                "auth_provider": "Auth Provider",
+            })
+            st.caption(f"{len(filtered)} account(s) shown.")
+            st.dataframe(display, use_container_width=True, hide_index=True)
 
-        c1, c2 = st.columns([1, 1])
-        with c1:
-            if st.button(
-                "Select All Filtered",
-                key=f"select_all_filtered_{tab_key}",
-            ):
-                updated_ids = set(st.session_state.get(selected_ids_key, [])) | set(learner_options.values())
-                st.session_state[selected_ids_key] = sorted(int(v) for v in updated_ids)
-                st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
-                st.rerun()
-        with c2:
-            if st.button(
-                "Clear Selection",
-                key=f"clear_selection_{tab_key}",
-            ):
-                st.session_state[selected_ids_key] = []
-                st.session_state[selection_state_key] = []
-                st.rerun()
-
-        selected_id_set = {int(v) for v in selected_row_ids}
-        unified_selected_ids = (set(st.session_state.get(selected_ids_key, [])) - visible_ids) | selected_id_set
-        st.session_state[selected_ids_key] = sorted(int(v) for v in unified_selected_ids)
-        st.session_state[selection_state_key] = sorted(set(st.session_state[selected_ids_key]) & visible_ids)
-        selected_ids = sorted(int(v) for v in st.session_state[selected_ids_key])
-        st.caption(f"{len(selected_ids)} item(s) selected.")
-
-        if show_active:
-            action_label = "Archive"
-            new_status = False
-            action_type = "secondary"
-        else:
-            action_label = "Activate"
-            new_status = True
-            action_type = "primary"
-
-        _, action_col = st.columns([8, 2], gap="small")
-        with action_col:
-            run_bulk_action = st.button(
-                action_label,
-                type=action_type,
-                key=f"bulk_action_{tab_key}",
-                width="stretch",
-            )
-
-        if run_bulk_action:
-            selected_ids = st.session_state.get(selected_ids_key, [])
-            if not selected_ids:
-                st.warning("Please select at least one row.")
-                st.stop()
-            try:
-                status_sql = "TRUE" if new_status else "FALSE"
-                execute(
-                    f"""
-                    UPDATE users
-                    SET is_active = {status_sql}
-                    WHERE organization_id = ?
-                      AND user_id = ANY(?)
-                    """,
-                    (org_id, selected_ids),
-                )
-                logger.info(
-                    "Bulk learner status update.",
-                    action="bulk_status_update",
-                    status=("active" if new_status else "inactive"),
-                    learner_count=len(selected_ids),
-                )
-                st.success(
-                    f"Updated {len(selected_ids)} learner(s) to {'Active' if new_status else 'Inactive'}."
-                )
-                st.cache_data.clear()
-                st.rerun()
-            except Exception:
-                logger.exception("Failed bulk learner status update.", learner_count=len(selected_ids))
-                st.error("Could not update selected learners.")
-
-    active_tab, inactive_tab = st.tabs(["Active Learners", "Inactive Learners"])
-    with active_tab:
-        _render_learner_tab(filtered, df, "Active Learners", True)
-    with inactive_tab:
-        _render_learner_tab(filtered, df, "Inactive Learners", False)
+    with create_tab:
+        st.caption("Admin-only account creation. Passwords are stored as hashes (not plaintext).")
+        role = st.selectbox("Role", ["learner", "admin"], format_func=lambda r: r.title())
+        with st.form("admin_create_account_form", clear_on_submit=False):
+            full_name = st.text_input("Full name *")
+            email = st.text_input("Email *")
+            username = st.text_input("Username (optional)")
+            password = st.text_input("Password *", type="password")
+            confirm_password = st.text_input("Confirm password *", type="password")
+            create_clicked = st.form_submit_button("Create Account", type="primary", width="stretch")
+            if create_clicked:
+                ok, message = _create_account_from_admin(org_id, role, full_name, email, username, password, confirm_password)
+                if ok:
+                    st.success(message)
+                    st.cache_data.clear()
+                    st.rerun()
+                st.error(message)
 
 
 def _render_assignment_tool(current_user: dict) -> None:
