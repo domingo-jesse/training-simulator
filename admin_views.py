@@ -607,6 +607,44 @@ def render_account_management(current_user: dict) -> None:
             st.caption(f"{len(filtered)} account(s) shown.")
             st.dataframe(display, use_container_width=True, hide_index=True)
 
+            st.markdown("#### Update account status")
+            account_options = [
+                (
+                    int(row["user_id"]),
+                    f"{row['name']} ({row['email'] or 'no-email'}) — {row['status']}",
+                )
+                for _, row in filtered.sort_values(["name", "user_id"]).iterrows()
+            ]
+            selected_user_id = st.selectbox(
+                "Select account",
+                options=[user_id for user_id, _ in account_options],
+                format_func=lambda user_id: next(label for uid, label in account_options if uid == user_id),
+                key="account_mgmt_status_target_user_id",
+            )
+            selected_user_row = df[df["user_id"] == selected_user_id].iloc[0]
+            selected_is_active = bool(selected_user_row["is_active"])
+            target_action = "Deactivate" if selected_is_active else "Activate"
+
+            if st.button(
+                f"{target_action} account",
+                type="secondary" if selected_is_active else "primary",
+                width="stretch",
+                key="account_mgmt_toggle_status_btn",
+            ):
+                if int(selected_user_id) == int(current_user.get("user_id") or -1):
+                    st.error("You cannot deactivate your own account while signed in.")
+                else:
+                    execute(
+                        "UPDATE users SET is_active = ? WHERE organization_id = ? AND user_id = ?",
+                        (0 if selected_is_active else 1, org_id, int(selected_user_id)),
+                    )
+                    st.success(
+                        f"Account {'deactivated' if selected_is_active else 'activated'} for "
+                        f"{selected_user_row['name']}."
+                    )
+                    st.cache_data.clear()
+                    st.rerun()
+
     with create_tab:
         st.caption("Admin-only account creation. Passwords are stored as hashes (not plaintext).")
         role = st.selectbox("Role", ["learner", "admin"], format_func=lambda r: r.title())
