@@ -1803,10 +1803,15 @@ def init_db() -> None:
             _ensure_column(conn, "module_questions", "incomplete_criteria", "TEXT")
             _ensure_column(conn, "module_questions", "strong_response_criteria", "TEXT")
             _ensure_column(conn, "module_questions", "max_points", "DOUBLE PRECISION DEFAULT 10")
-            _ensure_column(conn, "module_questions", "scoring_type", "TEXT DEFAULT 'manual'")
+            _ensure_column(conn, "module_questions", "scoring_type", "TEXT DEFAULT 'llm'")
+            _ensure_column(conn, "module_questions", "scoring_method", "TEXT DEFAULT 'ai_review'")
             _ensure_column(conn, "module_questions", "scoring_style", "TEXT")
             _ensure_column(conn, "module_questions", "keyword_expected_terms", "TEXT")
             _ensure_column(conn, "module_questions", "llm_grading_criteria", "TEXT")
+            _ensure_column(conn, "module_questions", "grader_instructions", "TEXT")
+            _ensure_column(conn, "module_questions", "rubric_criteria", "TEXT")
+            _ensure_column(conn, "module_questions", "correct_answer", "TEXT")
+            _ensure_column(conn, "module_questions", "scoring_config", "JSONB DEFAULT '{}'::jsonb" if RUNTIME_USE_POSTGRES else "TEXT DEFAULT '{}'")
             _ensure_column(conn, "module_questions", "llm_grading_instructions", "TEXT")
             _ensure_column(conn, "module_questions", "learner_visible_feedback_mode", "TEXT DEFAULT 'admin_approved_only'")
             _ensure_column(conn, "module_questions", "rubric_criteria_json", "TEXT")
@@ -1831,11 +1836,13 @@ def init_db() -> None:
                             WHEN LOWER(COALESCE(scoring_style, '')) = 'manual_review' THEN 'manual'
                             WHEN LOWER(COALESCE(scoring_style, '')) IN ('llm', 'rubric_llm', 'llm_rubric') THEN 'llm'
                             WHEN LOWER(COALESCE(scoring_style, '')) = 'keyword' THEN 'keyword'
-                            ELSE 'manual'
+                            ELSE 'llm'
                         END
                         WHERE COALESCE(scoring_type, '') = ''
                         """
                     )
+                    cur.execute("UPDATE module_questions SET scoring_method = 'ai_review' WHERE COALESCE(scoring_method, '') = ''")
+                    cur.execute("UPDATE module_questions SET max_points = 10 WHERE max_points IS NULL")
             else:
                 conn.execute(
                     """
@@ -1845,11 +1852,13 @@ def init_db() -> None:
                         WHEN LOWER(COALESCE(scoring_style, '')) = 'manual_review' THEN 'manual'
                         WHEN LOWER(COALESCE(scoring_style, '')) IN ('llm', 'rubric_llm', 'llm_rubric') THEN 'llm'
                         WHEN LOWER(COALESCE(scoring_style, '')) = 'keyword' THEN 'keyword'
-                        ELSE 'manual'
+                        ELSE 'llm'
                     END
                     WHERE COALESCE(scoring_type, '') = ''
                     """
                 )
+                conn.execute("UPDATE module_questions SET scoring_method = 'ai_review' WHERE COALESCE(scoring_method, '') = ''")
+                conn.execute("UPDATE module_questions SET max_points = 10 WHERE max_points IS NULL")
             _ensure_column(conn, "assignment_workspace_state", "time_limit_minutes", "INTEGER")
             _ensure_column(conn, "assignment_workspace_state", "end_time", "TEXT")
             _ensure_column(conn, "assignment_workspace_state", "auto_submitted_state", "INTEGER DEFAULT 0")
