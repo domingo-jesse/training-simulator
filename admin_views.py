@@ -54,6 +54,7 @@ from utils import (
 from module_generation import (
     ModuleDraftGenerationInput,
     ModuleGenerationInput,
+    generate_ai_grading_criteria,
     generate_question_scoring_criteria,
     generate_module_draft,
     generate_module_preview,
@@ -3702,29 +3703,56 @@ def render_module_builder(current_user: dict) -> None:
                 )
                 if not is_multiple_choice:
                     st.text_area(
+                        "Optional sample / expected answer",
+                        key=f"{q_prefix}_expected_answer",
+                        on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
+                        height=80,
+                    )
+                    st.text_area(
                         "Rubric criteria (one per line: Criterion | points | guidance)",
                         key=f"{q_prefix}_rubric_criteria",
                         on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
                         height=110,
                     )
-                if st.button("Generate AI Criteria", key=f"{q_prefix}_generate_ai_criteria"):
-                    if st.session_state.get(f"{q_prefix}_llm_instructions") or st.session_state.get(f"{q_prefix}_rubric_criteria"):
-                        st.warning("This will replace the current criteria.")
-                    generated = generate_question_scoring_criteria(
-                        module_form.get("title", ""),
-                        module_form.get("description", ""),
-                        st.session_state.get(f"{q_prefix}_text", ""),
-                        active_question_type,
-                        answer_choices=st.session_state.get(f"{q_prefix}_choices", []),
-                        expected_answer=st.session_state.get(f"{q_prefix}_expected_answer", ""),
-                        max_points=float(st.session_state.get(f"{q_prefix}_max_points", 10) or 10),
-                    )
-                    st.session_state[f"{q_prefix}_scoring_type"] = "llm"
-                    st.session_state[f"{q_prefix}_max_points"] = float(generated["max_points"])
-                    st.session_state[f"{q_prefix}_llm_instructions"] = generated["grader_instructions"]
-                    st.session_state[f"{q_prefix}_rubric_criteria"] = generated["rubric_criteria"]
-                    _mark_dirty(f"question_{idx + 1}")
-                    st.rerun()
+                existing_ai_criteria = bool(
+                    str(st.session_state.get(f"{q_prefix}_llm_instructions", "")).strip()
+                    or str(st.session_state.get(f"{q_prefix}_rubric_criteria", "")).strip()
+                )
+                replace_key = f"{q_prefix}_replace_existing_ai_criteria"
+                if existing_ai_criteria:
+                    st.checkbox("Replace existing criteria", key=replace_key)
+                else:
+                    st.session_state[replace_key] = False
+                if st.button("Generate AI grading criteria", key=f"{q_prefix}_generate_ai_criteria"):
+                    if existing_ai_criteria and not st.session_state.get(replace_key, False):
+                        st.warning("Existing grader instructions or rubric criteria found. Check 'Replace existing criteria' to continue.")
+                    else:
+                        try:
+                            with st.spinner("Generating AI grading criteria..."):
+                                generated = generate_ai_grading_criteria(
+                                    question={
+                                        "question_text": st.session_state.get(f"{q_prefix}_text", ""),
+                                        "question_type": active_question_type,
+                                        "answer_choices": st.session_state.get(f"{q_prefix}_choices", []),
+                                        "expected_answer": st.session_state.get(f"{q_prefix}_expected_answer", ""),
+                                    },
+                                    module_context={
+                                        "title": module_form.get("title", ""),
+                                        "description": module_form.get("description", ""),
+                                    },
+                                    max_points=float(st.session_state.get(f"{q_prefix}_max_points", 10) or 10),
+                                )
+                            st.session_state[f"{q_prefix}_scoring_type"] = "llm"
+                            st.session_state[f"{q_prefix}_max_points"] = float(generated["max_points"])
+                            st.session_state[f"{q_prefix}_llm_instructions"] = str(generated.get("grader_instructions") or "").strip()
+                            st.session_state[f"{q_prefix}_rubric_criteria"] = str(generated.get("rubric_criteria") or "").strip()
+                            if not is_multiple_choice and generated.get("expected_answer"):
+                                st.session_state[f"{q_prefix}_expected_answer"] = str(generated.get("expected_answer") or "").strip()
+                            _mark_dirty(f"question_{idx + 1}")
+                            st.rerun()
+                        except Exception:
+                            admin_logger.exception("Failed to generate AI grading criteria.", question_index=idx + 1)
+                            st.error("Could not generate AI grading criteria right now. Please try again.")
                 if scoring_type == "llm" and (
                     not str(st.session_state.get(f"{q_prefix}_llm_instructions", "")).strip()
                     or (not is_multiple_choice and not str(st.session_state.get(f"{q_prefix}_rubric_criteria", "")).strip())
