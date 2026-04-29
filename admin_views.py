@@ -54,6 +54,7 @@ from utils import (
 from module_generation import (
     ModuleDraftGenerationInput,
     ModuleGenerationInput,
+    generate_question_scoring_criteria,
     generate_module_draft,
     generate_module_preview,
 )
@@ -2527,6 +2528,10 @@ def _normalize_question_type(value: object, fallback: str = "open_text") -> str:
 
 def _normalize_question_scoring_type(value: object, fallback: str = "llm") -> str:
     normalized = str(value or "").strip().lower()
+    if normalized in {"ai_review", "ai"}:
+        return "llm"
+    if normalized in {"manual_review", "manual"}:
+        return "manual"
     if normalized in QUESTION_SCORING_OPTIONS:
         return normalized
     if normalized == "hybrid":
@@ -3136,6 +3141,16 @@ def render_module_builder(current_user: dict) -> None:
                 if q_type not in QUESTION_TYPE_OPTIONS:
                     q_type = "open_text"
                 scoring_type = _normalize_scoring_for_question_type(q_type, question.get("scoring_type"), fallback="llm")
+                max_points = float(question.get("max_points") or 10)
+                generated_criteria = generate_question_scoring_criteria(
+                    str(generated_draft.get("title") or ""),
+                    str(generated_draft.get("description") or ""),
+                    question_text,
+                    q_type,
+                    answer_choices=_coerce_choice_list(question.get("choices")),
+                    expected_answer="\n".join(_coerce_choice_list(question.get("keyword_expected_terms"))),
+                    max_points=max_points,
+                ) if scoring_type == "llm" else {}
                 normalized_questions.append(
                     {
                         "question_text": question_text,
@@ -3145,8 +3160,10 @@ def render_module_builder(current_user: dict) -> None:
                         "correct_choice_index": question.get("correct_choice_index"),
                         "rationale": "\n\n".join(rationale_parts),
                         "expected_answer": "\n".join(_coerce_choice_list(question.get("keyword_expected_terms"))),
+                        "max_points": max_points,
                         "scoring_type": scoring_type,
-                        "llm_grading_criteria": llm_criteria,
+                        "llm_grading_criteria": llm_criteria or str(generated_criteria.get("grader_instructions") or ""),
+                        "rubric_criteria_text": str(generated_criteria.get("rubric_criteria") or ""),
                         "ai_conversation_prompt": str(question.get("ai_conversation_prompt") or "").strip(),
                         "ai_role_or_persona": str(question.get("ai_role_or_persona") or "").strip(),
                         "evaluation_focus": str(question.get("evaluation_focus") or "").strip(),
@@ -3639,7 +3656,7 @@ def render_module_builder(current_user: dict) -> None:
             scoring_state_key = f"{q_prefix}_scoring_type"
             scoring_options = QUESTION_SCORING_OPTIONS if not (is_ai_conversation or is_multiple_choice) else ["manual", "llm"]
             if scoring_state_key not in st.session_state:
-                st.session_state[scoring_state_key] = "manual"
+                st.session_state[scoring_state_key] = "llm"
             st.radio(
                 "Scoring method",
                 options=scoring_options,
@@ -3690,6 +3707,29 @@ def render_module_builder(current_user: dict) -> None:
                         on_change=lambda current_idx=idx: _mark_dirty(f"question_{current_idx + 1}"),
                         height=110,
                     )
+                if st.button("Generate AI Criteria", key=f"{q_prefix}_generate_ai_criteria"):
+                    if st.session_state.get(f"{q_prefix}_llm_instructions") or st.session_state.get(f"{q_prefix}_rubric_criteria"):
+                        st.warning("This will replace the current criteria.")
+                    generated = generate_question_scoring_criteria(
+                        module_form.get("title", ""),
+                        module_form.get("description", ""),
+                        st.session_state.get(f"{q_prefix}_text", ""),
+                        active_question_type,
+                        answer_choices=st.session_state.get(f"{q_prefix}_choices", []),
+                        expected_answer=st.session_state.get(f"{q_prefix}_expected_answer", ""),
+                        max_points=float(st.session_state.get(f"{q_prefix}_max_points", 10) or 10),
+                    )
+                    st.session_state[f"{q_prefix}_scoring_type"] = "llm"
+                    st.session_state[f"{q_prefix}_max_points"] = float(generated["max_points"])
+                    st.session_state[f"{q_prefix}_llm_instructions"] = generated["grader_instructions"]
+                    st.session_state[f"{q_prefix}_rubric_criteria"] = generated["rubric_criteria"]
+                    _mark_dirty(f"question_{idx + 1}")
+                    st.rerun()
+                if scoring_type == "llm" and (
+                    not str(st.session_state.get(f"{q_prefix}_llm_instructions", "")).strip()
+                    or (not is_multiple_choice and not str(st.session_state.get(f"{q_prefix}_rubric_criteria", "")).strip())
+                ):
+                    st.caption("AI review needs grading criteria. Generate criteria or enter your own.")
             if st.button("Delete question", key=f"delete_question_{idx}"):
                 delete_index = idx
 

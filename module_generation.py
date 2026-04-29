@@ -31,6 +31,51 @@ class ModuleDraftGenerationInput:
     question_count: int = 3
 
 
+def generate_question_scoring_criteria(
+    module_title: str,
+    module_description: str,
+    question_text: str,
+    question_type: str,
+    answer_choices: list[str] | None = None,
+    expected_answer: str | None = None,
+    max_points: float = 10,
+) -> dict[str, Any]:
+    total_points = max(1, int(round(float(max_points or 10))))
+    p1 = max(1, round(total_points * 0.4))
+    p2 = max(1, round(total_points * 0.3))
+    p3 = max(1, total_points - p1 - p2)
+    if p1 + p2 + p3 != total_points:
+        p3 = total_points - p1 - p2
+    normalized_type = str(question_type or "open_text").strip().lower()
+    if normalized_type == "multiple_choice":
+        focus = "Grade explanation quality, not option matching."
+    elif normalized_type == "ai_conversation":
+        focus = "Assess judgment across the full conversation."
+    else:
+        focus = "Assess reasoning quality, completeness, relevance, and factual accuracy."
+    instructions = (
+        f"Use the module context ('{module_title.strip() or 'Untitled module'}') and prompt intent to score this response. "
+        f"{focus} Prioritize clear, evidence-based, scenario-relevant answers."
+    )
+    if expected_answer:
+        instructions += f" Reference answer intent: {expected_answer.strip()}."
+    if answer_choices:
+        instructions += " Consider provided answer choices/context when judging response quality."
+    rubric = "\n".join(
+        [
+            f"Accuracy | {p1} | Response is correct, scenario-grounded, and avoids unsupported assumptions.",
+            f"Completeness | {p2} | Covers key steps, constraints, and important details from the prompt.",
+            f"Judgment | {p3} | Demonstrates sound prioritization, reasoning, and practical decision quality.",
+        ]
+    )
+    return {
+        "scoring_method": "ai_review",
+        "max_points": total_points,
+        "grader_instructions": instructions,
+        "rubric_criteria": rubric,
+    }
+
+
 def _fallback_preview(payload: ModuleGenerationInput) -> dict[str, Any]:
     question_count = min(10, max(0, payload.question_count))
     objectives = payload.learning_objectives or ["Demonstrate role-specific troubleshooting judgement"]
