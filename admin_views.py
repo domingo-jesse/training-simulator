@@ -89,39 +89,6 @@ def _format_datetime_for_admin_grid(value) -> str:
         return str(value)
 
 
-def render_aggrid_test_page() -> None:
-    render_page_header("AgGrid Test", "Native Streamlit dataframe row-selection test.")
-
-    test_df = pd.DataFrame(
-        [
-            {"learner_id": 1, "name": "Alex Rivera", "email": "alex@example.com", "team": "Support", "status": "Active"},
-            {"learner_id": 2, "name": "Jordan Lee", "email": "jordan@example.com", "team": "QA", "status": "Active"},
-            {"learner_id": 3, "name": "Taylor Kim", "email": "taylor@example.com", "team": "Customer Success", "status": "Inactive"},
-        ]
-    )
-
-    st.write("Test dataframe shape:", test_df.shape)
-    st.write("Test dataframe columns:", list(test_df.columns))
-    st.caption("Click rows to select.")
-    with table_card_container():
-        grid_response = st.dataframe(
-            test_df,
-            hide_index=True,
-            height=300,
-            width="stretch",
-            on_select="rerun",
-            selection_mode="multi-row",
-            key="aggrid_test_basic",
-            column_config={"learner_id": None},
-        )
-    selected_rows = grid_response.selection.rows if grid_response and grid_response.selection else []
-    selected_ids = [int(test_df.iloc[row]["learner_id"]) for row in selected_rows]
-
-    st.write("Selected rows:")
-    st.json(selected_ids)
-    st.caption(f"{len(selected_ids)} item(s) selected.")
-
-
 def _select_all_filtered(multiselect_key: str, option_labels: list[str]) -> None:
     st.session_state[multiselect_key] = list(option_labels)
 
