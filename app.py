@@ -1366,10 +1366,6 @@ def render_profile_page() -> None:
 
 def render_settings_page() -> None:
     profile = load_current_user_profile()
-    back_col, _ = st.columns([1.2, 5], vertical_alignment="center")
-    with back_col:
-        if st.button("← Back to Dashboard", key="settings_back_btn", width="stretch"):
-            _navigate_back_to_main_app()
     st.caption("Dashboard / Settings")
     render_page_header("Settings", "Personalization and account preferences.")
     if not profile:
