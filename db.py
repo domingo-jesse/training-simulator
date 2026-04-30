@@ -2360,12 +2360,19 @@ def insert_attempt(user_id: int, module_id: int, payload: Dict[str, Any], organi
     if organization_id is None:
         user = fetch_one("SELECT organization_id FROM users WHERE user_id = ?", (user_id,))
         organization_id = user["organization_id"] if user else None
-    timed_out_value = 1 if bool(payload.get("timed_out")) else 0
+    timed_out_value = bool(payload.get("timed_out"))
 
     category_scores = payload.get("category_scores") or {}
     has_legacy_scores = isinstance(category_scores, dict) and bool(category_scores)
     payload_result_status = str(payload.get("result_status", "submitted") or "submitted").strip().lower()
     review_status_value = "approved" if payload_result_status == "approved" else ("pending_review" if payload_result_status in {"pending_review", "ai_grading", "ai_graded_pending_review", "returned", "grading_failed"} else "submitted")
+    db_logger.info(
+        "Inserting attempt row.",
+        user_id=user_id,
+        module_id=module_id,
+        organization_id=organization_id,
+        timed_out=timed_out_value,
+    )
     attempt_id = execute(
         """
         INSERT INTO attempts (

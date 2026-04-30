@@ -651,9 +651,16 @@ def render_account_management(current_user: dict) -> None:
                 if int(selected_user_id) == int(current_user.get("user_id") or -1):
                     st.error("You cannot deactivate your own account while signed in.")
                 else:
+                    next_is_active = bool(not selected_is_active)
+                    admin_logger.info(
+                        "Updating account active state.",
+                        organization_id=org_id,
+                        target_user_id=int(selected_user_id),
+                        is_active=next_is_active,
+                    )
                     execute(
                         "UPDATE users SET is_active = ? WHERE organization_id = ? AND user_id = ?",
-                        (0 if selected_is_active else 1, org_id, int(selected_user_id)),
+                        (next_is_active, org_id, int(selected_user_id)),
                     )
                     st.success(
                         f"Account {'deactivated' if selected_is_active else 'activated'} for "
@@ -689,7 +696,7 @@ def render_account_management(current_user: dict) -> None:
                     password,
                     confirm_password,
                     auth_provider=auth_provider,
-                    is_active=is_active,
+                    is_active=bool(is_active),
                 )
                 if ok:
                     st.success(message)

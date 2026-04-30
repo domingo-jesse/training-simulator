@@ -1249,7 +1249,13 @@ def save_user_settings_updates(
     if not profile:
         return False, "Could not load your account details. Please sign in again."
 
-    updates: dict[str, Any] = {"email_notifications_enabled": 1 if email_notifications_enabled else 0}
+    email_notifications_enabled = bool(email_notifications_enabled)
+    updates: dict[str, Any] = {"email_notifications_enabled": email_notifications_enabled}
+    app_logger.info(
+        "Preparing user settings update.",
+        user_id=profile.get("user_id"),
+        email_notifications_enabled=email_notifications_enabled,
+    )
 
     current_password = (current_password or "").strip()
     new_password = (new_password or "").strip()
