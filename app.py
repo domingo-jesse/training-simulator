@@ -7,7 +7,6 @@ from typing import Any
 
 import streamlit as st
 from admin_views import (
-    render_aggrid_test_page,
     render_admin_dashboard,
     render_admin_assignment_review,
     render_assignment_management,
@@ -104,7 +103,6 @@ def hash_password(password: str) -> str:
 ADMIN_PAGE_TO_NAV = {
     "Dashboard": "dashboard",
     "Assignment Management": "assignment-management",
-    "AgGrid Test": "aggrid-test",
     "Submission Grading": "submission-grading",
     "Progress Tracking": "progress-tracking",
     "Account Management": "account-management",
@@ -1492,7 +1490,6 @@ def render_main_app() -> None:
             "🧩 Module Builder",
             "📚 Manage Modules",
             "📁 Assignment Management",
-            "🧪 AgGrid Test",
             "✅ Submission Grading",
             "📈 Progress Tracking",
             "👥 Account Management",
@@ -1580,7 +1577,6 @@ def render_main_app() -> None:
         admin_container_variant = {
             "Dashboard": "wide",
             "Assignment Management": "wide",
-            "AgGrid Test": "wide",
             "Submission Grading": "medium",
             "Progress Tracking": "wide",
             "Account Management": "wide",
@@ -1595,8 +1591,6 @@ def render_main_app() -> None:
                 render_admin_dashboard(user)
             elif normalized_page == "Assignment Management":
                 render_assignment_management(user)
-            elif normalized_page == "AgGrid Test":
-                render_aggrid_test_page()
             elif normalized_page == "Submission Grading":
                 render_grading_center(user)
             elif normalized_page == "Progress Tracking":
