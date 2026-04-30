@@ -507,6 +507,8 @@ def _create_account_from_admin(
     username: str,
     password: str,
     confirm_password: str,
+    auth_provider: str = "local_password",
+    is_active: bool = True,
 ) -> tuple[bool, str]:
     role = (role or "").strip().lower()
     full_name = (full_name or "").strip()
@@ -514,7 +516,11 @@ def _create_account_from_admin(
     username = (username or "").strip()
     if role not in {"learner", "admin"}:
         return False, "Please select a valid role."
-    if not full_name or not email or not password or not confirm_password:
+    auth_provider = (auth_provider or "local_password").strip().lower()
+    if auth_provider not in {"local_password", "solar"}:
+        return False, "Please select a valid auth provider."
+    requires_password = auth_provider == "local_password"
+    if not full_name or not email or (requires_password and (not password or not confirm_password)):
         return False, "Please complete all required fields."
     if "@" not in email or "." not in email.split("@")[-1]:
         return False, "Please enter a valid email address."
@@ -523,15 +529,26 @@ def _create_account_from_admin(
         return False, f"A {role.title()} account with this email already exists."
     if username and fetch_one("SELECT user_id FROM users WHERE LOWER(username)=? LIMIT 1", (username.lower(),)):
         return False, "That username is already in use."
-    if password != confirm_password:
+    if requires_password and password != confirm_password:
         return False, "Passwords must match."
     try:
         execute(
             """
             INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', TRUE)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (f"u_{role}_{email}", full_name, email, role, "General", org_id, (username or None), hash_password(password)),
+            (
+                f"u_{role}_{email}",
+                full_name,
+                email,
+                role,
+                "General",
+                org_id,
+                (username or None),
+                hash_password(password) if requires_password else None,
+                auth_provider,
+                bool(is_active),
+            ),
         )
     except Exception as exc:
         txt = str(exc).lower()
@@ -540,7 +557,7 @@ def _create_account_from_admin(
         if "email" in txt:
             return False, f"A {role.title()} account with this email already exists."
         return False, "We couldn't create that account right now."
-    return True, f"{role.title()} account created successfully."
+    return True, f"{role.title()} account created successfully ({'active' if is_active else 'inactive'} • {auth_provider})."
 
 
 def render_account_management(current_user: dict) -> None:
@@ -652,11 +669,28 @@ def render_account_management(current_user: dict) -> None:
             full_name = st.text_input("Full name *")
             email = st.text_input("Email *")
             username = st.text_input("Username (optional)")
-            password = st.text_input("Password *", type="password")
-            confirm_password = st.text_input("Confirm password *", type="password")
+            auth_provider = st.selectbox("Auth provider", ["local_password", "solar"])
+            is_active = st.checkbox("Account is active", value=True)
+            if auth_provider == "local_password":
+                password = st.text_input("Password *", type="password")
+                confirm_password = st.text_input("Confirm password *", type="password")
+            else:
+                st.caption("Solar accounts are created without a local password.")
+                password = ""
+                confirm_password = ""
             create_clicked = st.form_submit_button("Create Account", type="primary", width="stretch")
             if create_clicked:
-                ok, message = _create_account_from_admin(org_id, role, full_name, email, username, password, confirm_password)
+                ok, message = _create_account_from_admin(
+                    org_id,
+                    role,
+                    full_name,
+                    email,
+                    username,
+                    password,
+                    confirm_password,
+                    auth_provider=auth_provider,
+                    is_active=is_active,
+                )
                 if ok:
                     st.success(message)
                     st.cache_data.clear()
