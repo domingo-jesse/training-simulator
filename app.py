@@ -125,6 +125,7 @@ LEARNER_NAV_CONFIG = {
     "results": "Progress & Results",
     "database_tables": "Database Tables",
     "debug_logs": "Debug Logs",
+    "settings": "Settings",
 }
 LEARNER_PAGE_TO_NAV = {
     "home": "home",
@@ -142,10 +143,10 @@ NAV_TO_LEARNER_PAGE["my-progress"] = "results"
 DEV_ONLY_LEARNER_PAGES = {"database_tables", "debug_logs"}
 DEV_ONLY_LEARNER_NAV_SLUGS = {LEARNER_PAGE_TO_NAV[name] for name in DEV_ONLY_LEARNER_PAGES}
 ADMIN_MAIN_NAV_SLUGS = {
-    slug for slug in ADMIN_PAGE_TO_NAV.values() if slug not in {"profile", "settings"}
+    slug for slug in ADMIN_PAGE_TO_NAV.values() if slug != "profile"
 }
 LEARNER_MAIN_NAV_SLUGS = {
-    slug for slug in LEARNER_PAGE_TO_NAV.values() if slug not in {"profile", "settings"}
+    slug for slug in LEARNER_PAGE_TO_NAV.values() if slug != "profile"
 }
 
 
@@ -249,7 +250,7 @@ def _sync_current_page_with_query(role: str) -> str:
     query_slug = _read_nav_from_query_params()
     active_key = st.session_state.get("current_page")
 
-    if query_slug in {"profile", "settings"}:
+    if query_slug == "profile":
         st.session_state["current_page"] = query_slug
         st.session_state["nav"] = query_slug
         return query_slug
@@ -1116,11 +1117,6 @@ def _avatar_initials(full_name: str) -> str:
 
 def _render_sidebar_account_actions() -> None:
     with st.sidebar.container(key="sidebar_account_actions"):
-        if st.button("⚙️ Settings", key="sidebar_settings_btn", type="secondary", width="stretch"):
-            st.session_state["page"] = "Settings"
-            st.session_state["current_page"] = "settings"
-            _set_nav("settings")
-            st.rerun()
         if st.button("🚪 Logout", key="sidebar_logout_btn", type="secondary", width="stretch"):
             logout_user()
             st.rerun()
@@ -1471,15 +1467,6 @@ def render_main_app() -> None:
         with page_container("narrow"):
             render_profile_page()
         return
-    if requested_page == "Settings" or nav_page == "settings":
-        st.session_state["page"] = "Settings"
-        st.session_state["current_page"] = "settings"
-        _set_nav("settings")
-        _render_sidebar_account_actions()
-        with page_container("narrow"):
-            render_settings_page()
-        return
-
     if user["role"] == "admin":
         if nav_page == "admin-assignment-review":
             with page_container("medium"):
@@ -1493,6 +1480,7 @@ def render_main_app() -> None:
             "✅ Submission Grading",
             "📈 Progress Tracking",
             "👥 Account Management",
+            "⚙️ Settings",
         ]
         if is_dev_user:
             operations_pages.extend(["🛠️ Database Tables", "📝 Debug Logs"])
@@ -1585,6 +1573,7 @@ def render_main_app() -> None:
             "Database Tables": "wide",
             "Debug Logs": "wide",
             "QA Test Center": "wide",
+            "Settings": "narrow",
         }.get(normalized_page, "wide")
         with page_container(admin_container_variant):
             if normalized_page == "Dashboard":
@@ -1607,8 +1596,10 @@ def render_main_app() -> None:
                 render_admin_log_viewer()
             elif normalized_page == "QA Test Center":
                 render_admin_quality_hub(user)
+            elif normalized_page == "Settings":
+                render_settings_page()
     else:
-        pages = ["home", "assigned_modules", "module_workspace", "results"]
+        pages = ["home", "assigned_modules", "module_workspace", "results", "settings"]
         if is_dev_user:
             pages.extend(["database_tables", "debug_logs"])
         if st.session_state.get("learner_page") not in pages:
@@ -1678,6 +1669,7 @@ def render_main_app() -> None:
             "results": "medium",
             "database_tables": "wide",
             "debug_logs": "wide",
+            "settings": "narrow",
         }.get(current_page, "medium")
         with page_container(learner_container_variant):
             if current_page == "home":
@@ -1692,6 +1684,8 @@ def render_main_app() -> None:
                 render_database_tables_view()
             elif current_page == "debug_logs":
                 render_admin_log_viewer()
+            elif current_page == "settings":
+                render_settings_page()
             else:
                 st.warning(f"Debug warning: unknown learner_page `{current_page}`; defaulting to assigned_modules.")
                 render_branch = "assigned_modules_fallback"
