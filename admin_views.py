@@ -2928,6 +2928,7 @@ def render_module_builder(current_user: dict) -> None:
     ai_last_prompt_key = "module_builder_ai_last_prompt"
     ai_keep_editing_key = "module_builder_ai_keep_editing"
     ai_question_count_key = "ai_question_count"
+    pending_updates_key = "pending_module_builder_state_updates"
     pending_reset_mode_key = "module_builder_pending_reset_mode"
     recently_created_module_id_key = "recently_created_module_id"
     recently_created_module_title_key = "recently_created_module_title"
@@ -3017,10 +3018,26 @@ def render_module_builder(current_user: dict) -> None:
         st.session_state[pending_reset_mode_key] = builder_mode
         st.rerun()
 
+    def _init_state_once(key: str, default_value: object) -> None:
+        if key not in st.session_state:
+            st.session_state[key] = default_value
+
+    def _queue_module_builder_state_update(updates: dict[str, object]) -> None:
+        pending_updates = dict(st.session_state.get(pending_updates_key, {}))
+        pending_updates.update(updates)
+        st.session_state[pending_updates_key] = pending_updates
+
+    def _apply_pending_module_builder_updates() -> None:
+        pending_updates = st.session_state.pop(pending_updates_key, None)
+        if isinstance(pending_updates, dict):
+            for key, value in pending_updates.items():
+                st.session_state[key] = value
+
     st.session_state.setdefault(mode_key, None)
     if pending_reset_mode_key in st.session_state:
         queued_mode = st.session_state.pop(pending_reset_mode_key)
         _reset_builder_state(queued_mode)
+    _apply_pending_module_builder_updates()
 
     selected_mode = st.session_state.get(mode_key)
     header_description = "Single-page module editor with autosave and inline validation."
@@ -3259,8 +3276,8 @@ def render_module_builder(current_user: dict) -> None:
         "module_builder_attempt_limit": int(module_form.get("attempt_limit", 1)),
     }
     for key, value in widget_defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+        _init_state_once(key, value)
+    _init_state_once(ai_question_count_key, int(module_form.get("question_count", 3) or 3))
 
     if selected_mode != "ai":
         top_left, top_right = st.columns([3, 1])
@@ -3282,7 +3299,6 @@ def render_module_builder(current_user: dict) -> None:
             "Question count",
             min_value=0,
             max_value=10,
-            value=int(st.session_state.get(ai_question_count_key, 3)),
             key=ai_question_count_key,
         )
         if ai_button_col.button("Generate", key="module_builder_generate_ai", type="secondary", width="stretch"):
@@ -3698,12 +3714,15 @@ def render_module_builder(current_user: dict) -> None:
                                     },
                                     max_points=float(st.session_state.get(f"{q_prefix}_max_points", 10) or 10),
                                 )
-                            st.session_state[pending_scoring_state_key] = "llm"
-                            st.session_state[f"{q_prefix}_max_points"] = float(generated["max_points"])
-                            st.session_state[f"{q_prefix}_llm_instructions"] = str(generated.get("grader_instructions") or "").strip()
-                            st.session_state[f"{q_prefix}_rubric_criteria"] = str(generated.get("rubric_criteria") or "").strip()
+                            updates: dict[str, object] = {
+                                pending_scoring_state_key: "llm",
+                                f"{q_prefix}_max_points": float(generated["max_points"]),
+                                f"{q_prefix}_llm_instructions": str(generated.get("grader_instructions") or "").strip(),
+                                f"{q_prefix}_rubric_criteria": str(generated.get("rubric_criteria") or "").strip(),
+                            }
                             if not is_multiple_choice and generated.get("expected_answer"):
-                                st.session_state[f"{q_prefix}_expected_answer"] = str(generated.get("expected_answer") or "").strip()
+                                updates[f"{q_prefix}_expected_answer"] = str(generated.get("expected_answer") or "").strip()
+                            _queue_module_builder_state_update(updates)
                             _mark_dirty(f"question_{idx + 1}")
                             st.rerun()
                         except Exception:
