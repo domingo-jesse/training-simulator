@@ -311,6 +311,8 @@ def init_state() -> None:
         "active_assignment_id": None,
         "current_page": "learner:home",
         "previous_page": None,
+        "show_admin_tutorial": False,
+        "show_learner_tutorial": False,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -634,6 +636,46 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
     st.session_state["active_module_id"] = None
     st.session_state["active_assignment_id"] = None
     st.session_state["latest_attempt_id"] = None
+    st.session_state["show_admin_tutorial"] = normalized_role == "admin"
+    st.session_state["show_learner_tutorial"] = normalized_role == "learner"
+
+
+@st.dialog("Learner demo quick-start")
+def _render_learner_tutorial_dialog() -> None:
+    st.info("This is a demonstration environment. Do not enter real sensitive or production data.")
+    st.markdown(
+        """
+        **What to do in this demo**
+        1. Open **Assigned Modules** from the left sidebar.
+        2. Pick a module and click **Start**.
+        3. Complete prompts in **Module Workspace**.
+        4. Open **Progress & Results** to review scoring/feedback when available.
+
+        **Tip:** This environment may be reset between demos.
+        """
+    )
+    if st.button("Got it", key="close_learner_demo_tutorial", type="primary"):
+        st.session_state["show_learner_tutorial"] = False
+        st.rerun()
+
+
+@st.dialog("Admin demo quick-start")
+def _render_admin_tutorial_dialog() -> None:
+    st.info("This is a demonstration environment. Do not enter real sensitive or production data.")
+    st.markdown(
+        """
+        **What to do in this demo**
+        1. Review **Dashboard** for platform status.
+        2. Use **Module Builder** or **Manage Modules** to prepare content.
+        3. Open **Assignment Management** to assign modules to learners.
+        4. Use **Submission Grading** and **Progress Tracking** to review outcomes.
+
+        **Tip:** Data can be changed or cleared during demo runs.
+        """
+    )
+    if st.button("Got it", key="close_admin_demo_tutorial", type="primary"):
+        st.session_state["show_admin_tutorial"] = False
+        st.rerun()
 
 
 def create_google_account(role: str, email: str, full_name: str) -> tuple[bool, str, dict[str, Any] | None]:
@@ -1033,9 +1075,21 @@ def render_login_view() -> None:
     if st.session_state.get("auth_error"):
         st.error(st.session_state["auth_error"])
 
-    learner_tab, admin_tab = st.tabs(["Learner", "Admin"])
+    st.warning(
+        "Demo login only: use your dedicated Learner or Admin credentials below. "
+        "This environment is for demonstration and testing."
+    )
+    st.caption("Use the Learner tab for learner accounts and the Admin tab for admin accounts.")
+
+    learner_tab, admin_tab = st.tabs(["Learner Login", "Admin Login"])
 
     with learner_tab:
+        st.markdown("**Learner demo credentials (dummy account for demos):**")
+        st.code("Username: learner.demo\nPassword: Demo@1234", language="text")
+        if st.button("Use learner demo credentials", key="prefill_learner_demo", width="stretch"):
+            st.session_state["learner_identifier"] = "learner.demo"
+            st.session_state["learner_password"] = "Demo@1234"
+            st.rerun()
         with st.form("local_login_learner", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="learner_identifier")
             password = st.text_input("Password", type="password", key="learner_password")
@@ -1050,6 +1104,12 @@ def render_login_view() -> None:
                 return
 
     with admin_tab:
+        st.markdown("**Admin demo credentials (dummy account for demos):**")
+        st.code("Username: admin.demo\nPassword: Demo@1234", language="text")
+        if st.button("Use admin demo credentials", key="prefill_admin_demo", width="stretch"):
+            st.session_state["admin_identifier"] = "admin.demo"
+            st.session_state["admin_password"] = "Demo@1234"
+            st.rerun()
         with st.form("local_login_admin", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="admin_identifier")
             password = st.text_input("Password", type="password", key="admin_password")
@@ -1745,6 +1805,11 @@ def main() -> None:
     if st.session_state.get("auth_authenticated") and st.session_state.get("current_user"):
         inject_styles()
         render_main_app()
+        role = (st.session_state.get("current_user") or {}).get("role")
+        if role == "admin" and st.session_state.get("show_admin_tutorial"):
+            _render_admin_tutorial_dialog()
+        if role == "learner" and st.session_state.get("show_learner_tutorial"):
+            _render_learner_tutorial_dialog()
         return
 
     render_auth_shell(render_login_view)
