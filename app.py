@@ -564,27 +564,25 @@ def _google_user_name() -> str:
     return "Google User"
 
 
-def validate_dev_login(identifier: str, expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
-    """Passwordless login that authenticates local users and keeps dev logins role-agnostic."""
+def validate_dev_login(identifier: str, password: str, expected_role: str) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Validate local login credentials for the selected role."""
     ident = (identifier or "").strip()
+    supplied_password = (password or "").strip()
     if not ident:
         return False, "Enter your email or username to sign in.", None
+    if not supplied_password:
+        return False, "Enter your password to sign in.", None
 
     user = find_user_by_email(ident, role=expected_role)
     if user is None:
         user = find_user_by_username(ident, role=expected_role)
 
     if user is not None:
+        if user.get("auth_provider") != "local_password":
+            return False, "This account uses Google sign-in. Continue with Google.", None
+        if hash_password(supplied_password) != (user.get("password_hash") or ""):
+            return False, "Incorrect password.", None
         return True, None, user
-
-    # Developer accounts should stay lean: if one role exists, allow sign-in from either tab.
-    fallback_user = find_user_by_email(ident, role=None)
-    if fallback_user is None:
-        fallback_user = find_user_by_username(ident, role=None)
-    if fallback_user and is_dev_account(fallback_user):
-        fallback_with_selected_role = dict(fallback_user)
-        fallback_with_selected_role["role"] = expected_role
-        return True, None, fallback_with_selected_role
 
     return False, f"No active {expected_role.title()} account exists yet. Create one first.", None
 
@@ -1040,10 +1038,11 @@ def render_login_view() -> None:
     with learner_tab:
         with st.form("local_login_learner", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="learner_identifier")
+            password = st.text_input("Password", type="password", key="learner_password")
             submitted = st.form_submit_button("Sign in as Learner", width="stretch", type="primary")
             if submitted:
                 app_logger.info("User submitted login form.", role="learner")
-                ok, message, user = validate_dev_login(identifier, expected_role="learner")
+                ok, message, user = validate_dev_login(identifier, password, expected_role="learner")
                 if ok and user:
                     _sign_in_user(user, "dev_quick")
                     return
@@ -1053,10 +1052,11 @@ def render_login_view() -> None:
     with admin_tab:
         with st.form("local_login_admin", clear_on_submit=False):
             identifier = st.text_input("Email or username", key="admin_identifier")
+            password = st.text_input("Password", type="password", key="admin_password")
             submitted = st.form_submit_button("Sign in as Admin", width="stretch", type="primary")
             if submitted:
                 app_logger.info("User submitted login form.", role="admin")
-                ok, message, user = validate_dev_login(identifier, expected_role="admin")
+                ok, message, user = validate_dev_login(identifier, password, expected_role="admin")
                 if ok and user:
                     _sign_in_user(user, "dev_quick")
                     return
