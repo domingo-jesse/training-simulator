@@ -618,6 +618,8 @@ def render_account_management(current_user: dict) -> None:
                 if int(selected_user_id) == int(current_user.get("user_id") or -1):
                     st.error("You cannot deactivate your own account while signed in.")
                 else:
+                    # users.is_active is a Postgres BOOLEAN column and must be written as True/False,
+                    # never as integer flags like 0/1.
                     next_is_active = bool(not selected_is_active)
                     admin_logger.info(
                         "Updating account active state.",
@@ -625,6 +627,8 @@ def render_account_management(current_user: dict) -> None:
                         target_user_id=int(selected_user_id),
                         is_active=next_is_active,
                     )
+                    # Defensive normalization in case UI/session values arrive as 0/1.
+                    next_is_active = bool(next_is_active)
                     execute(
                         "UPDATE users SET is_active = ? WHERE organization_id = ? AND user_id = ?",
                         (next_is_active, org_id, int(selected_user_id)),
@@ -3601,7 +3605,13 @@ def render_module_builder(current_user: dict) -> None:
                 )
             st.markdown("**Scoring method**")
             scoring_state_key = f"{q_prefix}_scoring_type"
+            pending_scoring_state_key = f"{q_prefix}_pending_scoring_type"
             scoring_options = QUESTION_SCORING_OPTIONS if not (is_ai_conversation or is_multiple_choice) else ["manual", "llm"]
+            # Streamlit widget-backed session_state keys cannot be overwritten after widget creation
+            # in the same run, so apply any pending scoring-type mutation before rendering the widget.
+            pending_scoring_type = st.session_state.pop(pending_scoring_state_key, None)
+            if pending_scoring_type is not None:
+                st.session_state[scoring_state_key] = pending_scoring_type
             if scoring_state_key not in st.session_state:
                 st.session_state[scoring_state_key] = "llm"
             st.radio(
@@ -3688,7 +3698,7 @@ def render_module_builder(current_user: dict) -> None:
                                     },
                                     max_points=float(st.session_state.get(f"{q_prefix}_max_points", 10) or 10),
                                 )
-                            st.session_state[f"{q_prefix}_scoring_type"] = "llm"
+                            st.session_state[pending_scoring_state_key] = "llm"
                             st.session_state[f"{q_prefix}_max_points"] = float(generated["max_points"])
                             st.session_state[f"{q_prefix}_llm_instructions"] = str(generated.get("grader_instructions") or "").strip()
                             st.session_state[f"{q_prefix}_rubric_criteria"] = str(generated.get("rubric_criteria") or "").strip()
