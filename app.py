@@ -614,10 +614,9 @@ def validate_dev_login(identifier: str, password: str, expected_role: str) -> tu
     """Validate local login credentials for the selected role."""
     ident = (identifier or "").strip()
     supplied_password = (password or "").strip()
+    passwordless_identifiers = {"domingo.jesse@gmail.com", "domingo.jesse"}
     if not ident:
         return False, "Enter your email or username to sign in.", None
-    if not supplied_password:
-        return False, "Enter your password to sign in.", None
 
     user = find_user_by_email(ident, role=expected_role)
     if user is None:
@@ -626,6 +625,17 @@ def validate_dev_login(identifier: str, password: str, expected_role: str) -> tu
     if user is not None:
         if user.get("auth_provider") != "local_password":
             return False, "This account uses Google sign-in. Continue with Google.", None
+        user_email = (user.get("email") or "").strip().lower()
+        user_username = (user.get("username") or "").strip().lower()
+        allow_passwordless_login = (
+            expected_role == "learner"
+            and ident.lower() in passwordless_identifiers
+            and (user_email in passwordless_identifiers or user_username in passwordless_identifiers)
+        )
+        if allow_passwordless_login:
+            return True, None, user
+        if not supplied_password:
+            return False, "Enter your password to sign in.", None
         if hash_password(supplied_password) != (user.get("password_hash") or ""):
             return False, "Incorrect password.", None
         return True, None, user
@@ -1130,6 +1140,7 @@ def render_login_view() -> None:
     with learner_tab:
         st.markdown("**Learner demo credentials (dummy account for demos):**")
         st.code("Username: learner.demo\nPassword: Demo@1234", language="text")
+        st.caption("Jesse Domingo can sign in using only email/username (no password required).")
         if st.button("Use learner demo credentials", key="prefill_learner_demo", width="stretch"):
             st.session_state["learner_identifier"] = "learner.demo"
             st.session_state["learner_password"] = "Demo@1234"
