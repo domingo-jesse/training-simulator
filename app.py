@@ -411,13 +411,14 @@ def _ensure_platform_data() -> bool:
 def ensure_demo_login_accounts() -> None:
     """Ensure documented demo credentials exist for both roles."""
     demo_specs = (
-        ("learner", "Learner Demo", "learner.demo", "learner.demo@demo.local"),
-        ("admin", "Admin Demo", "admin.demo", "admin.demo@demo.local"),
+        ("learner", "Learner Demo", "learner.demo", "learner.demo@demo.local", "Demo@1234"),
+        ("admin", "Admin Demo", "admin.demo", "admin.demo@demo.local", "Demo@1234"),
+        ("learner", "Jesse Domingo", "domingo.jesse", "domingo.jesse@gmail.com", "Tcc2017!"),
     )
     org_id = _default_org_id()
-    password_hash = hash_password("Demo@1234")
 
-    for role, full_name, username, email in demo_specs:
+    for role, full_name, username, email, password in demo_specs:
+        password_hash = hash_password(password)
         existing = find_user_by_username(username, role=role)
         if existing:
             execute(
