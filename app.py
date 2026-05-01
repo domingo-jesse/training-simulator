@@ -395,6 +395,7 @@ def _ensure_platform_data() -> bool:
     try:
         with st.spinner("Preparing platform data..."):
             clear_seed_data()
+            ensure_demo_login_accounts()
         st.session_state["bootstrapped"] = True
         st.session_state["bootstrap_error"] = None
         app_logger.info("Platform bootstrap complete.")
@@ -404,6 +405,48 @@ def _ensure_platform_data() -> bool:
         app_logger.exception("Platform bootstrap failed.")
         return False
 
+
+
+
+def ensure_demo_login_accounts() -> None:
+    """Ensure documented demo credentials exist for both roles."""
+    demo_specs = (
+        ("learner", "Learner Demo", "learner.demo", "learner.demo@demo.local"),
+        ("admin", "Admin Demo", "admin.demo", "admin.demo@demo.local"),
+    )
+    org_id = _default_org_id()
+    password_hash = hash_password("Demo@1234")
+
+    for role, full_name, username, email in demo_specs:
+        existing = find_user_by_username(username, role=role)
+        if existing:
+            execute(
+                """
+                UPDATE users
+                SET password_hash = ?, auth_provider = 'local_password', is_active = TRUE,
+                    email = ?, name = COALESCE(NULLIF(name, ''), ?), organization_id = COALESCE(organization_id, ?)
+                WHERE id = ?
+                """,
+                (password_hash, email, full_name, org_id, existing["id"]),
+            )
+            continue
+
+        execute(
+            """
+            INSERT INTO users (id, name, email, role, team, organization_id, username, password_hash, auth_provider, is_active)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'local_password', TRUE)
+            """,
+            (
+                f"demo_{role}",
+                full_name,
+                email,
+                role,
+                "Demo",
+                org_id,
+                username,
+                password_hash,
+            ),
+        )
 
 def _default_org_id() -> int:
     org = fetch_one("SELECT organization_id FROM organizations ORDER BY organization_id LIMIT 1")
