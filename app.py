@@ -1152,6 +1152,7 @@ def _refresh_current_user_session(profile_row: dict[str, Any]) -> None:
             "full_name": profile_row.get("name", current.get("full_name")),
             "name": profile_row.get("name", current.get("name")),
             "email": profile_row.get("email", current.get("email")),
+            "username": profile_row.get("username", current.get("username")),
             "role": _normalize_role(profile_row.get("role", current.get("role"))),
             "organization_id": profile_row.get("organization_id", current.get("organization_id")),
         }
@@ -1234,6 +1235,8 @@ def save_user_profile_updates(
 
 def save_user_settings_updates(
     *,
+    email: str,
+    username: str,
     current_password: str,
     new_password: str,
     confirm_new_password: str,
@@ -1243,8 +1246,40 @@ def save_user_settings_updates(
     if not profile:
         return False, "Could not load your account details. Please sign in again."
 
+    email = (email or "").strip().lower()
+    username_clean = (username or "").strip()
+    if not email:
+        return False, "Email is required."
+    if not _is_valid_email(email):
+        return False, "Please enter a valid email address."
+    if not username_clean:
+        return False, "Username is required."
+
+    existing_email = fetch_one(
+        """
+        SELECT user_id
+        FROM users
+        WHERE LOWER(email) = ? AND role = ? AND user_id <> ?
+        LIMIT 1
+        """,
+        (email, profile["role"], profile["user_id"]),
+    )
+    if existing_email:
+        return False, "That email is already linked to another account for this role."
+
+    existing_username = fetch_one(
+        "SELECT user_id FROM users WHERE LOWER(username) = ? AND user_id <> ? LIMIT 1",
+        (username_clean.lower(), profile["user_id"]),
+    )
+    if existing_username:
+        return False, "That username is already in use."
+
     email_notifications_enabled = bool(email_notifications_enabled)
-    updates: dict[str, Any] = {"email_notifications_enabled": email_notifications_enabled}
+    updates: dict[str, Any] = {
+        "email": email,
+        "username": username_clean,
+        "email_notifications_enabled": email_notifications_enabled,
+    }
     app_logger.info(
         "Preparing user settings update.",
         user_id=profile.get("user_id"),
@@ -1271,6 +1306,9 @@ def save_user_settings_updates(
         updates["password_hash"] = hash_password(new_password)
 
     execute_update("users", updates, "user_id = ?", (profile["user_id"],))
+    refreshed = load_current_user_profile()
+    if refreshed:
+        _refresh_current_user_session(refreshed)
     return True, "Settings updated successfully."
 
 
@@ -1278,6 +1316,8 @@ def _initialize_settings_form(profile: dict[str, Any]) -> None:
     profile_user_id = profile.get("user_id")
     if st.session_state.get("settings_form_initialized_for") == profile_user_id:
         return
+    st.session_state["settings_email"] = profile.get("email", "")
+    st.session_state["settings_username"] = profile.get("username") or ""
     st.session_state["settings_current_password"] = ""
     st.session_state["settings_new_password"] = ""
     st.session_state["settings_confirm_password"] = ""
@@ -1385,15 +1425,16 @@ def render_settings_page() -> None:
         with st.container(border=True):
             st.markdown("#### Account Settings")
             with st.form("account_settings_form", clear_on_submit=False):
-                st.markdown("##### Update Password")
+                st.text_input("Email", key="settings_email")
+                st.text_input("Username", key="settings_username")
+
                 if profile.get("auth_provider") == "local_password":
+                    st.markdown("##### Update Password")
                     st.text_input("Current password", type="password", key="settings_current_password")
                     st.text_input("New password", type="password", key="settings_new_password")
                     st.text_input("Confirm new password", type="password", key="settings_confirm_password")
                 else:
                     st.info("Password is managed by Google for this account.")
-
-                st.markdown("##### Notifications")
                 st.toggle(
                     "Email notifications",
                     key="settings_email_notifications_enabled",
@@ -1408,6 +1449,8 @@ def render_settings_page() -> None:
 
                 if save_clicked:
                     ok, message = save_user_settings_updates(
+                        email=st.session_state.get("settings_email", ""),
+                        username=st.session_state.get("settings_username", ""),
                         current_password=st.session_state.get("settings_current_password", ""),
                         new_password=st.session_state.get("settings_new_password", ""),
                         confirm_new_password=st.session_state.get("settings_confirm_password", ""),
@@ -1423,12 +1466,6 @@ def render_settings_page() -> None:
                     st.session_state["settings_form_initialized_for"] = None
                     st.session_state["settings_feedback"] = None
                     return
-        with st.container(border=True):
-            st.markdown("#### Display")
-            st.caption("Theme, density, and dashboard layout preferences are coming soon.")
-        with st.container(border=True):
-            st.markdown("#### Notifications")
-            st.caption("Additional in-app notification preferences are coming soon.")
 
 
 def render_main_app() -> None:
