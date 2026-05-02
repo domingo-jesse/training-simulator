@@ -674,8 +674,8 @@ def _sign_in_user(user: dict[str, Any], auth_method: str) -> None:
     st.session_state["active_module_id"] = None
     st.session_state["active_assignment_id"] = None
     st.session_state["latest_attempt_id"] = None
-    st.session_state["show_admin_tutorial"] = normalized_role == "admin"
-    st.session_state["show_learner_tutorial"] = normalized_role == "learner"
+    st.session_state["show_admin_tutorial"] = False
+    st.session_state["show_learner_tutorial"] = False
     st.rerun()
 
 
