@@ -1959,6 +1959,7 @@ def render_grading_center(current_user: dict) -> None:
             sqs.ai_max_points,
             COALESCE(sqs.ai_feedback, sqs.feedback) AS ai_feedback,
             sqs.ai_reasoning,
+            COALESCE(sqs.score_breakdown_json, '{}') AS score_breakdown_json,
             COALESCE(sqs.admin_awarded_points, sqs.admin_score) AS admin_awarded_points,
             sqs.admin_feedback,
             COALESCE(sqs.final_awarded_points, sqs.final_score, sqs.admin_awarded_points, sqs.admin_score, sqs.ai_awarded_points, sqs.ai_score) AS final_awarded_points,
@@ -2004,6 +2005,22 @@ def render_grading_center(current_user: dict) -> None:
                     st.write(f"Learner answer: {row.get('learner_answer') or '—'}")
                 st.write(f"AI score: {row.get('ai_awarded_points') if row.get('ai_awarded_points') is not None else 0} / {row.get('ai_max_points') or row.get('max_points')}")
                 st.write(f"AI rationale: {row.get('ai_reasoning') or '—'}")
+                structured = {}
+                raw_breakdown = row.get("score_breakdown_json")
+                try:
+                    parsed_breakdown = json.loads(raw_breakdown) if isinstance(raw_breakdown, str) else (raw_breakdown or {})
+                    structured = parsed_breakdown.get("structured") if isinstance(parsed_breakdown, dict) else {}
+                except Exception:
+                    structured = {}
+                if isinstance(structured, dict) and structured:
+                    st.write("Met criteria:")
+                    for item in structured.get("met_criteria") or []:
+                        st.markdown(f"- ✅ {item}")
+                    st.write("Missed criteria:")
+                    for item in structured.get("missed_criteria") or []:
+                        st.markdown(f"- ❌ {item}")
+                    st.write(f"Recommended response: {structured.get('recommended_response') or '—'}")
+                    st.write(f"Lesson takeaway: {structured.get('lesson_takeaway') or '—'}")
                 with st.form(f"grade_edit_{selected_attempt_id}_{row['question_id']}"):
                     admin_points = st.number_input(
                         "Admin points",

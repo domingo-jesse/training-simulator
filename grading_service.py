@@ -132,13 +132,79 @@ def _rubric_grade(learner_answer: str, rubric: str, criteria_json: str | None, m
     return {
         "awarded_points": max(0.0, min(max_points, normalized)),
         "max_points": max_points,
-        "reasoning": "Rubric criteria scored with structured breakdown.",
-        "feedback": "Review missing rubric criteria for a stronger response." if missing else "Good coverage across rubric criteria.",
+        "reasoning": "",
+        "feedback": "",
         "missing_elements": missing[:8],
         "breakdown": breakdown,
     }
 
 
+
+GENERIC_RATIONALE_PHRASES = {
+    "rubric criteria scored with structured breakdown.",
+    "response was evaluated using the rubric.",
+    "the learner missed some criteria.",
+}
+
+
+def is_generic_ai_rationale(text: str, learner_answer: str = "", rubric: str = "") -> bool:
+    normalized = str(text or "").strip().lower()
+    if len(normalized) < 40:
+        return True
+    if normalized in GENERIC_RATIONALE_PHRASES:
+        return True
+    if "rubric" not in normalized:
+        return True
+    answer_tokens = _keywords(learner_answer)[:5]
+    if answer_tokens and not any(token in normalized for token in answer_tokens):
+        return True
+    rubric_tokens = _keywords(rubric)[:8]
+    if rubric_tokens and not any(token in normalized for token in rubric_tokens):
+        return True
+    return False
+
+
+def build_fallback_rationale(learner_answer: str, rubric: str, met: list[str], missed: list[str], score: float, score_max: float) -> str:
+    answer_text = (learner_answer or "").strip() or "[no response provided]"
+    met_text = "; ".join(met) if met else "No meaningful rubric criteria were met."
+    missed_text = "; ".join(missed) if missed else "No rubric criteria were missed."
+    return (
+        f"The learner response '{answer_text}' was graded against this rubric: {rubric or 'No rubric provided.'}. "
+        f"Criteria met: {met_text}. Criteria missed: {missed_text}. "
+        f"Because of this rubric coverage, a score of {round(score,2)}/{round(score_max,2)} is appropriate."
+    )
+
+
+def normalize_ai_grading_result(raw_result: dict[str, Any], learner_answer: str, rubric: str, max_points: float) -> dict[str, Any]:
+    result = dict(raw_result or {})
+    score = float(result.get("awarded_points") or 0)
+    met = [str(item.get("criterion") or "").strip() for item in (result.get("breakdown") or []) if float(item.get("coverage") or 0) >= 0.6 and str(item.get("criterion") or "").strip()]
+    missed = [str(item.get("criterion") or "").strip() for item in (result.get("breakdown") or []) if float(item.get("coverage") or 0) < 0.6 and str(item.get("criterion") or "").strip()]
+    evidence = [tok for tok in _keywords(learner_answer)[:8]]
+    low_score = (score / max_points) < 0.5 if max_points > 0 else True
+    recommended_response = result.get("recommended_response") or ("Use specific techniques from the rubric and explain how you would apply each one in the call.")
+    takeaway = result.get("lesson_takeaway") or ("Specific, observable techniques score higher than vague intent statements.")
+    rationale = str(result.get("reasoning") or "").strip()
+    if is_generic_ai_rationale(rationale, learner_answer=learner_answer, rubric=rubric):
+        rationale = build_fallback_rationale(learner_answer, rubric, met, missed, score, max_points)
+    summary = result.get("feedback") or ("Strong rubric alignment." if not low_score else "Response needs more rubric-aligned specificity.")
+    result["reasoning"] = rationale
+    result["feedback"] = summary
+    result["structured"] = {
+        "score": round(score, 2),
+        "score_max": round(max_points, 2),
+        "ai_rationale": rationale,
+        "met_criteria": met,
+        "missed_criteria": missed,
+        "evidence_from_learner_answer": evidence,
+        "feedback_summary": summary,
+        "what_you_did_well": met if met else ["You attempted to answer the prompt."],
+        "what_you_missed": missed if missed else ["No major misses identified."],
+        "best_practice_reasoning": "Tie each response statement directly to a rubric criterion and explain why it helps the customer feel heard.",
+        "recommended_response": recommended_response,
+        "lesson_takeaway": takeaway if not low_score else "Be concrete: name exact techniques and show how you would use them.",
+    }
+    return result
 def _parse_multiple_choice_options(options_text: str | None) -> tuple[list[str], int | None]:
     text = str(options_text or "").strip()
     if not text:
@@ -207,6 +273,13 @@ def _compose_grading_reference(question: dict[str, Any]) -> str:
         text = str(value or "").strip()
         if text:
             sections.append(f"{label}: {text}")
+    strict_instructions = (
+        "Evaluator role: You are a strict but constructive training evaluator. Grade against rubric, expected answer, module context, and question intent. "
+        "Do not give generic feedback. Explain exactly why the score was given, cite learner wording, list met and missed criteria, explain why misses matter, "
+        "and provide a stronger example answer when needed. If answer is vague/short/irrelevant/empty, say so directly. "
+        "If score is 0, explicitly state no meaningful rubric criteria were met. Never use placeholder rationale."
+    )
+    sections.insert(0, strict_instructions)
     return "\n".join(sections).strip()
 
 
@@ -338,19 +411,17 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                 keyword_terms = str(question.get("keyword_expected_terms") or question.get("expected_answer") or "").strip()
                 graded = _keyword_grade(learner_answer, keyword_terms, _compose_grading_reference(question), max_points)
 
-            if not str(graded.get("reasoning") or "").strip():
-                graded["reasoning"] = (
-                    "No learner response was provided; score reflects missing response."
-                    if not str(learner_answer or "").strip()
-                    else "Rationale unavailable from scorer; default rationale applied."
-                )
-            if not str(graded.get("feedback") or "").strip():
-                graded["feedback"] = "No feedback generated."
+            graded = normalize_ai_grading_result(
+                graded,
+                learner_answer=learner_answer,
+                rubric=_compose_grading_reference(question),
+                max_points=max_points,
+            )
 
             total_score += float(graded["awarded_points"])
             max_total_score += max_points
             missing_key_concepts_json = _jsonb_param(graded.get("missing_elements"), [])
-            score_breakdown_json = _jsonb_param(graded.get("breakdown"), [])
+            score_breakdown_json = _jsonb_param({"breakdown": graded.get("breakdown") or [], "structured": graded.get("structured") or {}}, {})
             conversation_transcript_json = _jsonb_param(
                 transcript_payload if str(question.get("question_type") or "").strip() == "ai_conversation" else [],
                 [],
@@ -426,7 +497,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                         question_id=question_id,
                         table_name="question_conversation_messages",
                     )
-            question_scores.append({"question_id": question_id, "scoring_method": q_style, **graded})
+            question_scores.append({"question_id": question_id, "scoring_method": q_style, **graded, **(graded.get("structured") or {})})
 
         percentage = round((total_score / max_total_score) * 100, 1) if max_total_score else None
         overall_feedback = "Strong performance across rubric criteria." if (percentage or 0) >= 80 else "Partial understanding shown; review missed concepts and add more detail."
@@ -482,7 +553,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                 default_style,
                 attempt.get("module_scoring_config_json") or "{}",
                 json.dumps({"questions": question_scores}),
-                json.dumps({"module_instructions": attempt.get("llm_grader_instructions") or ""}),
+                json.dumps({"module_instructions": attempt.get("llm_grader_instructions") or "", "question_structured_results": [q.get("structured") for q in question_scores]}),
             ),
         )
 
