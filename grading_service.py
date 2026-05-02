@@ -210,6 +210,30 @@ def _compose_grading_reference(question: dict[str, Any]) -> str:
     return "\n".join(sections).strip()
 
 
+def _extract_overall_feedback(question_scores: list[dict[str, Any]]) -> tuple[str, list[str], list[str]]:
+    strengths: list[str] = []
+    weaknesses: list[str] = []
+    missed_points: list[str] = []
+    for row in question_scores:
+        ratio = 0.0
+        max_points = float(row.get("max_points") or 0)
+        if max_points > 0:
+            ratio = float(row.get("awarded_points") or 0) / max_points
+        if ratio >= 0.8:
+            strengths.append(f"Q{row.get('question_id')}: strong coverage.")
+        elif ratio <= 0.4:
+            weaknesses.append(f"Q{row.get('question_id')}: limited coverage.")
+        for item in (row.get("missing_elements") or [])[:2]:
+            text = str(item or "").strip()
+            if text:
+                missed_points.append(f"Q{row.get('question_id')}: {text}")
+    return (
+        "; ".join(strengths[:6]) or "Consistent effort across responses.",
+        "; ".join(weaknesses[:6]) or "Continue improving specificity and evidence in each response.",
+        missed_points[:10],
+    )
+
+
 def grade_submission(attempt_id: int) -> dict[str, Any]:
     conversation_table_available = False
     try:
@@ -299,9 +323,11 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
             else:
                 learner_answer = str(raw_answer or "")
             max_points = float(question.get("max_points") or 0)
-            q_style = "llm"
+            q_style = _normalize_scoring_type(question.get("scoring_type"), fallback=default_style)
             question_type = str(question.get("question_type") or "").strip()
-            if q_style == "llm":
+            if question_type == "multiple_choice":
+                graded = _multiple_choice_grade(learner_answer, question.get("options_text"), max_points)
+            elif q_style == "llm":
                 graded = _rubric_grade(
                     learner_answer,
                     _compose_grading_reference(question),
@@ -404,6 +430,7 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
 
         percentage = round((total_score / max_total_score) * 100, 1) if max_total_score else None
         overall_feedback = "Strong performance across rubric criteria." if (percentage or 0) >= 80 else "Partial understanding shown; review missed concepts and add more detail."
+        learner_strengths, learner_weaknesses, learner_missed_points = _extract_overall_feedback(question_scores)
         grading_status = "ai_graded_pending_review"
 
         execute(
@@ -449,9 +476,9 @@ def grade_submission(attempt_id: int) -> dict[str, Any]:
                 attempt.get("best_practice_reasoning") or "",
                 attempt.get("recommended_response") or attempt.get("expected_customer_response") or "",
                 attempt.get("takeaway_summary") or attempt.get("lesson_takeaway") or "",
-                attempt.get("strengths") or "[]",
-                attempt.get("missed_points") or "[]",
-                attempt.get("missed_points") or "[]",
+                learner_strengths,
+                learner_weaknesses,
+                json.dumps(learner_missed_points),
                 default_style,
                 attempt.get("module_scoring_config_json") or "{}",
                 json.dumps({"questions": question_scores}),
