@@ -1937,6 +1937,71 @@ def render_grading_center(current_user: dict) -> None:
         st.session_state[approval_status_expiry_key] = time.time() + 8
         st.rerun()
 
+    def _safe_json_loads(raw_value):
+        if isinstance(raw_value, dict):
+            return raw_value
+        if isinstance(raw_value, str):
+            try:
+                parsed = json.loads(raw_value)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                return {}
+        return {}
+
+    def _first_non_empty(*values):
+        for value in values:
+            if isinstance(value, list) and value:
+                return value
+            text = str(value or "").strip()
+            if text:
+                return text
+        return [] if any(isinstance(v, list) for v in values) else ""
+
+    def _extract_detailed_grading_fields(row: dict) -> tuple[dict, bool]:
+        breakdown_payload = _safe_json_loads(row.get("score_breakdown_json"))
+        structured = {}
+        if isinstance(breakdown_payload, dict):
+            structured = breakdown_payload.get("structured") if isinstance(breakdown_payload.get("structured"), dict) else {}
+            if not structured and isinstance(breakdown_payload.get("result"), dict):
+                result_payload = breakdown_payload.get("result") or {}
+                if isinstance(result_payload.get("structured"), dict):
+                    structured = result_payload.get("structured") or {}
+        detailed = {
+            "ai_rationale": _first_non_empty(structured.get("ai_rationale"), row.get("ai_reasoning"), row.get("ai_feedback")),
+            "met_criteria": _first_non_empty(structured.get("met_criteria"), []),
+            "missed_criteria": _first_non_empty(structured.get("missed_criteria"), []),
+            "evidence_from_learner_answer": _first_non_empty(structured.get("evidence_from_learner_answer"), []),
+            "what_you_did_well": _first_non_empty(structured.get("what_you_did_well"), []),
+            "what_you_missed": _first_non_empty(structured.get("what_you_missed"), []),
+            "best_practice_reasoning": _first_non_empty(structured.get("best_practice_reasoning"), ""),
+            "recommended_response": _first_non_empty(structured.get("recommended_response"), ""),
+            "lesson_takeaway": _first_non_empty(structured.get("lesson_takeaway"), ""),
+            "feedback_summary": _first_non_empty(structured.get("feedback_summary"), row.get("ai_feedback"), ""),
+        }
+        has_detailed = any(
+            bool(detailed.get(field))
+            for field in (
+                "met_criteria",
+                "missed_criteria",
+                "evidence_from_learner_answer",
+                "what_you_did_well",
+                "what_you_missed",
+                "best_practice_reasoning",
+                "recommended_response",
+                "lesson_takeaway",
+            )
+        )
+        admin_logger.info(
+            "AI grading review parsed fields",
+            attempt_id=int(selected_attempt_id),
+            question_id=int(row.get("question_id") or 0),
+            ai_grading_keys=sorted(list(structured.keys())) if isinstance(structured, dict) else [],
+            has_detailed_fields=bool(has_detailed),
+            using_legacy_fields=not bool(has_detailed),
+        )
+        return detailed, has_detailed
+
     st.markdown("#### AI Question Grading Review")
     question_rows = fetch_all(
         """
@@ -2004,23 +2069,29 @@ def render_grading_center(current_user: dict) -> None:
                 else:
                     st.write(f"Learner answer: {row.get('learner_answer') or '—'}")
                 st.write(f"AI score: {row.get('ai_awarded_points') if row.get('ai_awarded_points') is not None else 0} / {row.get('ai_max_points') or row.get('max_points')}")
-                st.write(f"AI rationale: {row.get('ai_reasoning') or '—'}")
-                structured = {}
-                raw_breakdown = row.get("score_breakdown_json")
-                try:
-                    parsed_breakdown = json.loads(raw_breakdown) if isinstance(raw_breakdown, str) else (raw_breakdown or {})
-                    structured = parsed_breakdown.get("structured") if isinstance(parsed_breakdown, dict) else {}
-                except Exception:
-                    structured = {}
-                if isinstance(structured, dict) and structured:
+                detailed, has_detailed = _extract_detailed_grading_fields(row)
+                st.write(f"Detailed rationale: {detailed.get('ai_rationale') or '—'}")
+                if has_detailed:
                     st.write("Met criteria:")
-                    for item in structured.get("met_criteria") or []:
+                    for item in detailed.get("met_criteria") or []:
                         st.markdown(f"- ✅ {item}")
                     st.write("Missed criteria:")
-                    for item in structured.get("missed_criteria") or []:
+                    for item in detailed.get("missed_criteria") or []:
                         st.markdown(f"- ❌ {item}")
-                    st.write(f"Recommended response: {structured.get('recommended_response') or '—'}")
-                    st.write(f"Lesson takeaway: {structured.get('lesson_takeaway') or '—'}")
+                    st.write("Evidence from learner answer:")
+                    for item in detailed.get("evidence_from_learner_answer") or []:
+                        st.markdown(f"- 🔎 {item}")
+                    st.write("What you did well:")
+                    for item in detailed.get("what_you_did_well") or []:
+                        st.markdown(f"- 👍 {item}")
+                    st.write("What you missed:")
+                    for item in detailed.get("what_you_missed") or []:
+                        st.markdown(f"- ⚠️ {item}")
+                    st.write(f"Best-practice reasoning: {detailed.get('best_practice_reasoning') or '—'}")
+                    st.write(f"Recommended response: {detailed.get('recommended_response') or '—'}")
+                    st.write(f"Lesson takeaway: {detailed.get('lesson_takeaway') or '—'}")
+                else:
+                    st.warning("Detailed AI grading fields were not stored for this attempt. Retry AI grading to regenerate.")
                 with st.form(f"grade_edit_{selected_attempt_id}_{row['question_id']}"):
                     admin_points = st.number_input(
                         "Admin points",
